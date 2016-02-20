@@ -1,0 +1,10 @@
+.DS_Store
+._*
+*.o
+*.hi
+*.out
+*.exe
+.*.swp
+*~
+
+bin/
