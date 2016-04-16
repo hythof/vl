@@ -5,7 +5,7 @@ import Text.Parsec.String
 
 import Test.HUnit
 import Parser
-import AST
+import Define
 
 main = do
     runTestTT testValue

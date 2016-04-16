@@ -19,8 +19,7 @@ run:
 
 .PHONY: clean
 clean:
-	rm src/*.hi src/*.o bin/*
-	rmdir bin
+	rm -f src/*.hi src/*.o bin/*
 
 .PHONY : build
 build:
