@@ -1,145 +1,154 @@
-module Parse where
+module Parse (parse) where
 
 import Define
 
 import Debug.Trace (trace)
-import Text.Parsec
+import Text.Parsec hiding (parse)
 import Text.Parsec.Language (emptyDef)
 import qualified Text.Parsec.Token as P
 import Control.Applicative ((<*>), (*>), (<*), (<$>), (<$))
 
 -- exports
-program :: String -> String -> Either ParseError [(String, PT)]
-program code name = parse top name code
-
-inference :: PT -> AST
-inference ast = Byte 0
-
-optimize :: AST -> AST
-optimize ast = ast
-
--- private
-top = do
-    xs <- defines
-    eof
-    return xs
-
-defines = sepBy define spaces
-
-define = try defineFunc
-     <|> try defineValue
-     <?> "define"
-
-defineFunc = do
-    name <- identifier
-    v <- func
-    return $ (name, v)
-
-defineValue = do
-    name <- identifier
-    v <- value
-    return $ (name, v)
-
-expression = try pif
-    <|> try op
-    <|> try value
-    <|> try apply
-    <|> try (pair '(' ')' expression)
-    <?> "expression"
-
-value = try (pair '(' ')' func)
-    <|> try array
-    <|> try struct
-    <|> try (PTyped <$> primitive)
-    <?> "value"
-
-primitive = try byte
-    <|> try float
-    <|> try integer
-    <|> try bool
-    <|> try text
-    <|> try rune
-    <?> "value"
-
-pif = do
-    lexeme $ string "if"
-    v1 <- lexeme expression
-    v2 <- lexeme expression
-    v3 <- lexeme expression
-    return $ PIf v1 v2 v3
-
-op = do
-    input <- getInput
-    s <- source
-    v1 <- value
-    op <- lexeme1 $ oneOf "+-/*<=>|&%"
-    v2 <- value
-    return $ PApply op [v1, v2] s
-
-apply = do
-    s <- source
-    name <- identifier
-    current <- indent
-    xs <- sepBy expression (skip (1 + current))
-    return $ PApply name xs s
+parse :: String -> Either ParseError [(String, AST)]
+parse src = runP top () "" src
   where
-    skip n = try $ next n
-         <|> many blank
-    next n = do
-        many $ blank
-        char '\n'
-        string (take n $ repeat ' ')
+    top = do
+       xs <- defines
+       eof
+       return xs
 
-func = do
-   args <- many identifier
-   lexeme $ char '='
-   v <- lexeme $ expression
-   return $ PFunc args v
+    indent = do
+       pos <- getPosition
+       let index = (sourceLine pos) - 1
+       return $ countIndent (lines src !! index)
 
-array = PArray <$> pair '[' ']' (many expression)
+    defines = many define
+    
+    define = do
+       name <- identifier
+       v <- try func <|> try value
+       spaces
+       return (name, v)
+    
+    expression = try (pair '(' ')' (try apply <|> expression))
+             <|> try pif
+             <|> try op2
+             <|> try value
+             <|> try apply
+             <?> "expression"
+      where
+        op2 = p1
+        p1 = binary p2 [string "<", string "<=", string  "==", string ">=", string ">", string "&&", string "||"]
+        p2 = binary p3 [string "+", string "-", string "|", string "&"]
+        p3 = binary p9 [string "*", string "/", string "**"]
+        p9 = try value
+         <|> try apply
+         <|> try (pair '(' ')' (try apply <|> expression))
+         <?> "op2 bottom"
+        binary f cs = try (binaryOp f cs)
+                  <|> try (lexeme f)
+                  <?> "binary"
+        binaryOp f cs = do
+            v1 <- lexeme f
+            op <- lexeme (choice cs)
+            v2 <- lexeme f
+            return $ Op2 op v1 v2
 
-struct = PStruct <$> pair '{' '}' defines
+    arg = try (pair '(' ')' (try apply <|> expression))
+       <|> try value
+       <|> try ref
+       <?> "args"
+    
+    value = try (pair '(' ')' func)
+        <|> try array
+        <|> try struct
+        <|> try text
+        <|> try rune
+        <|> try byte
+        <|> try bool
+        <|> try float
+        <|> try integer
+        <?> "value"
+    
+    pif = do
+        lexeme $ string "if"
+        v1 <- lexeme arg
+        v2 <- lexeme arg
+        v3 <- lexeme arg
+        return $ If v1 v2 v3
 
-byte = do
-    string "0x"
-    l <- oneOf "0123456789abcdef"
-    r <- oneOf "0123456789abcdef"
-    let v = ((num l) * 16 + (num r))
-    return $ Byte v
-  where
-    num n = case n of
-      '0' -> 0
-      '1' -> 1
-      '2' -> 2
-      '3' -> 3
-      '4' -> 4
-      '5' -> 5
-      '6' -> 6
-      '7' -> 7
-      '8' -> 8
-      '9' -> 9
-      'a' -> 10
-      'b' -> 11
-      'c' -> 12
-      'd' -> 13
-      'e' -> 14
-      'f' -> 15
+    ref = Ref <$> lexeme identifier
 
-float = do
-    v1 <- lexeme1 digit
-    char '.'
-    v2 <- lexeme1 digit
-    let v = v1 ++ "." ++ v2
-    return $ Float (read v)
+    apply = do
+        name <- identifier
+        current <- indent
+        xs <- sepBy arg (skip (1 + current))
+        return $ if length xs == 0 then Ref name else Apply name xs
+      where
+        skip n = try $ next n
+             <|> many blank
+        next n = do
+            many blank
+            char '\n'
+            string (take n $ repeat ' ')
+    
+    func = do
+       args <- many identifier
+       lexeme $ char '='
+       v <- expression
+       many blank
+       return $ Func args v
+    
+    array = Array <$> pair '[' ']' (many expression)
+    
+    struct = Struct <$> pair '{' '}' defines
+    
+    byte = do
+        string "0x"
+        l <- oneOf "0123456789abcdef"
+        r <- oneOf "0123456789abcdef"
+        let v = ((num l) * 16 + (num r))
+        return $ Byte v
+      where
+        num n = case n of
+          '0' -> 0
+          '1' -> 1
+          '2' -> 2
+          '3' -> 3
+          '4' -> 4
+          '5' -> 5
+          '6' -> 6
+          '7' -> 7
+          '8' -> 8
+          '9' -> 9
+          'a' -> 10
+          'b' -> 11
+          'c' -> 12
+          'd' -> 13
+          'e' -> 14
+          'f' -> 15
+    
+    float = do
+        v1 <- lexeme $ many1 digit
+        char '.'
+        v2 <- lexeme $ many1 digit
+        let v = v1 ++ "." ++ v2
+        return $ Float (read v)
+    
+    integer = Int <$> read <$> lexeme (many1 digit)
+    
+    --bool = Bool <$> (== 'T') <$> lexeme (oneOf "TF")
+    bool = do
+        c <- lexeme (oneOf "TF")
+        return $ Bool ('T' == c)
+    
+    text = String <$> pair '"' '"' (lexeme (many $ noneOf "\""))
+    
+    rune = Char <$> (pair '\'' '\'' $ noneOf "\'")
 
-integer = Int <$> read <$> lexeme1 digit
-
-bool = Bool <$> (== 'T') <$> oneOf "TF"
-
-text = String <$> pair '"' '"' (lexeme0 $ noneOf "\"")
-
-rune = Char <$> (pair '\'' '\'' $ noneOf "\'")
-
+    debug s = trace ("\n  " ++ show s ++ " # " ++ src) (many $ string "@@@@@@@@@@@")
+    debugIf c s = if c then trace ("\n  " ++ show s ++ " # " ++ src) (return ()) else return ()
+    
 -- utility
 blank = oneOf " \t"
 
@@ -147,25 +156,13 @@ lexeme p = do
     v <- p
     many $ blank
     return v
-lexeme0 p = lexeme $ many p
-lexeme1 p = lexeme $ many1 p
 
-identifier = lexeme $ many1 letter
+identifier = do
+    c <- letter
+    cs <- lexeme (many (alphaNum <|> oneOf "_"))
+    return $ c : cs
 
 pair l r = between (char l) (char r)
-
-source = do
-    s <- getPosition
-    let name = sourceName s
-    let line = sourceLine s
-    let column = sourceColumn s
-    return $ Source name line column
-
-indent = do
-    input <- getInput
-    pos <- getPosition
-    let index = (sourceLine pos) - 1
-    return $ countIndent (lines input !! index)
 
 countIndent (' ':xs) = 1 + countIndent xs
 countIndent _ = 0

@@ -2,90 +2,104 @@ module Main where
 import Parse
 import Define
 
-import Text.Parsec hiding (spaces)
-import Text.Parsec.String
 import Test.HUnit
 
 main = do
-    runTestTT testPrimitive
     runTestTT testExpression
-    runTestTT testMultiLine
-
-check p expect code = chk expect ast
-  where
-    ast = parse p "" code
-    chk a (Right b) = b ~?= a
-    chk a (Left b) = error $ code ++ " :: " ++ (show b)
-
-testPrimitive = test [
-     ok (Byte 0) "0x00"
-   , ok (Byte 15) "0x0f"
-   , ok (Byte 240) "0xf0"
-   , ok (Byte 255) "0xff"
-   , ok (Int 1) "1"
-   , ok (Float 1.0) "1.0"
-   , ok (Char 'o')  "'o'"
-   , ok (String "hi")  "\"hi\""
-   , ok (Bool True) "T"
-   , ok (Bool False) "F"
-   ]
- where
-   ok = check primitive
+    runTestTT testMultiline
+    runTestTT testSpec
 
 testExpression = test [
-      ok (PTyped $ Byte 0) "0x00"
-    , ok (PTyped $ Int 1) "1"
-    , ok (PTyped $ Float 1.0) "1.0"
-    , ok (PTyped $ Char 'o')  "'o'"
-    , ok (PTyped $ String "hi")  "\"hi\""
-    , ok (PTyped $ Bool True) "T"
-    , ok (PTyped $ Bool False) "F"
-    , ok (PFunc ["id"] (PTyped $ Int 1)) "(id = 1)"
-    , ok (PApply "foo" [] top) "foo"
-    , ok (PApply "foo" [PApply "bar" [] $ pos 1 5] top) "foo bar"
-    , ok (PApply "+" [i1, i2] top) "1+2"
-    , ok (PApply "+" [i1, i2] top) "1 + 2"
-    , ok (PApply "+" [i1, i2] $ pos 1 2) "(1+2)"
-    , ok (PApply "+" [i1, i2] $ pos 1 4) "(((1+2)))"
-    , ok (PIf i1 i2 i3) "if 1 2 3"
-    , ok (PIf (PApply "==" [i1, i2] $ pos 1 5) i1 i2) "if (1 == 2) 1 2"
-    , ok (PArray []) "[]"
-    , ok (PArray [(PTyped $ Int 1), (PTyped $ Int 2)]) "[1 2]"
-    , ok (PStruct []) "{}"
-    , ok (PStruct [
-            ("foo", PTyped $ Int 10)
-          , ("bar", PFunc [] $ PTyped $ Int 20)
+      ok (Byte 0) "0x00"
+    , ok (Byte 15) "0x0f"
+    , ok (Byte 240) "0xf0"
+    , ok (Byte 255) "0xff"
+    , ok (Int 1) "1"
+    , ok (Float 1.0) "1.0"
+    , ok (Char 'o')  "'o'"
+    , ok (String "hi")  "\"hi\""
+    , ok (Bool True) "T"
+    , ok (Bool False) "F"
+    , ok (Func ["id"] (Int 1)) "(id = 1)"
+    , ok (Ref "foo") "foo"
+    , ok (Apply "foo" [Ref "bar"]) "foo bar"
+    , ok (Op2 "+" i1 i2) "1+2"
+    , ok (Op2 "+" i1 i2) "1 + 2"
+    , ok (Op2 "+" i1 i2) "(1+2)"
+    , ok (Op2 "+" i1 i2) "(((1+2)))"
+    , ok (If i1 i2 i3) "if 1 2 3"
+    , ok (If foo foo foo) "if foo foo foo"
+    , ok (If (Op2 "==" i1 i2) i1 i2) "if (1 == 2) 1 2"
+    , ok (Array []) "[]"
+    , ok (Array [(Int 1), (Int 2)]) "[1 2]"
+    , ok (Struct []) "{}"
+    , ok (Struct [
+            ("foo", Int 10)
+          , ("bar", Func [] $ Int 20)
          ])
          "{foo 10 bar=20}"
-    , ok (PStruct []) "{}"
+    , ok (Struct []) "{}"
     ]
   where
-   pos = Source ""
-   top = pos 1 1
-   i1 = PTyped $ Int 1
-   i2 = PTyped $ Int 2
-   i3 = PTyped $ Int 3
-   ok = check expression
+    i1 = Int 1
+    i2 = Int 2
+    i3 = Int 3
+    foo = Ref "foo"
+    ok expect src = (eval src) ~?= expect
+    eval src = case parse ("foo = " ++ src) of
+      Right (("foo", Func [] ast):[]) -> ast
+      Left x -> Error $ show x ++ " # " ++ src
 
-testMultiLine = test [
+testMultiline = test [
      ok [
          ("a", i1)
        , ("b", i2)
      ] "a 1\nb 2"
    , ok [
-         ("foo", PFunc [] $ apply "bar" [] 1 7)
-       , ("bar", PFunc [] $ apply "foo" [] 2 7)
+         ("foo", Func [] $ Ref "bar")
+       , ("bar", Func [] $ Ref "foo")
      ] "foo = bar\nbar = foo"
    , ok [
-         ("foo", PFunc ["hoge"] $ apply "bar" [apply "hoge" [] 1 16] 1 12)
-       , ("bar", PFunc ["hoge"] $ apply "foo" [apply "hoge" [] 2 16] 2 12)
+         ("foo", Func ["hoge"] $ Apply "bar" [Ref "hoge"])
+       , ("bar", Func ["hoge"] $ Apply "foo" [Ref "hoge"])
      ] "foo hoge = bar hoge\nbar hoge = foo hoge"
-    ]
+   ]
   where
-   i1 = PTyped $ Int 1
-   i2 = PTyped $ Int 2
-   apply name inner line colmun = PApply name inner (pos line colmun)
-   pos = Source "multi"
-   ok expect code = case program code "multi" of
+   i1 = Int 1
+   i2 = Int 2
+   ok expect code = case parse code of
        (Right x) -> x ~?= expect
        (Left x) -> error $ code ++ " :: " ++ (show x)
+
+testSpec = test [
+     ok [
+         ("spec_byte", Byte 1)
+       , ("spec_int", Int 1)
+       , ("spec_float", Float 1.0)
+       , ("spec_true", Bool True)
+       , ("spec_false", Bool False)
+       , ("spec_char", Char 'a')
+       , ("spec_string", String "b")
+       , ("spec_array", Array [Int 1])
+       , ("spec_struct", Struct [("n", Int 1)])
+       , ("spec_func", Func ["a", "b"] (Op2 "+" (Ref "a") (Ref "b")))
+       , ("check", Func ["a", "b", "c"] (If (Ref "a") (Ref "b") (Ref "c")))
+     ] src
+   ]
+  where
+    ok expect code = case parse code of
+       (Right x) -> x ~?= expect
+       (Left x) -> error $ code ++ " :: " ++ (show x)
+    src = unlines [
+        "spec_byte 0x01"
+      , "spec_int 1"
+      , "spec_float 1.0"
+      , "spec_true T"
+      , "spec_false F"
+      , "spec_char 'a'"
+      , "spec_string \"b\""
+      , "spec_array [1]"
+      , "spec_struct {n 1}"
+      , "spec_func a b = a + b"
+      , "check a b c = if a b c"
+      ]
