@@ -1,17 +1,10 @@
 module Eval (eval) where
 
 import Define
+import Debug.Trace
 
 eval :: [(String, AST)] -> AST -> AST
-eval s (Op2 "+" (Int a) (Int b)) = Int $ a + b
-eval s (Op2 "-" (Int a) (Int b)) = Int $ a - b
-eval s (Op2 "*" (Int a) (Int b)) = Int $ a * b
-eval s (Op2 "/" (Int a) (Int b)) = Int $ a `div` b
-eval s (Op2 "+" (Float a) (Float b)) = Float $ a + b
-eval s (Op2 "-" (Float a) (Float b)) = Float $ a - b
-eval s (Op2 "*" (Float a) (Float b)) = Float $ a * b
-eval s (Op2 "/" (Float a) (Float b)) = Float $ a / b
-eval s (Op2 op a b) = eval s $ Op2 op (eval s a) (eval s b)
+eval s (Op2 op a b) = op2 op (eval s a) (eval s b)
 
 eval s (Func [] ast) = eval s ast
 
@@ -23,10 +16,17 @@ eval s (If cond a b) = case eval s cond of
     (Bool True) -> eval s a
     (Bool False) -> eval s b
 
-eval s (Case [] other) = eval s other
-eval s (Case ((cond, ret):xs) other) = case eval s cond of
-    (Bool True) -> eval s ret
-    (Bool False) -> eval s $ Case xs other
+eval s (Case _ [] other) = eval s other
+eval s (Case x ((y, current):xs) other) = check (eval s x) (eval s y)
+  where
+    check (Instance name2 values) (Match name1 args) = if name1 == name2 then
+            eval (s ++ (zip args values)) current
+        else
+            eval s $ Case x xs other
+    check a b = if show a == show b then
+            eval s current
+        else
+            eval s $ Case x xs other
 
 eval s (Apply name args) = case find name s of
     (Func binds ast) -> apply binds values ast
@@ -44,6 +44,20 @@ eval s (Apply name args) = case find name s of
 eval s ast = ast
 
 -- private
+op2 "==" a b = Bool $ (show a) == (show b)
+op2 op (Int a) (Int b) = case op of
+    "+" -> Int $ a + b
+    "-" -> Int $ a - b
+    "*" -> Int $ a * b
+    "/" -> Int $ a `div` b
+    _ -> error $ "unknown int operator " ++ show op
+op2 op (Float a) (Float b) = case op of
+    "+" -> Float $ a + b
+    "-" -> Float $ a - b
+    "*" -> Float $ a * b
+    "/" -> Float $ a / b
+    _ -> error $ "unknown float operator " ++ show op
+
 find name s = f (split name []) s
   where
     f _ [] = Error $ "not found " ++ (show name) ++ "\n  in " ++ (show $ map (\(x, _) -> x) s)
@@ -55,7 +69,7 @@ find name s = f (split name []) s
         then f (x:xs) ys
         else case ast of
             (Struct zs) -> f xs zs
-            (Class _ zs) -> f xs $ map (\z -> (head z, New (head z) (tail z))) zs
+            (Class _ zs) -> f xs $ map (\z -> (head z, New (x ++ "." ++ head z) (tail z))) zs
             _ -> ast
 
 split :: String -> [String] -> [String]

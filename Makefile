@@ -28,4 +28,5 @@ build:
 
 .PHONY : test
 test:
-	(cd src; ${RUN} test/*.hs)
+	(cd src; ${RUN} test/ParseTest.hs)
+	(cd src; ${RUN} test/EvalTest.hs)

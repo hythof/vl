@@ -13,24 +13,24 @@ parse :: String -> Either ParseError [(String, AST)]
 parse src = runP top () "" src
   where
     top = do
-       xs <- defines
-       eof
-       return xs
+        xs <- defines
+        eof
+        return xs
 
     indent = do
-       pos <- getPosition
-       let index = (sourceLine pos) - 1
-       return $ countIndent (lines src !! index)
+        pos <- getPosition
+        let index = (sourceLine pos) - 1
+        return $ countIndent (lines src !! index)
 
     defines = many define
     
     define = do
-       name <- lexeme $ identifier
-       v <- if any (== head name) "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-         then type_ name
-         else try func<|> value
-       spaces
-       return (name, v)
+        name <- lexeme $ identifier
+        v <- if any (== head name) "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+          then type_ name
+          else try func<|> value
+        spaces
+        return (name, v)
     
     func = do
        args <- many identifier
@@ -58,7 +58,7 @@ parse src = runP top () "" src
         <?> "value"
     
     expression = try (pair '(' ')' (try apply <|> expression))
-             <|> try pif
+             <|> try switch
              <|> try op2
              <|> try value
              <|> try apply
@@ -86,22 +86,33 @@ parse src = runP top () "" src
        <|> try ref
        <?> "arg"
     
-    pif = try ifElseIf <|> try ifElse <?> "pif"
+    switch = try case_ <|> try if_ <?> "switch"
 
-    ifElseIf = do
-        lexeme $ string "if"
-        v1 <- lexeme $ many1 (try elif)
-        v2 <- lexeme expression
-        return $ Case v1 v2
+    case_ = do
+        lexeme $ string "case"
+        v1 <- lexeme arg
+        lexeme $ char '\n'
+        v2 <- lexeme $ many1 (try pattern <|> try condition)
+        v3 <- lexeme expression
+        return $ Case v1 v2 v3
       where
-        elif = do
+        pattern = do
+            lookAhead $ oneOf "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            name <- identifier
+            args <- many $ lexeme identifier
+            lexeme $ char ':'
+            ret <- lexeme expression
+            lexeme $ char '\n'
+            return ((Match name args), ret)
+
+        condition = do
             cond <- lexeme expression
             lexeme $ char ':'
             ret <- lexeme expression
             lexeme $ char '\n'
             return (cond, ret)
 
-    ifElse = do
+    if_ = do
         lexeme $ string "if"
         v1 <- lexeme arg
         v2 <- lexeme arg

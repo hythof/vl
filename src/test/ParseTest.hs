@@ -30,8 +30,7 @@ testExpression = test [
     , ok (If i1 i2 i3) "if 1 2 3"
     , ok (If foo foo foo) "if foo foo foo"
     , ok (If (Op2 "==" i1 i2) i1 i2) "if (1 == 2) 1 2"
-    , ok (Case [(Bool True, i1)] i2) "if T : 1\n  2"
-    , ok (Case [(Bool False, i1), (Bool True, i2)] i3) "if F : 1\n  T : 2\n  3"
+    , ok (Case (Int 1) [(i1, i1), (i2, i2)] i3) "case 1\n 1 : 1\n  2 : 2\n  3"
     , ok (Array []) "[]"
     , ok (Array [(Int 1), (Int 2)]) "[1 2]"
     , ok (Struct []) "{}"
@@ -89,6 +88,10 @@ testSpec = test [
        , ("AB", Class "AB" [["A"], ["B", "int"]])
        , ("spec_a", (Func [] $ Ref "AB.A"))
        , ("spec_b", (Func [] $ Apply "AB.B" [Int 1]))
+       , ("spec_c", (Func [] $ Case
+           (Ref "spec_b")
+           [(Match "AB.A" [], Int 0), (Match "AB.B" ["n"], Ref "n")]
+           (Int 2)))
      ] src
    ]
   where
@@ -110,4 +113,5 @@ testSpec = test [
       , "AB |\n A\n B int"
       , "spec_a = AB.A"
       , "spec_b = AB.B 1"
+      , "spec_c = case spec_b\n AB.A : 0\n AB.B n : n\n 2"
       ]
