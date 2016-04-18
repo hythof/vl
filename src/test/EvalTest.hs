@@ -8,18 +8,31 @@ import Test.HUnit
 
 main = do
     runTestTT testRef
+    runTestTT testDefine
 
 testRef = test [
-      ok (Byte 1) "byte"
-    , ok (Int 1) "int"
-    , ok (Float 1.0) "float"
-    , ok (Bool True) "true"
-    , ok (Bool False) "false"
-    , ok (Char 'a') "char"
-    , ok (String "b") "string"
-    , ok (Array [Int 1]) "array"
-    , ok (Struct [("n", Int 1)]) "struct"
-    , ok (Int 1) "struct.n"
+      ok (Byte 1) "0x01"
+    , ok (Int 1) "1"
+    , ok (Float 1.0) "1.0"
+    , ok (Bool True) "T"
+    , ok (Bool False) "F"
+    , ok (Int 1) "if T 1 2"
+    , ok (Int 2) "if F 1 2"
+    , ok (Int 2) "if F : 1\n T: 2\n 3"
+    , ok (Int 3) "if F : 1\n F: 2\n 3"
+    , ok (Char 'a') "'a'"
+    , ok (String "b") "\"b\""
+    , ok (Array [Int 1]) "[1]"
+    , ok (Struct [("n", Int 1)]) "{n 1}"
+    ]
+  where
+    defines src = case parse ("foo = " ++ src) of
+        Right xs -> xs
+        Left err -> error $ show err
+    ok expect src = (eval (defines src) (Ref "foo")) ~?= expect
+
+testDefine = test [
+      ok (Int 1) "struct.n"
     , ok (Func ["a", "b"] (Op2 "+" a b)) "func"
     , ok (Func ["a", "b", "c"] (If a b c)) "check"
     , ok (Func ["a", "b"] (Op2 "+" a b)) "closure2"
@@ -27,15 +40,7 @@ testRef = test [
     ]
   where
     src = unlines [
-        "byte 0x01"
-      , "int 1"
-      , "float 1.0"
-      , "true T"
-      , "false F"
-      , "char 'a'"
-      , "string \"b\""
-      , "array [1]"
-      , "struct {n 1}"
+        "struct {n 1}"
       , "func a b = a + b"
       , "check a b c = if a b c"
       , "closure2 a b = a + b"

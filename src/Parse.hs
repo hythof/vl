@@ -70,7 +70,22 @@ parse src = runP top () "" src
         <|> try integer
         <?> "value"
     
-    pif = do
+    pif = try ifElseIf <|> try ifElse <?> "pif"
+
+    ifElseIf = do
+        lexeme $ string "if"
+        v1 <- lexeme $ many1 (try elif)
+        v2 <- lexeme expression
+        return $ Case v1 v2
+      where
+        elif = do
+            cond <- lexeme expression
+            lexeme $ char ':'
+            ret <- lexeme expression
+            lexeme $ char '\n'
+            return (cond, ret)
+
+    ifElse = do
         lexeme $ string "if"
         v1 <- lexeme arg
         v2 <- lexeme arg

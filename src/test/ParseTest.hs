@@ -30,6 +30,8 @@ testExpression = test [
     , ok (If i1 i2 i3) "if 1 2 3"
     , ok (If foo foo foo) "if foo foo foo"
     , ok (If (Op2 "==" i1 i2) i1 i2) "if (1 == 2) 1 2"
+    , ok (Case [(Bool True, i1)] i2) "if T : 1\n  2"
+    , ok (Case [(Bool False, i1), (Bool True, i2)] i3) "if F : 1\n  T : 2\n  3"
     , ok (Array []) "[]"
     , ok (Array [(Int 1), (Int 2)]) "[1 2]"
     , ok (Struct []) "{}"

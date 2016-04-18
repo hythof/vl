@@ -15,5 +15,6 @@ data AST =
   | Ref      String
   | Apply    String [AST]
   | If       AST AST AST
+  | Case     [(AST, AST)] AST
   | Error    String
   deriving (Show, Eq)

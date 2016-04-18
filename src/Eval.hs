@@ -19,6 +19,11 @@ eval s (If cond a b) = case eval s cond of
     (Bool True) -> eval s a
     (Bool False) -> eval s b
 
+eval s (Case [] other) = eval s other
+eval s (Case ((cond, ret):xs) other) = case eval s cond of
+    (Bool True) -> eval s ret
+    (Bool False) -> eval s $ Case xs other
+
 eval s (Ref name) = eval s $ find name s
 
 eval s (Apply name args) = case find name s of
