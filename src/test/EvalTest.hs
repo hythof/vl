@@ -37,6 +37,9 @@ testDefine = test [
     , ok (Func ["a", "b", "c"] (If a b c)) "check"
     , ok (Func ["a", "b"] (Op2 "+" a b)) "closure2"
     , ok (Int 2) "closure0"
+    , ok (Class "AB" [["A"], ["B", "int"]]) "AB"
+    , ok (Instance "A" []) "ab_a"
+    , ok (Instance "B" [Int 1]) "ab_b"
     ]
   where
     src = unlines [
@@ -46,6 +49,9 @@ testDefine = test [
       , "closure2 a b = a + b"
       , "closure1 a = closure2 1 a"
       , "closure0 = closure1 1"
+      , "AB |\n A\n B int"
+      , "ab_a = AB.A"
+      , "ab_b = AB.B 1"
       ]
     defines = case parse src of
         Right xs -> xs

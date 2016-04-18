@@ -86,6 +86,9 @@ testSpec = test [
        , ("spec_struct", Struct [("n", Int 1)])
        , ("spec_func", Func ["a", "b"] (Op2 "+" (Ref "a") (Ref "b")))
        , ("check", Func ["a", "b", "c"] (If (Ref "a") (Ref "b") (Ref "c")))
+       , ("AB", Class "AB" [["A"], ["B", "int"]])
+       , ("spec_a", (Func [] $ Ref "AB.A"))
+       , ("spec_b", (Func [] $ Apply "AB.B" [Int 1]))
      ] src
    ]
   where
@@ -104,4 +107,7 @@ testSpec = test [
       , "spec_struct {n 1}"
       , "spec_func a b = a + b"
       , "check a b c = if a b c"
+      , "AB |\n A\n B int"
+      , "spec_a = AB.A"
+      , "spec_b = AB.B 1"
       ]

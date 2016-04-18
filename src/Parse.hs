@@ -25,10 +25,37 @@ parse src = runP top () "" src
     defines = many define
     
     define = do
-       name <- identifier
-       v <- try func <|> try value
+       name <- lexeme $ identifier
+       v <- if any (== head name) "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+         then type_ name
+         else try func<|> value
        spaces
        return (name, v)
+    
+    func = do
+       args <- many identifier
+       lexeme $ char '='
+       v <- expression
+       many blank
+       return $ Func args v
+
+    type_ name = do
+        current <- indent
+        char '|'
+        lexeme $ char '\n'
+        xs <- sepBy (many1 identifier) (awayIndent (1 + current))
+        return $ Class name xs
+    
+    value = try (pair '(' ')' func)
+        <|> try array
+        <|> try struct
+        <|> try text
+        <|> try rune
+        <|> try byte
+        <|> try bool
+        <|> try float
+        <|> try integer
+        <?> "value"
     
     expression = try (pair '(' ')' (try apply <|> expression))
              <|> try pif
@@ -57,18 +84,7 @@ parse src = runP top () "" src
     arg = try (pair '(' ')' (try apply <|> expression))
        <|> try value
        <|> try ref
-       <?> "args"
-    
-    value = try (pair '(' ')' func)
-        <|> try array
-        <|> try struct
-        <|> try text
-        <|> try rune
-        <|> try byte
-        <|> try bool
-        <|> try float
-        <|> try integer
-        <?> "value"
+       <?> "arg"
     
     pif = try ifElseIf <|> try ifElse <?> "pif"
 
@@ -97,23 +113,9 @@ parse src = runP top () "" src
     apply = do
         name <- identifier
         current <- indent
-        xs <- sepBy arg (skip (1 + current))
+        xs <- sepBy arg (awayIndent (1 + current))
         return $ if length xs == 0 then Ref name else Apply name xs
-      where
-        skip n = try $ next n
-             <|> many blank
-        next n = do
-            many blank
-            char '\n'
-            string (take n $ repeat ' ')
-    
-    func = do
-       args <- many identifier
-       lexeme $ char '='
-       v <- expression
-       many blank
-       return $ Func args v
-    
+
     array = Array <$> pair '[' ']' (many expression)
     
     struct = Struct <$> pair '{' '}' defines
@@ -174,10 +176,18 @@ lexeme p = do
 
 identifier = do
     c <- letter
-    cs <- lexeme (many (alphaNum <|> oneOf "_"))
+    cs <- lexeme (many (alphaNum <|> oneOf "_."))
     return $ c : cs
 
 pair l r = between (char l) (char r)
+
+awayIndent n = try $ next n
+     <|> many blank
+  where
+    next n = do
+        many blank
+        char '\n'
+        string (take n $ repeat ' ')
 
 countIndent (' ':xs) = 1 + countIndent xs
 countIndent _ = 0

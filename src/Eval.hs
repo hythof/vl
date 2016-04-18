@@ -15,6 +15,10 @@ eval s (Op2 op a b) = eval s $ Op2 op (eval s a) (eval s b)
 
 eval s (Func [] ast) = eval s ast
 
+eval s (New name []) = Instance name []
+
+eval s (Ref name) = eval s $ find name s
+
 eval s (If cond a b) = case eval s cond of
     (Bool True) -> eval s a
     (Bool False) -> eval s b
@@ -24,10 +28,9 @@ eval s (Case ((cond, ret):xs) other) = case eval s cond of
     (Bool True) -> eval s ret
     (Bool False) -> eval s $ Case xs other
 
-eval s (Ref name) = eval s $ find name s
-
 eval s (Apply name args) = case find name s of
     (Func binds ast) -> apply binds values ast
+    (New klass fields) -> Instance klass values
     (Struct fields) -> Struct $ zipWith (\(x, _) y -> (x, y)) fields values
     ast -> eval s ast
   where
@@ -52,6 +55,7 @@ find name s = f (split name []) s
         then f (x:xs) ys
         else case ast of
             (Struct zs) -> f xs zs
+            (Class _ zs) -> f xs $ map (\z -> (head z, New (head z) (tail z))) zs
             _ -> ast
 
 split :: String -> [String] -> [String]

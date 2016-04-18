@@ -9,6 +9,9 @@ data AST =
   | String   String
   | Array    [AST]
   | Struct   [(String, AST)]
+  | Class    String [[String]]
+  | New      String [String]
+  | Instance String [AST]
   | Func     [String] AST
   | Closure  [(String, AST)] AST
   | Op2      String AST AST
