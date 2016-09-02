@@ -1,0 +1,92 @@
+# -- bnf
+root : import*
+       export*
+       define*
+
+# import and export
+import : ":" (name " ")+
+       | (name " ")+ ":" (name " ")+ 
+
+export : id type+
+       | class "{" def_export+ "}"
+
+
+# define
+define : def_value
+       | def_type
+       | def_func
+
+def_value : id value
+
+def_type : class type+ struct?
+         | class id+ "=" id name* ("|" id name*)* # algebra
+
+def_func : id arg* "=" exp
+
+# expression
+exp : "(" exp ")"
+    | exp "*" exp
+    | exp "/" exp
+    | exp "%" exp
+    | exp "&" exp
+    | exp "|" exp
+    | term
+
+term : term "+" term
+     | term "-" term
+     | comp
+
+comp : comp ">" comp
+     | comp "<" comp
+     | comp ">=" comp
+     | comp "<=" comp
+     | comp "==" comp
+     | comp "!=" comp
+     | factor
+
+single : "!" factor
+       | "+" factor
+       | "-" factor
+       | factor
+
+factor : value
+       | call
+       | exp
+
+value : int
+      | float
+      | bool
+      | string
+      | array
+      | struct
+      | func
+      | type
+
+# name
+id : [a-z][A-Za-z0-9_]*
+class : [A-Z][A-Za-z0-9]*
+name : id
+    | type
+call : id "." call
+     | id exp*
+
+# value
+int : [+-]? [1-9] [0-9]+
+float : [+-]? [1-9] [0-9]+ "." [0-9]+
+bool : "T" | "F"
+string : '"' .+? '"'
+       | "'" .+? "'"
+       | "q!" .+? "!"
+array : "[" exp* "]"
+struct : "{" define* "}"
+func : "(" id* "=" exp struct? ")"
+type : class
+     | "[" type "]"  # typed array
+     | class class+  # generic type
+
+# reserved
+reserved : "int float bool string array struct func" # type name
+         | "T F" # true, false
+         | "_" # write only variable
+         | "+ - * / %" # numeric exp
+         | "< > <= >= == != || && !" # bool exp

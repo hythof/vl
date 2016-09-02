@@ -1,0 +1,61 @@
+# メモ
+Writer:write Value
+Reader:read Value
+Ord
+  EQ
+  LT
+  GT
+  LTE
+  GTE
+Array a
+  nth Int a
+  count Int
+  size Int
+  min a
+  max a
+  all [a = Bool] Bool
+  any [a = Bool] Bool
+  map (a = b) [b]
+  fold (a = b) b b
+  keep (a = Bool) [a]
+  sort (a = Ord) [a]
+  find (a = Bool) (Maybe {index Int hit a})
+  take (a = Bool) [a]
+  skip (a = Bool) [a]
+  zip [b] [(a b)]
+  zip3 [b] [c] [(a b c)]
+  split (a = Bool) {left [a] right [a]}
+  slice Int Int [a]
+  flat [a] [a]
+Array (Monoid a)
+  sum (a = b) b
+  sum f = fold (+) .id
+Runtime
+  stack [{file String line Int}]
+
+# macro
+algebric AST
+  Int Int
+  Float Float
+  Op String AST AST
+
+algebric name fs =
+  type = Define name (Type {})
+  ds = map fs (f:s = Define f (Func ((map s (a = Type a)) ++ type))
+  [type] + ds
+
+string = here :
+  line1
+  line2 here is string
+  $variable
+  $(func arg)
+
+here [String] String
+here xs = join "" xs
+
+@def 100 (x = "num$x")
+
+def Int (Int = String) [Define]
+def count f = Scope $ fields count f
+    fields 0 = []
+    fields c = [Define (f c) c] + fields (c - 1)

@@ -1,0 +1,48 @@
+# json
+to_json input = case input
+    Int    | x.to_string
+    Float  | x.to_string
+    Double | x.to_string
+    String | "\"" + (x.escape "\"") + "\""
+    Array  | "[" + (x.map to_json .join ",") + ']'
+    Struct | "{" + (x.map "\"$1\":$(to_json $2)") + "}"
+
+from_json input = runParse json _parse
+    _parse = do
+        struct = Struct <$> between
+            char "{"
+            many (.split ":" => Field $1.replace "\"" "" )
+            char "}"
+        array = between (char "[") (many _parse) (char "]")
+        array = between
+            char "["
+            many _parse
+            char "]"
+        int = x.to_int
+        float = x.to_float
+        string = x.to_string.escape("\"")
+
+Parsec
+    src String
+    pos Integer
+    err Maybe String
+    current = src[pos]
+    char n = if current == n then { pos += 1 } else 
+
+    bind x = case x
+        (Maybe err)
+
+# base64
+encode_base64 input = input.convert p
+    w = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    buf = ((x.size * 4 / 3 + 3) & ~0x03) + 1
+
+decode_base64 x = do
+
+# http client
+
+# http server
+
+# Queue server
+
+# BBS

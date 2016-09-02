@@ -1,0 +1,110 @@
+# 基本型
+Type
+| Byte                   # 0x00
+| Int                    # 10
+| Float                  # 1.1
+| Bool                   # T or F
+| Char                   # 'a'
+| Array Type             # [10]
+| Tuple [Type]           # (1, 2)
+| Struct [(String Type)] # {name "value"}
+| Func [Type]            # (arg = arg + 1)
+| String = [Char]        # "text"
+AST
+| Define String Value    # Define "zero" (Value Int 0)
+| Value Type String      # Value Int "123"
+| Apply String [Value]   # Apply "add" [(Value Int "1", Value Int "2")]
+| If AST AST AST         # If (Value Bool "T") (Value Int 1) (Value Int 0)
+| Error String           # Error "dividing zero"
+
+# 組み込み
+(+) Int Float String Array Struct
+(-) Int Float Array Struct
+(*) Int Float
+(/) Int Float
+(^) Int Float
+(!) Bool
+(&) Bool Int Float Array Struct
+(|) Bool Int Float Array Struct
+
+# 型宣言
+add Int Int Int
+add a b = a + b
+
+# 型クラス
+Num a
+  (+) a a a
+  (-) a a a
+  (*) a a a
+
+Int Num
+  a + b = math.add a b
+  a - b = math.sub a b
+  a * b = math.mul a b
+
+inc a a :: Num a
+inc x = x + 1
+
+# パッケージ
+package name
+
+# エクスポート
+export
+  value Int
+  func Int Int
+
+# インポート
+import
+  math # math.abs -1
+  file open # open "/tmp/a.txt"
+
+# 代数データ型
+AST |
+  Int Int
+  String String
+
+# パターンマッチ
+Tree a |
+  Leaf a
+  Node (Tree a) (Tree a)
+show Tree String
+show (Leaf a) = a
+show (Node a b) = "($(show a) $(show b)))"
+
+show Tree String
+show x = case x
+    Left a => a
+    Node a b => "($(show a) $(show b))"
+
+flat [a] [b]
+flat [xs] = flat $ map xs flat
+flat x = x
+
+qsort [a] [a]
+qsort [] = []
+qsort (x:xs) =
+  lt = keep (< x) xs
+  gte = keep (>= x) xs
+  lt + [x] + gte
+
+# 分岐
+binary x = if x % 2 == 0
+  "even"
+  "odd"
+
+fizbuzz x = case
+  c1 = x % 3 == 0
+  c2 = x % 5 == 0
+  c3 = c1 & c2
+  c3 : "fizzbuzz"
+  c1 : "fizz"
+  c2 : "buzz"
+  x.string
+
+# モナド
+Counter
+  count Int
+
+countup f = do
+    n = count
+    count += n + 1
