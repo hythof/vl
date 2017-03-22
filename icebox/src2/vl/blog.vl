@@ -1,0 +1,63 @@
+main = do
+    for socket = Tcp.Server.listen 80
+        http = Protocol.HTTP socket.Stream
+
+serve http = serve http | error
+
+index = do
+    
+detail id = do
+    detail = 
+
+error message = do
+
+Error
+    
+
+Record
+    created_at DateTime.now
+    updated_at DateTime.now
+    deleted_at DateTime.min
+
+Entry
+    +Recrod
+    title String
+    text String
+    html = convert text
+        convert s = ...
+
+Author
+    +Recrod
+    name String
+    mail String
+    hashed_password String
+
+template:
+    html = String
+        html
+            head
+                title $title
+                script
+                    ...
+                style
+                    ...
+            body
+
+    detail = html """
+        h1 $title
+        p $conetnt
+        div.meta
+            span.date $date
+            span.author $author.name
+        """
+
+    list = html """
+        # for entry = entries
+        ul
+            li
+                p $entry.image
+                p $entry.title
+                div.meta
+                    span.date $entry.date
+                    span.author $entry.author.name
+        """

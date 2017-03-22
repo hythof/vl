@@ -1,0 +1,81 @@
+P = Lib.Text.ParserCombinators.Parsec 
+
+type Identifier = String
+type Expression : Block [Expression]
+                | FunctionApply Expression Expression
+                | FunctionDefn Identifier Expression
+                | Binding Identifier Expression
+                | Lookup Identifier
+                | Value Integer
+
+lambdaFile = Block exprs {
+    exprs := endBy expression expression_end
+    eof
+}
+expression_end = {
+  whitespaces 
+  char ';' 
+  whitespaces
+}
+whitespaces = many $ oneOf "\r\n\t "
+
+expression = {
+    exps := sepBy1 expressionPart whitespaces
+    if exps.length > 1 {
+       exprs.foldl FunctionApply
+    } else {
+       exprs.head
+    }
+}
+expressionPart = or (
+   try functionDef 
+   try define 
+   try anonFunctionDef 
+   parens 
+   term
+)
+functionDef = Binding name $ foldr Function Defn expr argNames {
+    string "defn"
+    spaces
+    name := identifier
+    argNames <- manyTill identifier (string "->")
+    spaces
+    expr := expression
+}
+define = Binding name expr {
+    string "def"
+    spaces
+    name := identifier
+    spaces
+    char '='
+    expr := expression
+}
+anonFunctionDef = expr.foldr FunctionDefn argNames {
+    string "fn"
+    spaces
+    argNames <- manyTill identifier (string "->")
+    spaces
+    expr <- expression
+}
+parens = expr {
+    char '('
+    expr <- expression
+    char ')'
+}
+term = or value lookupName
+
+value = Value $ read v {
+    v <- many1 (oneOf "0123456789")
+}
+name_start_chars = ['a'..'z'] ++ ['A'..'Z']
+name_chars = name_start_chars ++ "_-?!'"
+identifier = name {
+    first := oneOf name_start_chars
+    rest := many (oneOf name_chars)
+    let name = (first : rest)
+    spaces
+    fail "Reserved word" if name.any ["defn" "def" "fn"]
+}
+lookupName = Lookup name {
+    name <- identifier
+}

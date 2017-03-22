@@ -1,0 +1,31 @@
+-- Core
+Native  : write C code
+Nothing : -1
+True    : 1
+False   : 0
+Integer : native, use GNU MP
+Float   : native, use GNU MP
+Complex : native, use GNU MP
+String  : native, use oniguruma
+Array   : native, use Google Sparse Hash
+Time    : native, time_t
+Enum    : type
+Number  = Int  | Float
+Bool    = True | False
+Double  = Float
+
+-- Core Library
+OS      : system call wrapper
+Socket  : TCP UDP IP DNS
+File    : file api, glob
+Task    : Process Thread UserThread
+
+-- Standard Library
+AST     : type method variable eval benchmark profile
+Net     : CGI POP3 SMTP IMAP4 HTTP SSL
+Format  : CSV Base64 Json MIME XML YAML HTML
+Logger  : like syslog
+Math
+Hash
+Shell
+Zlib

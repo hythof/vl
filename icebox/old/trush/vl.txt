@@ -1,0 +1,310 @@
+目的
+自分好みの言語を作りたい。Product-out language。
+                                                           2011/03/21
+---------------------------------------------------------------------
+
+背景
+=====================================================================
+プログラミング歴も早9年、そろそろ世に名を残すソフトウェアを作りたい。
+どうもアプリよりもプログラミング言語・フレームワーク・OS等のテクニカル
+な部分に惹かれる傾向があるので、ただやりたい事をやるために始める。
+
+概要
+=====================================================================
+・生産性の追求
+・堅牢/高速/省メモリなランタイム
+・上位互角を保つ（マイグレーションさせる）
+・テストがし易い
+・仕様が直感的
+・CPAN付属
+・ドキュメントやデバッガが身近
+
+インターフェース
+=====================================================================
+int vl_compile(const char *input[], char *out_file, char *lang);
+Context *vl_parse_file(char *in_file);
+Context *vl_parse_code(char *source);
+int vl_convert(Context *c, char *lang);
+Context *c vl_vm();
+int vl_vm_eval(Context *c, char *code);
+void vl_dump_context(Context *c);
+
+処理フロー
+=====================================================================
+1. 構文解析
+2. 抽象構文機構築 + 型推論(a)
+3. ファイル毎に抽象構文機を中間形式で保存
+4. それぞれの中間形式ファイルを統合(ld)
+5. 言語変換
+   - C
+   - javascript
+   - perl / ruby / python / php
+   - Java
+   - C++
+
+必要なプラットフォーム
+=====================================================================
+gcc
+yacc or bison
+
+テスト計画
+=====================================================================
+あとで書く
+
+障害からの復旧計画
+=====================================================================
+あとで書く
+
+セキュリティ考慮
+=====================================================================
+あとで書く
+
+既知の問題点
+=====================================================================
+あとで書く
+
+参考
+=====================================================================
+あとで書く
+
+
+ドキュメント履歴
+=====================================================================
+2011/03/21 初版
+2011/08/26 実装開始
+
+== Type ==
+class  # { ... }
+bit    # 0:2bit or 10bit
+int    # 0      or Int
+double # 0.0    or Double
+string # "..."  or String
+array  # [String] or [Int] or [Class]
+dict   # [String=Int] or [""=0.0]
+set    # <debug=1 error=2 fatal=9>
+io     # read() write() open() close()
+
+== GOTO ==
+for    # (1..10).each {  }
+while  # BOOL.each {}
+if     # (BOOL) T={} F={}
+case   # RET = TARGET & {
+       #   A     : ...
+       #   B,C   : ...
+       #   0..10 : ...
+       #   Z == Q: ...
+       #   _     : ...
+       # }
+
+== Core ==
+# implements of native language
+File     < io
+Socket   < io
+Random   < io
+Thread   < # pthread or fork?
+
+== Library implements for vl ==
+DateTime < int # UTC only?
+Encode   < class # C(NKF? or iconv? or ICU?) or LL
+Regexp   < class # C(oniguruma or ICU) or LL
+TCP      < Socket
+UDP      < Socket
+(TCPClient|TCPServer) < TCP + Thread
+(UDPClient|UDPServer) < UDP + Thread
+
+========
+Radius : {
+  _dummy1       : 1bit # private
+  _padding1     : 3bit # private
+  code          : 1byte
+  identifier    : 1byte
+  length        : 2byte
+  autehnticator : 16byte
+  attr : [{
+    type : 1byte : enum{
+      accessRequest     : 1
+      accessAccept      : 2
+      accessReject      : 3
+      accountingRequest : 4
+      accountingResponse: 5
+      accessChallenge   : 6
+    }
+    length: 1byte 
+    value : 0..255byte : fook{
+        =:number : length = 1
+        =:byte   : length = value.byte.length
+        =        : Error("bad value")
+    }
+    valid : type     == set{0..20 31 33 35..60}
+            & length == value.byte.size
+    +=:(type, value) : pass
+    +=:(type, _)     : Error("bad value")
+    +=:(_   , value) : Error("bad type")
+    +=               : Error("bad type and value")
+  }]
+  valid : do{ attr.all(.valid()) }
+}
+
+r : Radius
+r.attr += (.type.accessRequest, 10)
+
+r : Radius.send_packet + {
+  .username = "foobar"
+  .password = "secret"
+}
+r.send()
+
+--------------------------------------------------------
+strict_radius = radius() # shallow copy
+strict_radius.valid  = {
+  # radius.Base.valid is original function and readonly.
+  Base.valid & code == <1 .. 10>
+}
+loose_radius = radius() # shallow copy
+strict_radius.valid  = T
+# for c
+
+int strict_radius.valid(void);
+int T();
+int T(){ return 1; }
+========================================================
+
+http = {
+  CRLF    : "\r\n" # readonly
+  Version : "1.1"  # readonly
+  request : do {
+    buf : IO.stdin.read()
+    # ...
+  }
+
+  response : {
+    status   : 200
+    type     : "text/html"
+    charset  : "utf-8"
+    body     : ""
+    headers  : [{key:"", val:""}] + {
+      to_string : join(CRLF, map(key + ": " + val))
+    }
+    cookies  : array
+
+    packet : do {
+      sendfile ? body = IO.read(file)
+      headers += {"Content-Length", body.size.string}
+      headers += cookies.zip(prefix = "Set-Cookie")
+      headers.to_string + CRLF + CRLF + body
+    }
+  }
+}
+
+http.response.headers += {key="sid", val="SID"}
+
+request_handler = http + {
+  in : http.request
+  out: http.response
+  render : out.body = IO.read(file:"")
+  get    : render("index.html")
+  post : {
+    form = in.post() & input
+    render(
+      form.step & Choise(
+        _ : "index.html"
+        1 : "confirm.html"
+        2 : "thanks.html"
+      )
+    )
+  }
+  level : Choise(
+    _     : 1
+    debug : 1
+    info  : 2
+    warn  : 3
+    error : 4
+  )
+
+  head : {
+    render("index.html")
+  }
+
+  callback : Choise(in.request_method
+    "GET"  : get()
+    "POST" : post()
+    "HEAD" : head()
+    _      : get()
+  )
+}
+
+Choise = {
+  x : X
+  type: array(type=x)
+  
+}
+
+
+p : Process + {
+  server : do Net.TCP.listen + {
+    ip           : Any
+    port         : 80
+    in_protocol  : http.request
+    out_protocol : http.response
+    _list        : [Process(request_handler)] * 4
+    callback     : {
+      _list.min(queue.size).push(
+	in:in_protocol
+	out:out_protocol)
+    }
+  }
+
+  C.printf("%s age=%d", "foo", "bar")
+  C.connect("%s age=%d", "foo", "bar")
+  n = C.add(10, 20)
+  0IO.puts(n)
+  IO.puts(C.INET_ANY)
+}
+p.start
+
+C.include += "mysql.h"
+C.init += {
+
+}
+
+
+__C__
+MYSQL mysql;
+mysql = mysql_init(NULL);
+if (NULL==mysql) {
+  // 初期化失敗
+}
+const char *hostname = NULL;
+const char *username = "user";
+const char *password = "pass";
+const char *database = "database-name";
+unsigned long portnumber = 0;
+if (NULL==mysql_real_connect(mysql, hostname, username, database, portnumber, NULL, 0) {
+  // 接続エラー
+   printf("error: %s\n", mysql_error(mysql));
+} else {
+  //  接続成功
+}
+
+int r;
+r = mysql_query(mysql, "CREATE TABLE hoge (id integer)" );
+if (r) {
+   // 失敗
+   printf("error: %s\n", mysql_error(mysql));
+} else {
+   // 成功
+}
+__C__
+
+log = {
+  io    = IO.stderr
+  level = <debug info warn error>
+  log   = io.puts(:String)
+  debug = level >= level.debug & log
+  info  = level >= level.info  & log
+  warn  = level >= level.warn  & log
+  error = level >= level.error & log
+}
+log.io = IO.stderr
+log.level.debug
+log.level.info

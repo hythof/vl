@@ -1,0 +1,89 @@
+RadiusPacket __pack__{
+  code 1byte enum {
+    1 accessRequest
+    2 accessAccept
+    3 accessReject
+    4 accountingRequest
+    5 accountingResponse
+    6 accessChallenge
+  }
+  identifier     1byte
+  length         2byte
+  autehnticator 16byte
+  attributes [{
+    type 1byte enum {
+       1      User_Name
+       2      User_Password
+       3      CHAP_Password
+       4      NAS_IP_Address
+       5      NAS_Port
+       6      Service_Type
+       7      Framed_Protocol
+       8      Framed_IP_Address
+       9      Framed_IP_Netmask
+      10      Framed_Routing
+      11      Filter_Id
+      12      Framed_MTU
+      13      Framed_Compression
+      14      Login_IP_Host
+      15      Login_Service
+      16      Login_TCP_Port
+      17      _
+      18      Reply_Message
+      19      Callback_Number
+      20      Callback_Id
+      21      _
+      22      Framed_Route
+      23      Framed_IPX_Network
+      24      State
+      25      Class
+      26      Vendor_Specific
+      27      Session_Timeout
+      28      Idle_Timeout
+      29      Termination_Action
+      30      Called_Station_Id
+      31      Calling_Station_Id
+      32      NAS_Identifier
+      33      Proxy_State
+      34      Login_LAT_Service
+      35      Login_LAT_Node
+      36      Login_LAT_Group
+      37      Framed_AppleTalk_Link
+      38      Framed_AppleTalk_Network
+      39      Framed_AppleTalk_Zone
+      40..59  _
+      60      CHAP_Challenge
+      61      NAS_Port_Type
+      62      Port_Limit
+      63      Login_LAT_Port
+    }
+    length 1byte
+    value  0..253byte(length)
+  }]
+}
+Radius = RadiusPacket {
+  secret ""
+  port {
+    auth 1812
+    acct 1813
+  }
+  use_port = type >= 3 ? port.auth : port.acct
+  send socket:IO.net.socket = {
+    identifer += 1 # cycle 0 .. 255. reason type is 1byte
+    return socket.send r.pack use_port
+  }
+  attributes.add k v = {
+    add len = attributes.push k len v
+    str = [1 2 3 ...]
+    int = [8 10 11 ...]
+    return false
+    | str.has k -> add v.byte.size
+    | int.has k -> add 4
+  }
+}
+r = Radius {
+    secret "foobar"
+    port.auth 81812
+}
+r.attributes add 
+r.send io

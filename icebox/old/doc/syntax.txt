@@ -1,0 +1,310 @@
+-- direction
+c wrapper
+
+readfile file cb = ret @c file:*char (cb)(*char) {
+        fpos_t fsize = 0
+        FILE* fp
+        fp = fopen "test.dat" "rb"
+        if fp == NULL {
+                return vl_error(errno)
+        }
+        BUF_SIZE 1024
+        char* buf = malloc BUF_SIZE
+        size_t read_size = 0
+        while BUF_SIZE == (read_size = fread buf BUF_SIZE 1 fp) {
+                cb buf
+        }
+        if read_size > 0 {
+                cb buf
+        }
+        if ferr fp {
+                return vl_error(errno)
+        } else if !feof fp {
+                warn "not eof"
+        }
+        return vl_ok()
+}
+
+
+int *readfile(const char *file, const void (*cb)(const char *)) {
+        fpos_t fsize = 0;
+        FILE *fp;
+        if((fp = fopen("test.dat", "rb")) == NULL) {
+                return errno;
+        }
+#define BUF_SIZE 1024
+        char buf = malloc(BUF_SIZE);
+        size_t read_size;
+        do {
+                read_size = fread(buf, BUF_SIZE, 1, fp);
+                if(read_size > 0) {
+                        cb(buf);
+                }
+        } while(read_size == BUF_SIZE);
+        if(
+        if(NULL == fclose(fp)) {
+               return errno;
+        }
+#undef BUF_SIZE
+        return 0;
+}
+
+-- about syntax
+var name value
+func [arg..] = [exp] [{ ... }]
+Type [arg..] = [exp] [{ ... }]
+exp   = name
+      | value
+      | value op value
+value = number
+      | string
+      | [value..] # array
+      | {[var|func|Type]..}
+op  = * / % ^ ~ & | ** >> <<
+    | + - ++ -- > < == =>
+    | || &&
+    | . ; :
+arg = word
+    | word(op value)
+    | word(exp) # exp is bool
+    | word{word+}
+    | word[word+]
+
+-- value num
+10
+0xff # hex
+0755 # oct
+10.0
+
+-- value string
+"hello"
+"$a world"
+"%s world %d!" a b
+'%s world %d $no_extract'
+
+-- value bool
+False
+True
+
+-- value array
+[1 2 3]
+[1..9] # [1 2 3 4 5 6 7 8 9]
+[1] + [2]   # [1 2]
+[1] & [1 2] # [1]
+[1 2] - [2] # [1]
+[1 2] * 2   # [1 2 1 2]
+
+-- value table
+["foo": 10]
+[String : String : Number]
+[String : String]
+[[Number String]] = [[1 "Jan"] [2 "Feb"]]
+
+-- value struct
+{name "foo"; age 28}
+
+-- func
+add a b = a + b # == add a b = c { c = a + b }
+inc a   = add 1
+dec a   = add _ -1 # add 1 (-1)
+show {name age} = "$name old $age"
+qsort [] = []
+qsort [x *xs] = qsort xs.grep(< x) ++ [x] ++
+                qsort xs.grep(<= x)
+check n(<0) = False
+check n     = True
+
+-- type
+Tree k v = Empty | Node k v Tree(l r) {
+  Empty = {
+    insert xk xv = Node xk xv Empty Empty
+    search _ = Nothing
+  }
+  Node = {
+    insert xk xv =
+    | xk == k ? Node k v l r
+    | xk >  k ? Node xk xv (l.insert k v) r
+    | xk <  k ? Node xk xv l (r.insert k v)
+    search xk =
+    | xk == k ? v
+    | xk >  k ? l.search xk
+    | xk <  k ? r.search xk
+  }
+}
+t : Tree string string
+t1 = t.insert "foo" "bar"
+t2 = t1.insert "hoge" "fuga"
+v  = t2.search "foo"
+
+-- operator
++ - * / % ^ ~ & | ** >> << # numeric
+++ -- # array, [1] ++ [2] == [1 2], [1 2 3] -- [2 3] == [1]
+..    # range, 1 .. 100, 'a' .. 'zz'
+> <   # order
+==    # equals
+|| && # bool
+.     # a . b 1 . c 2 == a(b(1, c(2)))
+;     # a;b == a\nb
+:     # a : b; c == a { b; c }
+=>    # nameless function, => expr [{ block }], => [arg] = [ret] [{ block }]
+
+
+
+
+===( idea )==========================================================================
+-- State
+-- IO
+-- Native C code
+
+-- num
+10
+0xff # hex
+022
+10.0
+
+-- string
+"hello"
+"$a world"
+"%s world %d!" a b
+'%s world %d $no_extract'
+
+-- bool
+False
+True
+
+-- array
+[1 2 3]
+[1..9] # [1 2 3 4 5 6 7 8 9]
+[1] + [2]   # [1 2]
+[1] & [1 2] # [1]
+[1 2] - [2] # [1]
+[1 2] * 2   # [1 2 1 2]
+
+-- map
+["foo": 10]
+[String : String : Number]
+[String : String]
+[[Number String]] = [[1 "Jan"] [2 "Feb"]]
+
+-- function
+add a b = Num
+add a b = a + b
+add a b = c { c = a + b }
+qsort [] = []
+qsort [x *xs] = qsort xs.grep(< x) ++
+                [x] ++
+                qsort xs.grep(<= x)
+load file cb = cb File.read(file)
+load "a.txt" -> file_contents { puts file_contents }
+sendmail from to subject body = stringfy {
+  bcc  : [String]
+  head : [String]
+  head_string = [
+    "From" from
+    "To" to
+    "Subject" subject
+    "Bcc" bcc.join(";") if bcc
+  ].map{ "$1:$2" }.join "\n"
+  stringfy = head_string ++ "\n" ++ body
+}
+puts $ sendmail "from@example.com" "to@example.com" "hi" "hello"
+- bcc "bcc1@example.com" "bcc2@example.com"
+- head "X-sender" "example program"
+
+-- object
+Show a = {
+  show :: String
+  show Class   = C { ... native code ... }
+  show List    = C { ... native code ... }
+  show Array   = C { ... native code ... }
+  show String  = C { ... native code ... }
+  show Num     = C { ... native code ... }
+  show Float   = C { ... native code ... }
+}
+Eq a = {
+  (=),(!=) :: a a Bool
+  (==) = !(!=)
+  (!=) = !(==)
+}
+Ord a = Eq a + {
+  (>),(<),(>=),(<=)  :: a a Bool
+  (>=) a b = a == b || a > b
+  (<=) a b = a == b || a < b
+}
+Num a = Ord a + {
+  (+),(-),(*),(**) :: a a a
+  (/) :: a a Float
+  negate :: a
+  abs    :: a
+  abs x =
+  | x >= 0 = x
+  | x <  0 = -x
+}
+Float a = Num a + {
+  (/) :: a a a
+}
+Nothing = 0 # Nothing == 0 is false
+List a = [a]
+a : List Num # eq [Num]
+Member = {
+  name : ""
+  say msg = "hello $name"
+  history [{
+    log : ""
+    date Time = Time.now
+  }]
+}
+m : Member
+m.name = "foo"
+m.history.add "message"
+Tree k v = Empty | Node k v Tree(l r) {
+  Empty = {
+    insert xk xv = Node xk xv Empty Empty
+    search _ = Nothing
+  }
+  Node = {
+    insert xk xv =
+    | xk == k ? Node k v l r
+    | xk >  k ? Node xk xv (l.insert k v) r
+    | xk <  k ? Node xk xv l (r.insert k v)
+    search xk =
+    | xk == k ? v
+    | xk >  k ? l.search xk
+    | xk <  k ? r.search xk
+  }
+}
+t = Tree string string
+t1 = t.insert "foo" "bar"
+t2 = t1.insert "hoge" "fuga"
+v  = t2.search "foo"
+
+-- expr
+a = 10 +
+    20
+add a b = a + b
+a = add 10,
+        20
+value = if cond1 value1,
+           cond2 value2,
+           value3
+a, b  := b, a
+a, *b := [1]     # a = 1, b = []
+a, *b := [1 2 3] # a = 1, b = [2 3]
+
+-- for
+for 10 { ... } # 0 .. 9
+for 1 .. 10 { @print it }
+for ary.len -> i { ... }     # 0 .. ary.len - 1
+for ary -> n { ... }         # array
+for ary -> odd even { ... }  # array step 2
+for hash -> key     { ... }  # hash
+for hash -> key val { ... }  # hash
+for x == 0 { ... }           # like while
+for 1..9 1..9 -> i j { ... } # 81 loop
+
+-- if
+a = val1 ? cond1 val2 ? cond2 val3
+if cond { ... }
+if cond { ... } else { ... }
+if cond1 { ... } else if cond2 { ... } else { ... }
+

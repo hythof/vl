@@ -1,0 +1,90 @@
+# ---( ast.vl )-----------------------------------------------------
+AST Enum
+    Int Int
+    Op String AST AST
+    Error String
+    Lookup name [AST]
+    Func [String] AST
+    Define String AST
+
+# ---( compile.vl )-----------------------------------------------------
+compile [AST] String
+compile xs = """
+#include <stdlib.h>
+$define
+int main() {
+    return vl_main();
+}
+"""
+    define = "\n".join $ xs.map func
+    func (Define name args ast) = """
+            int $name($arg_string) {
+                return $(exp ast)
+            }
+        """
+        arg_string = "int " + (", int".join args)
+        exp AST String
+        exp (Op op left right) = v
+            l = exp left
+            r = exp right
+            v = case l r
+                (Error e) _ = e
+                _ (Error e) = e
+                (Int lv) (Int rv) = case op
+                    "+" = "$lv + $rv"
+                    "-" = "$lv - $rv"
+        exp (Int v) = "$v"
+        exp (Error s) = s
+
+# ---( eval.vl )-----------------------------------------------------
+eval [AST] AST
+eval xs = evalution $ xs $ lookup "main" xs
+
+evalution xs x = exp x
+    lookup target ((Define name ast) rest) = if name == target then exp ast else lookup rest
+    exp (Op op left right) = v l r
+        l = evalution xs left
+        r = evalution xs right
+        v = case l r
+            (Error) _ = l
+            _ (Error) = r
+            (Int lv) (Int rv) = case op
+                "+" = Int $ lv + rv
+                "-" = Int $ lv - rv
+            _ _ = Error "operate $op $l $r"
+    exp (Lookup name args) = evalution (scope + xs) ast
+        (Func names ast) = lookup name
+        scope = def names values
+            def [] _ = []
+            def _ [] = []
+            def (x xs) (y ys) = Define $ x y + (def xs ys)
+    exp x(Int _) = x
+    exp x(Error _) = x
+    exp x = Error "$x"
+
+# ---( parse.vl )-----------------------------------------------------
+parse String [AST]
+parse src = lib.parser src do top
+
+lib.parser do
+    top = many define
+    value = int | op 
+    define = Define $ name value
+    int = Int $ fill num .int
+    real = Real $ fill3 num (char ".") num .real
+    op = Op $ operator value value
+        operator = one "+-"
+    name = many $ one 'a'..'z'
+    error = Error "parse error $src[pos-10:pos]..."
+
+# ---( lib/parser.vl )-----------------------------------------------------
+parser String Do
+parser src do
+    pos 0
+    num = fill1 ('0' <= _1 <= '9')
+    char x = read (== x)
+    one [x xs] = fill x | one xs
+    fill f = f current ? eat + fill f : ""
+    fill1 f = f current ? eat + fill f : fail
+    current = src[pos]
+    eat = src[pos++]

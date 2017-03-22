@@ -1,0 +1,155 @@
+# core
+
+#DEFAULT String = Bool + { False { error Error } }
+File path {
+        FH {
+                read size -> buf
+                write buf
+                seek pos
+                pos -> pos
+                flush
+                close
+        }
+        Stat {
+                ctime = Time
+                utime = Time
+                mtime = Time
+                uid = Number
+                gid = Number
+                can_read = Bool
+                can_write = Bool
+                can_execute = Bool
+        }
+        exists
+        copy to 
+        mv to
+        rm 
+        glob [filter] = [File]
+        files [filter] = [File]
+        dirs [filter] = [File]
+        open -> FH
+        mkdir
+        touch
+        stat = Stat
+        write buffer
+        read = String | $RET
+        readline -> line
+}
+Net addr Addr port:0 {
+        Addr = IP | HOST
+        IP Number
+        Host String
+        opt <SO_...>
+        bind -> Sock
+        connect -> Sock
+        Sock {
+                opt <SO_...>
+                read size -> buf
+                write buf
+                flush
+                shutdown
+                close [<read write>]
+        }
+}
+Task (run $arg) [priority] {
+        run $arg
+        sleep msec
+        exit
+}
+#DEFAULT Integer = Number
+Time year month day hour min sec {
+        parse str = Time
+        now = Time
+        zone tz = Time
+        serial
+        string = format "%Y/%m/%d %H:%M:%S"
+        format fmt = String
+        iso... = String
+        rfc... = String
+        diff time Time = {
+                year
+                month
+                day
+                hour
+                min
+                sec
+                serial
+        }
+        date = Date
+        Date = {
+                year  = year
+                month = month
+                day   = day
+                day_of_month
+                day_of_year
+                day_of_at <Time Date>
+                time = Time
+#RET Date
+                next_day
+                next_month
+                next_year
+                prev_day
+                prev_month
+                prev_year
+        }
+}
+# type
+number
+string
+array
+hash
+table
+enum
+set
+
+# depend
+digest
+openssl
+complex
+iconv
+math
+nkf
+readline
+zlib
+libxml
+
+# library
+base64
+benchmark
+cgi
+coverage
+csv
+date
+dbm
+debug
+expect
+ip
+json
+logger
+matrix
+prime
+net/ftp
+net/http
+net/https
+net/imap
+net/pop
+net/protocol
+net/smtp
+net/telnet
+optparse
+pathname
+pp
+profile
+pstore
+pty
+resolv
+rss
+stringio
+strscan
+test
+time
+uri
+yaml
+
+
+

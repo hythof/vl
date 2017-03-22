@@ -1,0 +1,56 @@
+Tree k v = Empty | Node k v Empty Empty
+Empty {
+    insert xk xv = Node xk xv Empty Empty
+    search _ = Nothing
+}
+Node k v l r {
+    insert xk xv =
+    | xk == k | Node k v l r
+    | xk >  k | Node xk xv (l.insert k v) r
+    | xk <  k | Node xk xv l (r.insert k v)
+    search xk =
+    | xk == k | v
+    | xk >  k | l.search xk
+    | xk <  k | r.search xk
+}
+t1 = t.insert "foo" "bar" # Node "foo" "bar" Empty Empty
+t2 = t1.insert "hoge" "fuga" # Node "foo" "bar" (Node "hoge "fuga" Empty Empty) Empty
+v  = t2.search "foo" # "bar"
+
+-- function
+sendmail from to subject body = stringfy
+{
+  bcc  [String]
+  head [String]
+  head_string = [
+    "From" from
+    "To" to
+    "Subject" subject
+    "Bcc" bcc.join(";") if bcc
+  ].map{ "$1:$2" }.join "\n"
+  stringfy = head_string ++ "\n" ++ body
+}
+puts $ sendmail "from@example.com" "to@example.com" "hi" "hello"
+- bcc "bcc1@example.com" "bcc2@example.com"
+- head "X-sender" "example program"
+
+-- interface
+Eq a = {
+  (=),(!=) :: a a Bool
+  (==) = !(!=)
+  (!=) = !(==)
+}
+Ord a = Eq a + {
+  (>) (<) (>=) (<=) :: a a Bool
+  (>=) a b = a == b || a > b
+  (<=) a b = a == b || a < b
+}
+Num a = Ord a + {
+  (+) (-) (*) (**) :: a a a
+  negate x = - x
+  negate :: a
+  abs    :: a
+}
+Float a = Num a + {
+  (//) :: a a a
+}

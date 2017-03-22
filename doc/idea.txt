@@ -1,0 +1,173 @@
+# parser
+AST = Num Int
+    | Exp String AST AST
+root Parser AST
+exp Parser AST
+num Parser AST
+
+run Parser a -> String -> Maybe AST
+oneOf [Char] -> Parser Char
+many1 Parser a -> Parser [a]
+int Parser a -> Parser Int
+try Parser a -> Parser a
+or Parser a -> Parser a -> Parser a
+
+main = print (root.run "1 + 1")
+root = try exp `or` num
+exp = do
+    l = num
+    op = oneOf "+-/*"
+    r = num
+    Exp op l r
+num = oneOf("0123456789").many1.int
+
+# std like a haskell
+Monad t
+    wrap a -> t a
+    bind t a -> (a -> t b) -> t b
+
+State a
+    input String
+    pos Int
+    match Maybe a
+    hit a = { match Just a }
+    miss = { match Nothing }
+    consume f = if pos < input.size && f input[pos]
+        { pos+=1; match Just input[pos] }
+        miss
+
+Parser a = Parser State b -> State a
+
+Monad Parser t
+    wrap a s = s.hit a
+    fmap f p s = s.match.if (v -> s.hit f v) s
+    bind p f s = (p s).match.if (v -> f v) s
+
+run p s = (p (State s 0 (Just 0))).match
+oneOf xs s = s.consume xs.has
+
+many p ss = many_r [] ss
+  where
+    many_r acc s = (p s).match.if (x -> many_r x:acc (p s)) acc
+    many_r acc s = (p s).next
+
+many1 = do
+    x <- p
+    xs <- many p
+    wrap x:xs
+int p = fmap (.int) p
+try p s = (p s) `or` s.miss
+or l r s = (l s).match.if (_ -> l s) (r s)
+
+# parser
+Maybe a = Just a
+        | Nothing
+
+Parser a
+    input String
+    pos Int
+    match Maybe a
+
+Parser.Sequence
+    miss Parser a -> Parser a
+    return Parser a -> Int -> a -> Parser a
+    bind Parser a -> (a -> Parser b) -> Parser b
+    or (Parser a -> Parser b) -> (Parser a -> Parser b) -> Parser b
+    try (a -> Parser b) -> (a -> Parser b) -> Parser b
+    many (a -> Parser b) -> Parser a -> Parser [b]
+    many1 (a -> Parser b) -> Parser a -> Parser [b]
+    oneOf [Char] -> Parser a -> Parser Char
+
+    miss p = Parser p.input p.pos Nothing
+    hit p pos a = Parser a.input (p.pos + pos) a
+
+    bind p f = case p.match
+        Just x = f x p
+        Nothing = p
+
+    or f1 f2 p = case (f1 p).match
+        Just _ = f1 p
+        Nothing = f2 p
+
+    try f p = case (f p).match
+        Just _ = f p
+        Nothing = p.miss
+
+    many f p = many_r (f p) []
+      where
+        many_r result acc = case result.match
+            Just x = many_r (f result) x:acc
+            Nothing = p.hit acc
+
+    many1 f = do
+        x = f
+        xs <- many f
+        hit x:xs
+
+    oneOf xs p = if xs.has p.input[p.pos]
+        p.hit 1 p.input[p.pos]
+        p.miss
+
+# http proxy with connection pool
+main = Actor ->
+    server ":80" "127.0.0.1:80"
+    client "localhost:80"
+
+server listen forward = Tcp.listen listen from -> copy from (Tcp.pool {max 100, ttl 60} forward)
+
+copy from to =
+    request = protocol.http.parse from
+    to.put request.binary
+    response = protocol.http.parse to
+    from.put response
+
+client target = Tcp.connect target ->
+    put "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n"
+
+# http proxy
+main = Actor ->
+    server ":80" "127.0.0.1:80"
+    client "localhost:80"
+
+server listen forward = Tcp.listen listen from -> copy from (Tcp.connect forward) 
+
+copy from to =
+    request = protocol.http.parse from
+    to.put request.binary
+    response = protocol.http.parse to
+    from.put response
+
+client target = Tcp.connect target ->
+    put "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n"
+
+# add
+server = Tcp.listen "*" 8080 ->
+    left = gets
+    op = gets
+    right = gets
+    puts (eval op left right).string
+
+eval op left right = case op
+    "+" = l + r
+    "-" = l - r
+  where
+    l = left.int
+    r = right.int
+
+eval op left right =
+    l = left.int
+    r = right.int
+    case op
+        "+" = l + r
+        "-" = l - r
+
+client hsot port = Tcp.connect host port ->
+    puts "1"
+    puts "+"
+    puts "2"
+    client.gets
+
+main = Actor ->
+    run server
+    for 10000
+        run client

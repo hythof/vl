@@ -1,36 +1,190 @@
-# Haskellインタプリタ
-[x] 代数データ型実装
-[x] 代数データ型パターンマッチ実装
+Making VL better
+VLのミッションは、開発者が快適にコーディングできる
+ようにすることで、生産性と実行パフォーマンスを
+劇的に改善することである
+
+Todo
+[] doとcaseを記述可能な構文
 [] モナド構文
+[] 名前空間構文
+[] マクロ構文
+[] 閉じカッコ統一 or オフサイドルール or do .. end構文
+[] テスト設計
+[] パーサ実装
+[] 実行器実装
+[] C言語変換
+[] ランタイム実装
+[] 遅延リスト構文
+[] 遅延評価構文
+[] スタックへのアクセス
+[] like a julia. code_llvm, code_native
 
-# vlコンパイラ
-[] メモリ書き換え
-[] PT変換
-[] AST変換
-[] REPL開発
-[] 型推論
-[] C変換
+Milestone
+[] Blog立ち上げ
+[] Githubへpush
+[] REPLをHaskellで実装
+[] GoトランスレータをREPLで動かす
+[] GoトランスレータでVM作成
+[] v0.1をリリース
+
+[] シンタックスハイライト(vim, emacs, atom)
+[] lint
+[] formatter
+[] v0.2をリリース
+
+[] ConsoleをVMでサポート
+[] Network IOをVMでサポート
+[] File IOをVMでサポート
+[] Time APIをVMでサポート
+[] Micro ThreadをVMでサポート
+[] RandomをVMでサポート
+[] 汎用StreamをVMでサポート
+[] v0.3をリリース
+
+[] 大規模にコードをダイエット
+[] v0.4をリリース
+
 [] 標準ライブラリ実装
-[] デバッガ開発
+[] v0.5をリリース
 
-# 今回はやらない
-機能
-- メモリ書き換え
-- マクロ
-- 例外の補足
-- 継続
-- ポインタ
-- int8 .. int64
-- uint8 .. uint64
-- float32, float64
-最適化
-- 定数畳み込み
-- 末尾再帰の最適化
-- 関数のインライン展開
-言語変換
-- Erlang変換
-- Javascript変換
-- Swift変換
-- Java変換
-- Go変換
-- C#変換
+[] Mac対応
+[] Windows対応
+[] v0.6をリリース
+
+[] APIリファレンス
+[] チュートリアル
+[] v1.0をリリース
+
+[] ライブラリWeb Application Framework
+[] ライブラリMySQL
+[] ライブラリRedis
+[] v1.1をリリース
+
+[] ライブラリAWS
+[] ライブラリGoogle
+[] ライブラリOAuth1/2
+[] v1.2をリリース
+
+言語
+[x] 予約語はifとcaseのみ
+[x] 基本型
+    - num
+    - bool
+    - string
+    - list
+    - struct
+    - function
+    - apply
+    - if
+    - named tuple
+    - case
+[x] コメント # this is a comment
+[x] 先行評価、ifは例外
+[x] ゼロオーバーヘッド
+[x] 仮想ストリーム
+[x] モナド
+
+条件
+[X] フリー実装       : Haskell VL
+[X] 本               : Blog
+[X] ハックすべきもの : Web
+
+--------------------------------------------------
+実装 - vl core library
+[] string
+[] 実行時トレース
+[] 代数データ型
+[] クラス
+[] Genericクラス
+[] 多倍長数値
+[] 型宣言
+[] 型推論
+[] 型変数
+[] 有理数
+[] オンメモリランタイム
+   MemoryStream
+   ConsoleStream
+
+--------------------------------------------------
+実装 - vl standard library
+[] 文字列展開式 "$name $array.length $(add 1 2)"
+[] 範囲初期化配列 [1..5] -> [1 2 3 4 5] や ['a' .. 'z']
+[] 範囲演算子の導入 0 < x < 10
+[] ベンチマーク
+[] プロファイラ
+[] Readline
+[] text/json
+[] text/encode # ascii, utf8, utf16, utf32, sjis
+[] text/base64
+[] archive/zip # gzip tar lzh
+[] hash/md5
+[] hash/sha256
+[] image/gif
+[] image/jpeg
+[] image/png
+[] net/http
+[] net/http1
+[] net/http2
+[] net/tls
+[] net/smtp
+[] net/pop3
+[] net/imap4
+[] ssl
+[] math
+
+--------------------------------------------------
+メモ
+-- calc
+    eval src = expr (words src)
+    expr (x "+" xs) = x + (term xs)
+    expr (x "-" xs) = x - (term xs)
+    expr xs         = term xs
+    term (x "*" xs) = x * (factor xs)
+    term (x "/" xs) = x / (factor xs)
+    term xs         = factor xs
+    factor ("(" xs ")") = expr xs
+    factor (x _)    = real x
+
+-- porker without type
+    (spade | dia | clover | heart) n
+    straight_flush | flush | full_house | straight | five_card | for_card | three_card | two_card | one_pair | nothing
+
+    main = check [spade 1, spade 2, dia 1, clover 1, heart 1]
+    check xs = case xs.sort (_ n = n)
+        (e n, e n+1, e n+2, e n+3, e n+4) = straight_flush
+        (_ n, _ n+1, _ n+2, _ n+3, _ n+4) = straight
+        (e _, e _, e _, e _, e _) = flush
+        (_ n, _ n, _ n, _ m, _ m) = full_house
+        (_ n, _ n, _ n, _ n, _ n) = five_card
+        (_ n, _ n, _ n, _ n, _ _) = for_card
+        (_ n, _ n, _ n, _ _, _ _) = three_card
+        (_ n, _ n, _ m, _ m, _ _) = two_pair
+        (_ n, _ n, _ _, _ _, _ _) = one_pair
+        _                         = nothing
+
+--------------------------------------------------
+参考
+
+http://practical-scheme.net/trans/hundred-j.html
+| (1)100年後の言語は、原理的には、 現在でも設計できる。
+| (2)そのような言語は、もし存在すれば、 現在でもプログラムを書くのに良い言語かもしれない。
+| こんなふうにアイディアを並べて見ていると、 100年後の言語を、今、設計したくなってこないかい?
+|
+| 言語を設計する時には、そういうターゲットを設定して、常に頭に置いておく ことは良いことだと思う。
+| 運転を習う時、道路の線に車を合わせるのではなく、 遠くの点を目標にして方向を合わせると良いと教わるはずだ。
+| たとえ目先10フィートまでに起こることが重要なのだとしても、そのアドバイスは 正しい。
+| プログラミング言語に関しても、それは同じだ。
+
+http://postd.cc/less-is-more/
+| 完璧なプログラミング言語は以下の項目を含まないものだと考えます。
+| - goto
+| - 例外
+| - ポインタ
+| - 数値
+| - ヌルポインタ
+| - 変換
+| - 参照の等価性
+| - 継承
+| - インターフェース
+| - リフレクション
+| - 循環依存

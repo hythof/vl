@@ -1,0 +1,3 @@
+main console = {
+    console.puts "hello world"
+}

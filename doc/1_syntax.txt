@@ -1,0 +1,88 @@
+# -- bnf
+root : define*
+
+# define
+define : def_type
+       | def_var
+       | def_func
+       | def_proc
+
+def_type : type struct
+         | type "[" exp "]"
+
+def_var : id exp
+
+def_func : id arg* "=" exp struct?
+
+def_proc : id arg* "=" proc
+
+proc : "{" line* "}"
+
+line : define
+     | call
+
+call : id exp*
+     | "return" exp?
+     | "if" exp proc ("else" proc)*
+     | "continue" ([1-9][0-9]*)? ("if" exp)?
+     | "break" ([1-9][0-9]*)? ("if" exp)?
+     | "try" proc "catch" (type_id* proc)+
+     | "throw" exp?
+
+# expression
+exp : "(" exp ")"
+    | exp "*" exp
+    | exp "/" exp
+    | exp "%" exp
+    | exp "&" exp
+    | exp "|" exp
+    | term
+
+term : term "+" term
+     | term "-" term
+     | comp
+
+comp : comp ">" comp
+     | comp "<" comp
+     | comp ">=" comp
+     | comp "<=" comp
+     | comp "==" comp
+     | comp "!=" comp
+     | factor
+
+single : "!" factor
+       | "+" factor
+       | "-" factor
+       | "++" factor
+       | factor
+
+factor : value
+       | lookup
+       | exp
+
+value : int
+      | float
+      | bool
+      | string
+      | array
+      | struct
+      | type struct
+
+#id
+id : [a-z][A-Za-z0-9_]*
+type : [A-Z][A-Za-z0-9]*
+type_id : type id
+        | id
+arg : id
+    | type id
+lookup : id "." lookup
+       | id exp*
+
+#value
+int : [+-]?[1-9][0-9]+
+float : [+-]?[1-9][0-9]+ "." [0-9]+
+bool : "true" | "false"
+string : '"' .+? '"'
+       | "'" .+? "'"
+array : "[" exp* "]"
+struct : "{" define* "}"

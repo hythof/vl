@@ -1,0 +1,155 @@
+-- format
+1
+1.1
+"string"
+T # or F
+[ ... ]
+{ ... }
+var 10
+Tree = Empty | Node a Tree Tree
+func arg1 arg2 = return
+
+
+-- io
+main = env.console -> argv
+    spawn http.listen 80
+
+[http]
+Method = GET path | POST path
+
+listen port = env.network.listen port -> sock
+    method = parse_header sock.readline
+    process header sock.read
+
+parse_header line = lib.parse line ->
+    parse_get | parse_post
+
+parse_post = POST path
+    string "GET "
+    path <- word
+    string "HTTP/"
+    v1 <- int
+    string "."
+    v2 <- int
+
+parse_get = GET path
+    string "GET "
+    path <- word
+    string "HTTP/"
+    v1 <- int
+    string "."
+    v2 <- int
+    
+    
+    
+    
+
+process header body =
+
+max a b = if a > b then a else b
+min a b = if a < b then a else b
+
+env.console.puts message = C{ puts(message.char); } # native code
+MySQL {
+    host "localhost"
+    port 3306
+    user ""
+    pass ""
+    connect -> {
+        TCP.connect host port -> sock {
+            sock.send "auth $user $pass"
+            execute sql = sock.send sql
+        }
+    }
+    sql table = {
+        select = where "SELECT * FROM $table"
+        where base = {
+            sql = base + cond
+            cond = " WHERE ($cond)"
+            cond(conds == []) = ""
+            cond = conds.join ") AND ("
+            order = order
+        }
+        order x:xs = x : xs
+        order x = x
+    }
+    execute s = connect -> sock { sock.write s }
+}
+
+Kakeibo {
+    id 0
+    price 0
+    title ""
+}
+kakeibo [Kakeibo]
+
+Response = Status Integer String | Html String | Json String | File String | Template String Struct
+render path struct = Template path struct
+render path = Template path {}
+run "/" = render "index.html" {
+    title = "hello"
+    name = "name"
+}
+run _ = render "404.html"
+
+main = env.console -> (
+    ip = argv 0 "0.0.0.0"
+    port = argv 1 80
+    header [("Content-Type" "text/json; charset=utf-8")]
+    print $ response run cgi.path
+) {
+    response (Template path param) = 
+        "Content-Type: $mime\r\n" +
+        "Content-Length: $content.size\r\n" +
+        "\r\n" +
+        content
+        {
+            content = text.replace /$(\w+)/ -> param[$1]
+            text = IO.read path || "" :: memoize
+        }
+    response (File path) = 
+        "Content-Type: $mime\r\n" +
+        "Content-Length: $content.size\r\n" +
+        "\r\n" +
+        content
+        {
+            content = IO.read path || ""
+            mime = path.ext of 
+            | "jpg" = "image/jpeg"
+            | "png" = "image/png"
+            | "gif" = "image/gif"
+            | "html" = "text/html; charset=utf-8"
+            | "css" = "text/css; charset=utf-8"
+            | "js" = "text/js; charset=utf-8"
+        }
+    response (Html content) = 
+        "Content-Type: text/html; charset=utf-8\r\n" +
+        "Content-Length: $content.size\r\n" +
+        "\r\n" +
+        content
+    response (Json content) = 
+        "Content-Type: application/json; charset=utf-8\r\n" +
+        "Content-Length: $content.size\r\n" +
+        "\r\n" +
+        content
+    response (Status 300 content) = "Location: $cotent"
+    response (Status 301 content) = "Location: $cotent"
+    response (Status 302 content) = "Location: $cotent"
+    response (Status status content) = "Status: $status" + (response $ Html content)
+}
+
+main = env.console -> puts {
+    name = argv 0 "" # argv = env.console.argv
+    puts name # puts = env.console.puts
+    puts say
+    for 1 .. 9 -> i
+        for 1 .. 9 -> j
+            puts "$i x $j = " i * j
+    return argc == 0 ? 1 : 0
+}
+env.console {
+    puts message = C{ puts(message.char); } # native code
+}
+
+# main.argv = ["foo" "bar"]
+# main

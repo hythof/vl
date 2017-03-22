@@ -1,0 +1,213 @@
+----------------------- phase 0 minimum by haskell
+Value
+bool   # false or true : 1 .. 64
+int    # 0             : 1 .. 64
+float  # 0.0           : 32 or 64
+char   # 'a'           : 97
+array  # [1]
+struct # {n 0; m 0}
+
+Struct
+if     # if cond a b
+func   # add a b = a + b
+
+----------------------- phase 1 syntax sugar
+class     # Person { name ""; age 0; show = "$name $age" }
+interface # Show { show string; calc int int }
+const     # n 0
+variable  # n 0 :var
+string    # "hello" : ['h' 'e' 'l' 'l' 'o']
+tag       # name "" : 10byte
+anotation # var 100 : 32bit serialize byteorder=big
+
+----------------------- phase 2 vl to C on haskell
+main = io.print eval
+code io.file.read io.argv.1
+ast parse code
+eval [] ast
+
+AST =
+| Int    integer
+| Double double
+| String string
+| Bool   bool
+| List   [AST]
+| Struct [(string, AST)]
+| Func   [string] AST
+| Lookup [string] [AST]
+| Op string AST AST
+| If AST AST AST
+| Error string
+
+parse :: string AST
+parse text = struct
+    pos : 0
+
+    -- utility
+    char = ++pos; text[pos]
+
+    -- expression
+    exp = (term "+" exp) |
+          (term "-" exp) |
+          term
+    term = (factor "*" term) |
+           (factor "/" term) |
+           factor
+    factor = exp
+
+    -- bottom
+    int = Int ...
+    double = Double ...
+    string = String ...
+    bool = Bool ...
+    list = List ...
+    struct = Struct ...
+    func = Func ...
+    lookup = Lookup ...
+    op = Op ...
+    if = If = ...
+
+to_c :: AST string
+to_c ast = if ast
+| Int    v = v
+| Double v = v ++ ".0"
+| String v = "$v"
+| Bool   v = if v 1 0
+| List   v = ast
+| Struct v = ast
+| Func   name stmt = eval scope stmt
+| Lookup name args = find name scope2
+| Op "+" (Int l) (Int r) = Int (l + r)
+| Op "-" (Int l) (Int r) = Int (l - r)
+| Op "*" (Int l) (Int r) = Int (l * r)
+| Op "/" (Int l) (Int r) = Int (l / r)
+| Op "+" (Double l) (Double r) = Double (l + r)
+| Op "-" (Double l) (Double r) = Double (l - r)
+| Op "*" (Double l) (Double r) = Double (l * r)
+| Op "/" (Double l) (Double r) = Double (l / r)
+| Op "++" (String l) (String r) = String (l ++ r)
+| Op "++" (List l) (List r) = List (l ++ r)
+| If cond a b) = if eval scope cond then a else b
+| Error string) = ast
+| _ = Error ("[BUG] " ++ show ast)
+  scope2 = scope ++ [(name, find name scope) for args]
+  find name xs = if xs
+  | [] = Error "not found $name in $(name for (name, _) = scope].join ', ')"
+  | (define, ast):xs = if name == define then ast else find name xs
+
+eval :: [(string, AST)] AST AST
+eval scope ast = if ast
+| Int    _ = ast
+| Double _ = ast
+| String _ = ast
+| Bool   _ = ast
+| List   _ = ast
+| Struct _ = ast
+| Func   name stmt = eval scope stmt
+| Lookup name args = find name scope2
+| Op "+" (Int l) (Int r) = Int (l + r)
+| Op "-" (Int l) (Int r) = Int (l - r)
+| Op "*" (Int l) (Int r) = Int (l * r)
+| Op "/" (Int l) (Int r) = Int (l / r)
+| Op "+" (Double l) (Double r) = Double (l + r)
+| Op "-" (Double l) (Double r) = Double (l - r)
+| Op "*" (Double l) (Double r) = Double (l * r)
+| Op "/" (Double l) (Double r) = Double (l / r)
+| Op "++" (String l) (String r) = String (l ++ r)
+| Op "++" (List l) (List r) = List (l ++ r)
+| If cond a b) = if eval scope cond then a else b
+| Error string) = ast
+| _ = Error ("[BUG] " ++ show ast)
+  scope2 = scope ++ [(name, find name scope) for args]
+  find name xs = if xs
+  | [] = Error "not found $name in $(name for (name, _) = scope].join ', ')"
+  | (define, ast):xs = if name == define then ast else find name xs
+
+----------------------- phase 3 standard library
+> 1 + 1
+2
+> add a b = a + b
+> add 1 2
+3
+> Person { name "" age 0 }
+> p = Person "foo" 20
+> p
+Person "foo" 20
+> p.name
+"foo"
+
+----------------------- phase 4 modify on haskell
+> xs = [2 3 1]
+> qsort xs
+[1 2 3]
+> xs
+[2 3 1]
+
+qsort xs_ = do
+    xs : xs_
+    quicksort 0 xs.length
+    return xs
+  where
+    quicksort left right = if left < right
+        i : left
+        j : right
+        k = i + (j - 1) / 2
+        pivot = med3 xs[i] xs[k] xs[j]
+        for
+            i++ for a[i] < pivot
+            j-- for pivot < a[j]
+            break if i >= j
+            xs[i], xs[j] = xs[j], xs[i]
+            i++
+            j--
+        quicksort left (i - 1)
+        quicksort (j + 1) right
+    med3 a b c = if
+    | a < b < c = b
+    | a < c < b = c
+    | b < a < c = a
+    | b < c < a = c
+    | c < b < a = b
+    | c < a < b = a
+
+
+----------------------- phase 6 type check
+> add a b = a + b
+> add 1 "b"
+CompileError miss match argument type
+  file(line): add 1 "b"
+  define    : add a a = a
+  expect    : add int int = int
+  fact      : add int string
+
+> concat string string string
+> concat a b = a + b
+> concat 1 2
+CompileError miss match argument type
+  file(line): concat 1 2
+  expect    : add string string = string
+  fact      : add int int
+
+----------------------- memo
+sumTree x = if x
+| Tip = 0
+| Node v t1 t2 = v + l + r
+    l = sumTree t1
+    r = sumTree t2
+
+Bookmark
+id int
+title string
+url string
+rating int
+toString = "$rating: $title ($id)"
+
+Person
+name ""
+age 0
+
+Person
+name string
+age int
+
+----------------------- modify syntax

@@ -1,0 +1,17 @@
+#!vl
+
+# primitive type
+int      | 0           | int
+uint     | +0          | uint
+float    | 1.0         | double
+binary   | 'bin'       | char[]
+string   | "hello"     | char[]
+bool     | T, F        | char
+function | id a = a    | macro
+struct   | {age 10}    | struct
+array    | [1 2 3]     | struct[T]
+
+# mixin type
+enum | { A B C } | int
+
+# user type
