@@ -1,0 +1,31 @@
+0.6
+[] Stream
+[] Console
+[] Network
+[] File
+[] Time
+[] Thread
+[] Random
+
+0.5
+[] Package manager
+
+0.4
+[] Lint
+[] Formatter
+[] Vim
+[] Emacs
+[] Atom
+
+0.3
+[] translate to JavaScript
+
+0.2
+[] Translate to C
+[] Use self hosting tools instead of Haskell and Makefile
+[] Windows support
+[] Mac support
+
+0.1
+[] Monad syntax
+[] Haskell interpreter
