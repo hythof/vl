@@ -1,3 +1,11 @@
+0.7
+[] Compression
+[] Encrypt
+[] Regexp
+[] XML
+[] YAML
+[] JSON
+
 0.6
 [] Stream
 [] Console
@@ -18,13 +26,13 @@
 [] Atom
 
 0.3
-[] translate to JavaScript
+[] Windows support
+[] Mac support
 
 0.2
 [] Translate to C
-[] Use self hosting tools instead of Haskell and Makefile
-[] Windows support
-[] Mac support
+[] Translate to JavaScript
+[] Bootstrap by self
 
 0.1
 [] Monad syntax
