@@ -1,39 +1,68 @@
-0.7
-[] Compression
-[] Encrypt
-[] Regexp
-[] XML
+VERSION
+1.2.3
+- 1 major version, does not backward compatibility
+- 2 minor version, add function but does not modify interface and remove
+- 3 patch, does not add/remove/modify interface
+
+1.0
+[] Documentation
+
+0.15
+[] Translate to JavaScript
+
+0.14
+[] Self booting
+[] Self parser
+
+0.13
+[] Translate to C
+
+0.12
+[] Lint
+[] Formatter
+[] Vim
+[] Atom
+
+0.11
+[] Encrypt RSA
 [] YAML
 [] JSON
+[] protocol HTTP/1.1
 
-0.6
+0.10
+[] Compression zip
+[] Encoding utf8 sjis
+[] Base64
+[] Regexp
+
+0.9
+[] Thread
+
+0.8
 [] Stream
 [] Console
 [] Network
 [] File
+
+0.7
 [] Time
-[] Thread
 [] Random
 
-0.5
+0.6
 [] Package manager
 
-0.4
-[] Lint
-[] Formatter
-[] Vim
-[] Emacs
-[] Atom
-
-0.3
+0.5
 [] Windows support
 [] Mac support
 
+0.4
+[] Name space
+
+0.3
+[] Monad syntax
+
 0.2
-[] Translate to C
-[] Translate to JavaScript
-[] Bootstrap by self
+[] Algebric data type
 
 0.1
-[] Monad syntax
-[] Haskell interpreter
+[x] Haskell interpreter

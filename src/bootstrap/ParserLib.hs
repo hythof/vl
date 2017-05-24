@@ -1,8 +1,9 @@
 module ParserLib where
 
-import AST
-import Control.Applicative (Applicative, (<*>), (*>), pure, Alternative, empty, (<|>))
-import Debug.Trace (trace)
+import           AST
+import           Control.Applicative (Alternative, Applicative, empty, pure,
+                                      (*>), (<*>), (<|>))
+import           Debug.Trace         (trace)
 
 data Source = Source String Int deriving Show
 data Parser a = Parser { runParser :: Source -> Maybe (Source, a) }
@@ -37,6 +38,17 @@ consume :: (Char -> Bool) -> Parser Char
 consume f = Parser $ \(Source s p) -> if p < length s && f (s !! p)
     then Just (Source s $ p + 1, s !! p)
     else Nothing
+
+eol :: Parser ()
+eol = (lookAhead $ char '\n' >> return ()) <|> eof
+
+eof :: Parser ()
+eof = Parser $ \(Source s p) -> if p == length s
+  then Just (Source s p, ())
+  else Nothing
+
+rest :: Parser String
+rest = Parser $ \(Source s p) -> Just ((Source s (length s)), take (length s - p) (drop p s))
 
 lookAhead :: Parser a -> Parser a
 lookAhead p = Parser $ \s -> fmap (\(_, v) -> (s, v)) $ runParser p s

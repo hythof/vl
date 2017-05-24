@@ -1,100 +1,111 @@
-main = "hello"
-test t = [
-    t.eq 1 1
-    t.eq 2 2
-]
+import calc parse eval
 
-# main.vl
-vl => parse eval
-src = "main = a + b
-a 1
-b 2"
-main = case parse src
-    some v s = case eval v
-    | num n  = n . stdout
-    | _      = "$v $s" . stderr
-    none v s = "$v $s" . stderr
+main = loop repl
+repl = do
+    src <- get-line
+    result <- run src
+    put-line result
+run src = case parse src
+    ng message : message
+    ok ast : (case eval ast
+        num n         : "$n"
+        error message : message)
 
-main = case parse src
-    some v s : case eval v
-    | num n  : n       . stdout
-    | _      : "$v $s" . stderr
-    none v s : "$v $s" . stderr
 
-# vl/ast.vl
-num value
-| op2 op left right
 
-# vl/parser.vl
-lib.parser => oneOf num parser or
-parer s = parser s | top
-top = or exp num
+namespace calc
+import system.parser parse as system-parser
+
+AST = num Int
+    | op2 String AST AST
+    | error String
+parse Stream AST
+eval AST AST
+
+parer s = case system-parser s top
+    ok ast     : ast
+    ng message : error message
+top = exp `or` value `or` error "miss match"
 exp = do
-    l = num
-    o = oneOf "+-"
-    r = num
-    some (op2 o l r)
-num = oneOf [0..9]
+    l <- num
+    o <- one-of "+-"
+    r <- num
+    op2 o l r
+value = do
+    v <- one-of [0..9] .many
+    num v.int
+eval (num n) = num n
+eval (op2 "+" l r) = op (+) l.eval r.eval
+eval (op2 "-" l r) = op (-) l.eval r.eval
+op _ (error s) _ = error s
+op _ _ (error s) = error s
+op f l r = f l r
 
-# vl/eval
-eval s = case s
-    num v       = v
-    op2 "+" l r = l + r
-    op2 "-" l r = l - r
 
-# -- library
-# satisfy, char, string, oneOf, noneOf
-# lookAhead, notFollowedBy
-# many, many1
-# between, sepBy, sepBy1
-# option
-parser code pos
-some value state | none value state
-iif cond f1 f2 = case cond
-    some v s = f1 v s
-    none v s = f2 v s
-and f1 f2 s = iif (f1 s) f2 none
-or f1 f2 s = iif (f1 s) some (_ = f2 s)
-do = {
-    bind m f = iif m f none
-    return = some
+namespace system
+
+Reader {
+    get-bytes Int [Byte]
 }
 
-satisfy f n s =
-    {pos code} = s
-    if pos + n < code.legnth && f code[pos:n]
-        some code[pos:n] s{pos += n}
-        none "$f" s
-_fold f acc s = iif (f s)
-    (x = x : _fold f (acc + [x]))
-    (_ = some acc)
-char x = satisfy (== x) 1
-string xs = satisfy (== xs) xs.length
-oneOf xs = satisfy xs.has 1
-noneOf xs = satisfy (x = (xs.has x).not) 1
-lookAhead f = or f (some ())
-notFollowedBy f = iif f (_ = none "notFollowedBy") (_ = some ())
-many1 f = do
-    v = f
-    vs = many f
-    some [v] + vs
-many f = _fold f []
-between open close f = do
-    open
-    v = f
-    close
-    some v
-sepBy1 f sep = do
-    v = f
-    vs = many do
-    | sep
-    | f
-    some [v] + vs
-sepBy f sep = or (sepBy1 f sep) (some [])
-option f v = or f (some v)
 
-macro.case v [(cond value) *xs] = if (v == cond) value (case v xs)
-macro.case _ _ = runtime_error "case miss match"
-macro.do [(x y) f] = x `bind` (v s -> f s)
-macro.do [x f] = x `bind` (_ s -> f s)
-macro.do [f] = f
+namespace system.parser
+
+Parsing a
+return # 定数       constnt
+bind   # 入れ子     nesting
+map    # 変換       convert
+>>     # 破棄合成   discard
+<|>    # 選択       option
+many   # 繰り返し   loop
+sep    # 区切り分割 split
+run    # 実行       run
+
+Parsing a = Reader -> ok a | ng String
+parse a = Parsing a
+one-of [a] (Parsing a)
+many (Parsing a) (Parsing [a])
+many1 (Parsing a) (Parsing [a])
+or (Parsing a) (Parsing a) (Parsing a)
+
+one-of xs = satisfy xs.has
+many f = do
+many_r f = satisfy
+many1 f = do
+    x <- f
+    xs <- many f
+    x:xs
+satisfy f = do
+    x <- try-get-char
+    if f x
+        ok x
+        ng "$f"
+
+
+namespace tmp
+
+# example of lazy input and lazy output
+
+Reader s m t {
+    read s (m (Maybe (t, s)))
+}
+
+# without exception handling
+main = do
+    convert stdin stdout
+
+# exception handling
+main = do
+    convert stdin stdout `catch` handle
+
+handle e = case e.caller
+    stdin  = print "error stdin $e"
+    stdout = print "error stdout $e"
+    _      = print "error $e"
+
+# pure
+convert Reader -> Writer -> Boolean
+convert in out = do
+    char <- in.char
+    out.char char.upcase
+    true

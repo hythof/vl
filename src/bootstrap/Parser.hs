@@ -1,7 +1,9 @@
 module Parser(parse, file, top) where
-import Control.Applicative (Applicative, (<*>), (*>), pure, Alternative, empty, (<|>))
-import AST
-import ParserLib
+import           AST
+import           Control.Applicative (Alternative, Applicative, empty, pure,
+                                      (*>), (<*>), (<|>))
+import           Debug.Trace         (trace)
+import           ParserLib
 
 parse :: Parser a -> String -> Either String a
 file       :: Parser [(String, AST)]
@@ -21,10 +23,10 @@ ast_if     :: Parser AST
 
 parse p s = case runParser p (Source s 0) of
     Just (_, v) -> Right v
-    Nothing -> Left "compile"
+    Nothing -> Left "fail parse"
 
 -- parse tree
-file = sepBy define (spaces >> char '\n')
+file = sepBy define separator
 top  = expression
 expression = operator
 factor = inner '(' ')' expression
@@ -82,17 +84,28 @@ ops       = string "=="
         <|> string "**"
         <|> string ">>"
         <|> string "<<"
-        <|> (fmap (\x -> [x]) $ oneOf "+-*/%|&<>") 
+        <|> (fmap (\x -> [x]) $ oneOf "+-*/%|&<>")
 name      = lift2 (:) alpha (many $ oneOf "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
 spaces    = many $ oneOf " \t"
 spaces1   = many1 $ oneOf " \t"
-define    = lift2 (\a b -> (a, b)) name (spaces >> top)
+define    = do
+    key <- name
+    val <- (algebric key) <|> top
+    return (key, val)
+  where
+    algebric key = do
+      args <- many (spaces1 >> name)
+      x <- lookAhead rest
+      spaces
+      lookAhead $ oneOf "|,}\r\n"
+      y <- lookAhead rest
+      return $ Tag key args []
 inner l r p = between (rtrim $ char l) (ltrim $ char r) p
   where
     ltrim f = white_space >> f
     rtrim f = f >> white_space
     white_space = many $ oneOf " \r\n\t"
-separator = (spaces >> (char ',') >> spaces)
+separator = (spaces >> (oneOf ",|") >> spaces)
         <|> (many1 $ oneOf " \r\n\t")
 
 lift :: Monad f => (a -> b) -> f a -> f b

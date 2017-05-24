@@ -1,0 +1,72 @@
+VERSION
+1.2.3
+- 1 major version, does not backward compatibility
+- 2 minor version, add function but does not modify interface and remove
+- 3 patch, does not add/remove/modify interface
+
+# platform support
+[] Windows support
+[] Mac support
+
+# support editor
+[] Vim               # my editor
+[] Atom              # popular editor
+[] Visual Studio     # visual studio code
+
+# release
+[] Documentation
+[] Benchmark
+[] Decision coverage
+
+# standard library
+[] Encoding JSON      # practice format
+[] protocol HTTP/1.0  # minimal implements
+[] Template literals  # precompile
+
+# for developer tools
+[] Cost calculater   # static profiler
+[] Coverage          # static analyzer basis
+[] Optimizer         # optimizer basis
+[] Lint              # improve team development
+[] Formatter         # improve team development
+[] Package manager
+- Command line design
+
+# CI
+[] Download dependency files, compile and linking script
+[] Travis CI
+
+# C wrappers
+[] Linking openssl
+[] Linking oniguruma
+[] Linking random
+[] Linking base64
+[] Linking zlib
+[] Linking ICU
+[] Linking time
+
+# Core
+[] Stream             # fd wrapper basis
+[] Console            # for practice
+[] Network            # for practice
+[] File               # for practice
+[] Parallels          # interface
+[] Worker             # like a process
+[] VM provide async network, async file, console, thread, process
+
+# translator
+[] Translate to C
+[] Self booting
+[] Self interpriter
+[] Self parser
+
+# basis
+[] Name space
+[] Monad syntax
+[] Case syntax
+[x] Algebric data type
+  declaration         | inference    | type name
+  num : num int       # num int      # num
+  bool : true | false # true | false # true__false
+[x] Type system design
+[x] Haskell interpreter

@@ -10,6 +10,7 @@ data AST =
   | String String
   | Struct [(String, AST)]
   | Func   [String] AST -- arguments, return
+  | Tag    String [String] [AST]
 -- refrence
   | Apply  [String] [AST] -- names, arguments
   | Op String AST AST

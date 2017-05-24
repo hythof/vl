@@ -34,7 +34,7 @@ syn match vlVariable /^| *[a-z.][a-zA-Z0-9._]*/
 syn match vlNumber / [0-9][0-9]*\(\.[0-9]\+\)\?/
 syn region vlString start='"' end='"' skip='\\"'
 
-syn keyword vlKeyword if case do end as
+syn keyword vlKeyword if case do end as namespace
 "syn region vlBlock start=/if/ end="end"
 
 hi def link vlDefine Define

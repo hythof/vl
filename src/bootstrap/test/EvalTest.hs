@@ -1,7 +1,7 @@
-module Main where 
-import Parser
-import Eval
-import AST
+module Main where
+import           AST
+import           Eval
+import           Parser
 
 check :: AST -> AST -> Either (AST, AST) (AST, AST)
 check expect fact = if expect == fact then Right (expect, fact) else Left (expect, fact)
@@ -87,6 +87,13 @@ main = do
       , def (Int 1) "set.x"
       , def (Int 2) "set.y"
       , def (Int 3) "set.z"
+      , def (Tag "zero" [] []) "zero"
+      , def (Tag "vector1" ["int"] []) "vector1"
+      , def (Tag "vector1" ["int"] [Int 1]) "vector1 1"
+      , def (Tag "vector2" ["int", "int"] []) "vector2"
+      , def (Tag "vector2" ["int", "int"] [Int 1, Int 2]) "vector2 1 2"
+      , def (Tag "true" [] []) "true"
+      , def (Tag "false" [] []) "false"
       ]
 
 example = "a 1\n" ++
@@ -98,4 +105,8 @@ example = "a 1\n" ++
     "move = (point 1 2)\n" ++
     "transform = point + order\n" ++
     "set = (transform 1 2 3)\n" ++
+    "zero\n" ++
+    "vector1 int\n" ++
+    "vector2 int int\n" ++
+    "true | false\n" ++
     "top = {i 1, nest {j 2, ij = i + j}}"
