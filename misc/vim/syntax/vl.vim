@@ -29,8 +29,9 @@ hi def link vlComment Comment
 syn case match
 
 syn match vlType /^ *[A-Z][a-zA-Z0-9_]*/
+syn match vlType /^:[a-zA-Z0-9_]*/
+syn match vlType /^-type [a-zA-Z0-9_]*/
 syn match vlVariable /^[a-z.][a-zA-Z0-9._]*/
-syn match vlVariable /^| *[a-z.][a-zA-Z0-9._]*/
 syn match vlNumber / [0-9][0-9]*\(\.[0-9]\+\)\?/
 syn region vlString start='"' end='"' skip='\\"'
 

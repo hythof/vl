@@ -95,10 +95,8 @@ define    = do
   where
     algebric key = do
       args <- many (spaces1 >> name)
-      x <- lookAhead rest
       spaces
-      lookAhead $ oneOf "|,}\r\n"
-      y <- lookAhead rest
+      lookAhead $ oneOf "|}\r\n"
       return $ Tag key args []
 inner l r p = between (rtrim $ char l) (ltrim $ char r) p
   where

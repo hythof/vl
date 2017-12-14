@@ -73,8 +73,8 @@ main = do
       , def "add" $ Func ["a", "b"] (Op "+" (Apply ["a"] []) (Apply ["b"] []))
       , def "transform" $ Op "+" (Apply ["point"] []) (Apply ["order"] [])
       , def "set" $ Apply ["transform"] [Int 1, Int 2, Int 3]
-      , def "true" $ Tag "true" [] []
-      , def "false" $ Tag "false" [] []
+      , def "just" $ Tag "just" ["a"] []
+      , def "none" $ Tag "none" [] []
       , def "top" $ Struct [("i", Int 1), ("nest", Struct [("j", Int 2), ("ij", Op "+" (Apply ["i"] []) (Apply ["j"] []))])]
       ]
 
@@ -87,5 +87,5 @@ example = "a 1\n" ++
     "move = (point 1 2)\n" ++
     "transform = point + order\n" ++
     "set = (transform 1 2 3)\n" ++
-    "true | false\n" ++
+    "just a | none\n" ++
     "top = {i 1, nest {j 2, ij = i + j}}"

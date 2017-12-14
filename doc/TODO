@@ -1,8 +1,8 @@
 VERSION
 1.2.3
 - 1 major version, does not backward compatibility
-- 2 minor version, add function but does not modify interface and remove
-- 3 patch, does not add/remove/modify interface
+- 2 minor version, add function, does not chnage function interface and remove it
+- 3 patch, only change logic, does not add/remove/change function interface
 
 # platform support
 [] Windows support
@@ -34,7 +34,7 @@ VERSION
 
 # CI
 [] Download dependency files, compile and linking script
-[] Travis CI
+[] Circle CI
 
 # C wrappers
 [] Linking openssl
@@ -61,12 +61,58 @@ VERSION
 [] Self parser
 
 # basis
+[] Haskell interpreter
+
+# syntax
+[x] Primitive
+    char     'c'
+    string   "text"
+    int      1
+    float    2.0
+    array    [1 2]
+    tuple    (1, 2)
+    struct   {f1 1, f2 "s"}
+    function (a b = a + b)
+    assign   year = 2017; add a b = a + b
+    call     add(1 add(one two))
+    variable do { xs := []; xs.add 10; xs = xs.uniq }
+[x] Optimization
+    gc
+    tail call
+    consistant folding
+    sized number : int8..64, uint8..64, float32, float64
+    manual capacity for array and number
+    assign from prepared memory pool
+[x] Functional Syntax
+    distance p1 p2 =
+        x = p2.x - p1.x
+        y = p2.y - p1.y
+        sqrt x + y
+    sd xs =
+        avg = xs.sum(+) / xs.size
+        xs.sum(x = x ** 2 - avg ** 2).root
+[x] Sequence Syntax
+    parser.csv = do(
+        _ = spaces
+        term = or(
+            "0123456789".oneOf.many1
+            between('"' '"' any1))
+        sep1 term (char ',')
+[x] Switch Syntax
+    fizzbuzz x = (if
+            (x / 15 == 0) "FizzBuzz"
+            (x / 3 == 0) "Fizz"
+            (x / 5 == 0) "Buzz"
+            x.to_s)
+    fizzbuzz x = (case (x / 3, x / 5)
+        (0, 0) "FizzBuzz"
+        (0, _) "Fizz"
+        (_, 0) "Buzz"
+        x.to_s)
+[x] Type system design
+    id a : a a
+    add a.num : a a
+[x] Algebric data type
+    tree a : leaf a | node (tree a) (tree a)
 [] Name space
 [] Monad syntax
-[] Case syntax
-[x] Algebric data type
-  declaration         | inference    | type name
-  num : num int       # num int      # num
-  bool : true | false # true | false # true__false
-[x] Type system design
-[x] Haskell interpreter
