@@ -110,6 +110,12 @@ sepBy1 p s = do
 option :: a -> Parser a -> Parser a
 option v p = Parser $ \s -> runParser p s <|> Just (s, v)
 
+lexeme :: Parser a -> Parser a
+lexeme p = do
+  x <- p
+  many $ oneOf " \t"
+  return x
+
 debug :: String -> Parser ()
 debug mark = Parser $ \s -> Just (strace s, ())
   where

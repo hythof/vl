@@ -1,4 +1,4 @@
-module Parser(parse, file, top) where
+module Parser(parse, program, ast_exp) where
 import           AST
 import           Control.Applicative (Alternative, Applicative, empty, pure,
                                       (*>), (<*>), (<|>))
@@ -6,73 +6,104 @@ import           Debug.Trace         (trace)
 import           ParserLib
 
 parse :: Parser a -> String -> Either String a
-file       :: Parser [(String, AST)]
-top        :: Parser AST
-expression :: Parser AST
-factor     :: Parser AST
-value      :: Parser AST
-ast_int    :: Parser AST
-ast_real   :: Parser AST
-ast_bool   :: Parser AST
-ast_list   :: Parser AST
-ast_string :: Parser AST
-ast_struct :: Parser AST
-ast_func   :: Parser AST
-ast_apply  :: Parser AST
-ast_if     :: Parser AST
-
 parse p s = case runParser p (Source s 0) of
     Just (_, v) -> Right v
     Nothing -> Left "fail parse"
 
--- parse tree
-file = sepBy define separator
-top  = expression
-expression = operator
-factor = inner '(' ')' expression
-  <|> value
-value = ast_list
-    <|> ast_struct
-    <|> ast_string
-    <|> ast_if
-    <|> ast_bool
-    <|> ast_real
-    <|> ast_int
-    <|> ast_func
-    <|> (spaces >> char '=' >> (notFollowedBy $ char '=') >> spaces >> top)
-    <|> ast_apply
-    <|> (fail "miss match")
+program :: Parser [AST]
+program = ast_top
 
--- value
-ast_int    = lift Int (fmap read nat)
+
+-- AST
+ast_top = sepBy ast_declare br
+
+ast_declare = ast_define
+          <|> ast_comment
+
+ast_define = do
+  reference <- ref
+  arguments <- ast_args
+  delimiter <- op_define
+  body <- ast_unit
+  return (if delimiter == ':'
+    then Type (reference !! 0) arguments body
+    else Def reference arguments body)
+
+ast_comment = do
+  char '#'
+  x <- many $ noneOf "\r\n"
+  return $ Comment x
+
+ast_exp = ast_op1
+  <|> ast_op2
+  <|> ast_func
+  <|> ast_unit
+  <|> (fail "miss match exp")
+
+ast_unit = lexeme $ ast_bracket
+   <|> ast_val
+   <|> ast_ref
+
+ast_bracket = group '(' ')' ast_exp
+
+ast_val = ast_list
+  <|> ast_struct
+  <|> ast_char
+  <|> ast_string
+  <|> ast_bool
+  <|> ast_real
+  <|> ast_int
+  <|> (fail "miss match")
+
+ast_op1 = do
+  op <- op1
+  x <- ast_unit
+  return $ Call [Ref [[op]], x]
+
+ast_op2 = do
+  l <- ast_unit
+  op <- op2
+  r <- ast_unit
+  return $ Call [Ref [op], l, r]
+
+ast_ref = do
+  x <- Ref <$> ref
+  xs <- many ast_unit
+  return $ if length xs == 0 then x else Call $ x : xs
+
+ast_func = do
+  xs <- ast_args1
+  arrow
+  body <- ast_exp
+  return $ Func xs body
+
+ast_arg = ast_val
+      <|> Ref <$> ref
+ast_args = lexeme $ sepBy ast_arg spaces1
+ast_args1 = lexeme $ sepBy1 ast_arg spaces1
+ast_list   = lift List $ group '[' ']' (sepBy ast_unit br)
+ast_struct = lift Struct $ group '{' '}' (sepBy ast_define br)
+ast_char   = lift Char $ group '\'' '\'' (noneOf ['\''])
+ast_string = lift String $ group '"' '"' (many $ noneOf ['"'])
+ast_bool   = lift (\x -> Bool $ x == "true") (string "true" <|> string "false")
 ast_real   = lift3 (\a b c -> Real $ (read (a ++ [b] ++ c))) nat (char '.') nat
-ast_bool   = lift (\x -> Bool $ x == 'T') (oneOf "TF")
-ast_string = lift String $ between (char '"') (char '"') (many $ noneOf ['"'])
-ast_func   = lift2 Func (sepBy1 name spaces1) (spaces >> char '=' >> (notFollowedBy $ char '=') >> spaces >> top)
-ast_if     = lift3 If (string "if" >> spaces >> top) (spaces >> top) (spaces >> top)
-ast_apply  = with_args
-         <|> without_args
-    where
-        --with_args = inner '(' ')' (lift2 Apply (sepBy1 name (char '.')) (many $ spaces >> top))
-        with_args = lift2 Apply (sepBy1 name (char '.')) (many $ spaces >> top)
-        without_args = lift2 Apply (sepBy1 name (char '.')) (return [])
+ast_int    = lift Int (fmap read nat)
 
--- container
-ast_list   = lift List $ inner '[' ']' (sepBy top separator)
-ast_struct = lift Struct $ inner '{' '}' (sepBy define separator)
-
--- expression
-operator = do
-    spaces
-    l <- factor
-    option l $ op2 l
-  where
-    op2 l = do
-        spaces
-        op <- ops
-        spaces
-        r <- expression
-        return $ Op op l r
+-- lexeme
+ref = lexeme $ sepBy1 name (char '.')
+op1 = lexeme $ oneOf "+-!~"
+op2 = lexeme (
+      (fmap (\x -> [x]) $ oneOf "+-*/><")
+  <|> string "<="
+  <|> string ">="
+  <|> string "=="
+  <|> string "<=>"
+  <|> string ">>"
+  <|> string "<<"
+  <|> string "||"
+  <|> string "&&")
+op_define = lexeme $ oneOf "=:"
+arrow = lexeme $ string "=>"
 
 -- utility
 alpha     = oneOf "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -88,23 +119,12 @@ ops       = string "=="
 name      = lift2 (:) alpha (many $ oneOf "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
 spaces    = many $ oneOf " \t"
 spaces1   = many1 $ oneOf " \t"
-define    = do
-    key <- name
-    val <- (algebric key) <|> top
-    return (key, val)
-  where
-    algebric key = do
-      args <- many (spaces1 >> name)
-      spaces
-      lookAhead $ oneOf "|}\r\n"
-      return $ Tag key args []
-inner l r p = between (rtrim $ char l) (ltrim $ char r) p
+group l r p = between (rtrim $ char l) (ltrim $ char r) p
   where
     ltrim f = white_space >> f
     rtrim f = f >> white_space
     white_space = many $ oneOf " \r\n\t"
-separator = (spaces >> (oneOf ",|") >> spaces)
-        <|> (many1 $ oneOf " \r\n\t")
+br = many1 $ spaces >> (many1 $ oneOf ";\r\n") >> spaces
 
 lift :: Monad f => (a -> b) -> f a -> f b
 lift f m = do
