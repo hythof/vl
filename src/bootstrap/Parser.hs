@@ -19,41 +19,16 @@ ast_top = sepBy ast_declare br
 
 ast_declare = ast_define
           <|> ast_comment
+          <|> (fail "no declare")
 
-ast_define = do
-  reference <- ref
-  arguments <- ast_args
-  delimiter <- op_define
-  body <- ast_unit
-  return (if delimiter == ':'
-    then Type (reference !! 0) arguments body
-    else Def reference arguments body)
-
-ast_comment = do
-  char '#'
-  x <- many $ noneOf "\r\n"
-  return $ Comment x
+ast_define = lift3 Def ref ast_args (op_define >> ast_unit)
+ast_comment = lift Comment (char '#' >> (many $ noneOf "\r\n"))
 
 ast_exp = ast_op1
   <|> ast_op2
   <|> ast_func
   <|> ast_unit
-  <|> (fail "miss match exp")
-
-ast_unit = lexeme $ ast_bracket
-   <|> ast_val
-   <|> ast_ref
-
-ast_bracket = group '(' ')' ast_exp
-
-ast_val = ast_list
-  <|> ast_struct
-  <|> ast_char
-  <|> ast_string
-  <|> ast_bool
-  <|> ast_real
-  <|> ast_int
-  <|> (fail "miss match")
+  <|> (fail "no exp")
 
 ast_op1 = do
   op <- op1
@@ -66,16 +41,38 @@ ast_op2 = do
   r <- ast_unit
   return $ Call [Ref [op], l, r]
 
-ast_ref = do
-  x <- Ref <$> ref
-  xs <- many ast_unit
-  return $ if length xs == 0 then x else Call $ x : xs
-
 ast_func = do
   xs <- ast_args1
   arrow
   body <- ast_exp
   return $ Func xs body
+
+ast_unit = lexeme $ ast_sequence
+  <|> ast_bracket
+  <|> ast_val
+  <|> ast_ref
+  <|> (fail "no unit")
+
+ast_val = ast_list
+  <|> ast_struct
+  <|> ast_char
+  <|> ast_string
+  <|> ast_bool
+  <|> ast_real
+  <|> ast_int
+  <|> (fail "no value")
+
+ast_bracket = group '(' ')' ast_exp
+
+ast_sequence = between (lexeme $ string "(do") (lexeme $ char ')') seq
+ where
+  seq = lift Seq (sepBy (lexeme $ ast_assign <|> ast_exp) br)
+  ast_assign = lift2 Assign name (spaces >> string "<=" >> spaces >> ast_exp)
+
+ast_ref = do
+  x <- Ref <$> ref
+  xs <- many ast_unit
+  return $ if length xs == 0 then x else Call $ x : xs
 
 ast_arg = ast_val
       <|> Ref <$> ref

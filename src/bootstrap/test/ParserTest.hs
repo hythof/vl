@@ -5,7 +5,7 @@ import           Parser
 
 check expect fact source = if expect == fact
   then Right "."
-  else Left $ "expect " ++ (show expect) ++ " | fact " ++ show fact ++ " | source " ++ source
+  else Left $ "expect: " ++ (show expect) ++ "\n  fact: " ++ show fact ++ "\nsource: " ++ show source
 
 ok expect source = case parse ast_exp source of
     Left x -> Left $ "Fail parse " ++ source
@@ -39,10 +39,10 @@ main = do
      , ok [List [Int 1, Int 2]] "[\n1\n2\n]"
      , ok [String ""] "\"\""
      , ok [Struct []] "{}"
-     , ok [Struct [Type "a" [] (Ref ["int"])]] "{a : int}"
-     , ok [Struct [Type "id" [Ref ["a"]] (Ref ["a"])]] "{id a : a}"
-     , ok [Struct [Type "a" [] (Ref ["int"]),
-                   Type "id" [Ref ["a"]] (Ref ["a"])]] "{a : int; id a : a}"
+     , ok [Struct [Def ["a"] [] (Ref ["int"])]] "{a : int}"
+     , ok [Struct [Def ["id"] [Ref ["a"]] (Ref ["a"])]] "{id a : a}"
+     , ok [Struct [Def ["a"] [] (Ref ["int"]),
+                   Def ["id"] [Ref ["a"]] (Ref ["a"])]] "{a : int; id a : a}"
      , ok [Ref ["a"]] "a"
      , ok [Ref ["a", "b"]] "a.b"
      , ok [Ref ["a", "b", "c"]] "a.b.c"
@@ -50,4 +50,6 @@ main = do
      , ok [Call [Ref ["a"], Ref ["b"]]] "(a b)"
      , ok [Call [Ref ["if"], Bool True, Int 1, Int 2]] "if true 1 2"
      , ok [Func [Ref ["a"]] $ Ref ["a"]] "a => a"
+     , ok [Seq [Assign "a" $ Ref ["f"]]] "(do a<=f)"
+     , ok [Seq [Assign "a" $ Ref ["f"], Ref ["a"]]] "(do a <= f\na)"
       ]

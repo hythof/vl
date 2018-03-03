@@ -1,6 +1,7 @@
 module AST where
 
 data AST =
+  -- value
     Int    Integer
   | Real   Double
   | Bool   Bool
@@ -9,13 +10,13 @@ data AST =
   | List   [AST]
   | Struct [AST]
   | Func   [AST] AST -- arguments, return
-  | Type   String [AST] AST -- name, arguments, return
+  | Seq    [AST]
+  | Assign String AST
+  -- reference
   | Def    [String] [AST] AST -- names, arguments, return
   | Ref    [String] -- names
   | Call   [AST]
-  | Comment String
-  | Namespace String
-  | Import [[String]]
-  | Export [[String]]
+  -- others
   | Error  String
+  | Comment String
   deriving (Show, Eq)
