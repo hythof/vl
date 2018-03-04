@@ -16,43 +16,31 @@ eval _ v@(Bool    _) = v
 eval s v@(List   xs) = List $ map (eval s) xs
 eval _ v@(Struct  _) = v
 eval _ v@(Func _  _) = v
-eval _ v@(Tag _ _ _) = v
 eval _ v@(Error   _) = v
 
--- Apply
-eval s (Apply names args) = ref s names
-  where
-    ref :: [(String, AST)] -> [String] -> AST
-    ref scope [] = Error "BUG1"
-    ref scope (x:[]) = case find x scope of
-        Func names' ast  -> eval ((zip names' args') ++ scope) ast
-        Struct fields    -> if length args == 0 then Struct fields else Struct $ zip (map fst fields) args'
-        Tag tag fields _ -> Tag tag fields args
-        other            -> eval scope other
-    ref scope (x:xs) = case find x scope of
-        Struct fields -> ref (fields ++ scope) xs
-        other         -> Error $ "BUG2 " ++ show other
-    find x scope = case lookup x scope of
-        Nothing  -> Error $ "not found " ++ x ++ " scope=" ++ (format "," $ map fst scope)
-        Just hit -> eval scope hit
-    args' = map (eval s) args
+-- Ref
+eval s (Ref x) = case lookup x s of
+  Nothing  -> Error $ " not found '" ++ x ++ "' scope=" ++ (show s)
+  Just hit -> eval s hit
 
--- Op
-eval s (Op _ (Error a) (Error b)) = Error $ a ++ " : " ++ b
-eval s (Op _ v@(Error _) _) = v
-eval s (Op _ _ v@(Error _)) = v
-eval s (Op op l r) = binaryOp op (toValue l) (toValue r)
+-- Call
+eval s (Call (x:xs)) = go x (map (eval s) xs)
   where
-    toValue x = case eval s x of
-        v@(Int _) -> v
-        v@(Real _) -> v
-        v@(String _) -> v
-        v@(Bool _) -> v
-        v@(List _) -> v
-        v@(Struct _) -> v
-        v@(Error m) -> v
-        v -> Error $ "not value" ++ (show v)
-    binaryOp :: String -> AST -> AST -> AST
+    go (Func args1 ast) args2 = eval (zip args1 args2) ast
+    go (Struct fields) args = Struct $ map (\((name, _), arg) -> (name, arg)) $ zip fields args
+    go (Ref name) [Struct fields] = eval (fields ++ s) (Ref name)
+    -- if
+    go (Ref "if") [cond, a, b] = case eval s cond of
+      (Bool True)  -> eval s a
+      (Bool False) -> eval s b
+      _            -> Error $ "cond is not boolean " ++ show cond
+    -- Op
+    go (Ref op) [l] = singleOp op (eval s l)
+    go (Ref op) [l, r] = binaryOp op (eval s l) (eval s r)
+    -- bug
+    go x xs = Error $ "bug " ++ show x ++ show xs
+    -- Single op
+    singleOp "+" l = l
     -- Op Int
     binaryOp "+" (Int a) (Int b) = Int $ a + b
     binaryOp "-" (Int a) (Int b) = Int $ a - b
@@ -87,15 +75,10 @@ eval s (Op op l r) = binaryOp op (toValue l) (toValue r)
     binaryOp "==" (List a) (List b) = Bool $ a == b
     -- Op Struct
     binaryOp "+" (Struct a) (Struct b) =  Struct $ a ++ b
+    -- Op Bool
     binaryOp "==" (Struct a) (Struct b) = Bool $ a == b
     -- Op Invalid
     binaryOp op a b = Error $ "invalid operator (" ++ (show a) ++ ") " ++ op ++ " (" ++ (show b) ++ ")"
-
--- If
-eval s (If cond a b) = case eval s cond of
-    (Bool True)  -> eval s a
-    (Bool False) -> eval s b
-    _            -> Error $ "cond is not boolean " ++ show cond
 
 -- utility
 format glue [] = ""

@@ -8,15 +8,13 @@ data AST =
   | Char   Char
   | String String
   | List   [AST]
-  | Struct [AST]
-  | Func   [AST] AST -- arguments, return
+  | Struct [(String, AST)]
+  | Func   [String] AST -- arguments, return
   | Seq    [AST]
   | Assign String AST
   -- reference
-  | Def    [String] [AST] AST -- names, arguments, return
-  | Ref    [String] -- names
+  | Ref    String
   | Call   [AST]
   -- others
   | Error  String
-  | Comment String
   deriving (Show, Eq)

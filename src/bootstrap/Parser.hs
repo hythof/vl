@@ -1,4 +1,4 @@
-module Parser(parse, program, ast_exp) where
+module Parser(parse, program, ast_exp, defines) where
 import           AST
 import           Control.Applicative (Alternative, Applicative, empty, pure,
                                       (*>), (<*>), (<|>))
@@ -10,19 +10,17 @@ parse p s = case runParser p (Source s 0) of
     Just (_, v) -> Right v
     Nothing -> Left "fail parse"
 
-program :: Parser [AST]
-program = ast_top
-
+program :: Parser [(String, AST)]
+program = defines
 
 -- AST
-ast_top = sepBy ast_declare br
-
-ast_declare = ast_define
-          <|> ast_comment
-          <|> (fail "no declare")
-
-ast_define = lift3 Def ref ast_args (op_define >> ast_unit)
-ast_comment = lift Comment (char '#' >> (many $ noneOf "\r\n"))
+defines = sepBy define br
+define = do
+  name <- ref
+  args <- ast_args
+  op_define
+  unit <- ast_unit
+  return $ (name, if length args == 0 then unit else Func args unit)
 
 ast_exp = ast_op1
   <|> ast_op2
@@ -33,13 +31,13 @@ ast_exp = ast_op1
 ast_op1 = do
   op <- op1
   x <- ast_unit
-  return $ Call [Ref [[op]], x]
+  return $ Call [Ref [op], x]
 
 ast_op2 = do
   l <- ast_unit
   op <- op2
   r <- ast_unit
-  return $ Call [Ref [op], l, r]
+  return $ Call [Ref op, l, r]
 
 ast_func = do
   xs <- ast_args1
@@ -70,16 +68,18 @@ ast_sequence = between (lexeme $ string "(do") (lexeme $ char ')') seq
   ast_assign = lift2 Assign name (spaces >> string "<=" >> spaces >> ast_exp)
 
 ast_ref = do
-  x <- Ref <$> ref
-  xs <- many ast_unit
-  return $ if length xs == 0 then x else Call $ x : xs
+    x:xs <- lexeme $ sepBy1 name (char '.')
+    let first = go (map Ref xs) (Ref x)
+    args <- many ast_exp
+    return $ if length args == 0 then first else Call $ first : args
+  where
+    go [] acc = acc
+    go (x:xs) acc = go xs (Call [acc, x])
 
-ast_arg = ast_val
-      <|> Ref <$> ref
-ast_args = lexeme $ sepBy ast_arg spaces1
-ast_args1 = lexeme $ sepBy1 ast_arg spaces1
-ast_list   = lift List $ group '[' ']' (sepBy ast_unit br)
-ast_struct = lift Struct $ group '{' '}' (sepBy ast_define br)
+ast_args = lexeme $ sepBy ref spaces1
+ast_args1 = lexeme $ sepBy1 ref spaces1
+ast_list   = lift List $ group '[' ']' (sepBy ast_exp br)
+ast_struct = lift Struct $ group '{' '}' defines
 ast_char   = lift Char $ group '\'' '\'' (noneOf ['\''])
 ast_string = lift String $ group '"' '"' (many $ noneOf ['"'])
 ast_bool   = lift (\x -> Bool $ x == "true") (string "true" <|> string "false")
@@ -87,32 +87,25 @@ ast_real   = lift3 (\a b c -> Real $ (read (a ++ [b] ++ c))) nat (char '.') nat
 ast_int    = lift Int (fmap read nat)
 
 -- lexeme
-ref = lexeme $ sepBy1 name (char '.')
+ref = lexeme $ name
 op1 = lexeme $ oneOf "+-!~"
-op2 = lexeme (
-      (fmap (\x -> [x]) $ oneOf "+-*/><")
-  <|> string "<="
+op2 = lexeme (string "<="
   <|> string ">="
   <|> string "=="
   <|> string "<=>"
   <|> string ">>"
   <|> string "<<"
   <|> string "||"
-  <|> string "&&")
+  <|> string "//"
+  <|> string "**"
+  <|> string "&&"
+  <|> (fmap (\x -> [x]) $ oneOf "+-*/%><|&"))
 op_define = lexeme $ oneOf "=:"
 arrow = lexeme $ string "=>"
 
 -- utility
 alpha     = oneOf "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 nat       = many1 $ oneOf "0123456789"
-ops       = string "=="
-        <|> string "//"
-        <|> string "||"
-        <|> string "&&"
-        <|> string "**"
-        <|> string ">>"
-        <|> string "<<"
-        <|> (fmap (\x -> [x]) $ oneOf "+-*/%|&<>")
 name      = lift2 (:) alpha (many $ oneOf "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
 spaces    = many $ oneOf " \t"
 spaces1   = many1 $ oneOf " \t"
