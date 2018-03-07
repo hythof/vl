@@ -14,7 +14,7 @@ ok expect source = case parse ast_exp source of
         "\n   ast: " ++ (show x)
 
 display :: [String] -> IO ()
-display xs = mapM_ putStr xs
+display xs = mapM_ putStr xs >> putChar '\n'
 
 main = do
     display [

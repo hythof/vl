@@ -1,5 +1,9 @@
-run:
-	@cd src/bootstrap; cat ../*.vl | runghc Main.hs
+all:
+	@echo "# metrics"
+	@make -s metrics
+	@echo
+	@echo "# test"
+	@make -s test
 
 metrics:
 	@echo `cat src/bootstrap/*.hs | wc -l` "lines bootstrap"
