@@ -2,19 +2,19 @@ module AST where
 
 data AST =
   -- value
-    Int    Integer
+    Char   Char
+  | Int    Integer
   | Real   Double
-  | Bool   Bool
-  | Char   Char
-  | String String
   | List   [AST]
-  | Struct [(String, AST)]
+  | Bool   Bool
+  | String String
   | Func   [String] AST -- arguments, return
+  | Struct [(String, AST)]
+  | Recursive [[String]]
+  | Algebra String [AST]
+  | Call   [AST]
   | Seq    [AST]
   | Assign String AST
-  -- reference
-  | Ref    String
-  | Call   [AST]
-  -- others
+  | Ref    [String]
   | Error  String
   deriving (Show, Eq)

@@ -119,4 +119,7 @@ lexeme p = do
 debug :: String -> Parser ()
 debug mark = Parser $ \s -> Just (strace s, ())
   where
-    strace s = trace ("#" ++ mark ++ " " ++ show s) s
+    strace s@(Source src pos) = trace ("#" ++ mark ++ "   " ++ show s ++ "   " ++ rest pos src) s
+    rest _ [] = ""
+    rest 0 xs = xs
+    rest n (x:xs) = rest (n - 1) xs

@@ -15,29 +15,41 @@ program = defines
 
 -- AST
 defines = sepBy define br
-define = do
+define = def_func <|> def_type <|> def_const
+def_func = do
   name <- ref
   args <- ast_args
   op_define
-  unit <- ast_unit
-  return $ (name, if length args == 0 then unit else Func args unit)
+  value <- ast_exp
+  return $ (name, if length args == 0 then value else Func args value)
+def_type = do
+  name <- ref
+  ast_args -- no support type arguments
+  body <- ast_algebra <|> ast_struct
+  return $ (name, body)
+def_const = do
+  name <- ref
+  value <- ast_exp
+  return $ (name, value)
 
 ast_exp = ast_op1
   <|> ast_op2
   <|> ast_func
-  <|> ast_unit
+  <|> ast_bool
+  <|> ast_call
+  <|> ast_atom
   <|> (fail "no exp")
 
 ast_op1 = do
   op <- op1
-  x <- ast_unit
-  return $ Call [Ref [op], x]
+  x <- ast_atom
+  return $ Call [Ref [[op]], x]
 
 ast_op2 = do
-  l <- ast_unit
+  l <- ast_atom
   op <- op2
-  r <- ast_unit
-  return $ Call [Ref op, l, r]
+  r <- ast_atom
+  return $ Call [Ref [op], l, r]
 
 ast_func = do
   xs <- ast_args1
@@ -45,13 +57,14 @@ ast_func = do
   body <- ast_exp
   return $ Func xs body
 
-ast_unit = lexeme $ ast_sequence
+ast_atom = lexeme $ ast_sequence
   <|> ast_bracket
   <|> ast_val
   <|> ast_ref
-  <|> (fail "no unit")
+  <|> (fail "no atom")
 
 ast_val = ast_list
+  <|> ast_algebra
   <|> ast_struct
   <|> ast_char
   <|> ast_string
@@ -60,34 +73,32 @@ ast_val = ast_list
   <|> ast_int
   <|> (fail "no value")
 
-ast_bracket = group '(' ')' ast_exp
+ast_bracket = within '(' ')' ast_exp
 
 ast_sequence = between (lexeme $ string "(do") (lexeme $ char ')') seq
  where
   seq = lift Seq (sepBy (lexeme $ ast_assign <|> ast_exp) br)
-  ast_assign = lift2 Assign name (spaces >> string "<=" >> spaces >> ast_exp)
+  ast_assign = lift2 Assign ref (spaces >> string "<=" >> spaces >> ast_exp)
 
-ast_ref = do
-    x:xs <- lexeme $ sepBy1 name (char '.')
-    let first = go (map Ref xs) (Ref x)
-    args <- many ast_exp
-    return $ if length args == 0 then first else Call $ first : args
-  where
-    go [] acc = acc
-    go (x:xs) acc = go xs (Call [acc, x])
+ast_call = do
+  f <- ast_ref
+  args <- many $ lexeme ast_exp
+  return $ if length args == 0 then f else Call $ f : args
 
-ast_args = lexeme $ sepBy ref spaces1
-ast_args1 = lexeme $ sepBy1 ref spaces1
-ast_list   = lift List $ group '[' ']' (sepBy ast_exp br)
-ast_struct = lift Struct $ group '{' '}' defines
-ast_char   = lift Char $ group '\'' '\'' (noneOf ['\''])
-ast_string = lift String $ group '"' '"' (many $ noneOf ['"'])
-ast_bool   = lift (\x -> Bool $ x == "true") (string "true" <|> string "false")
-ast_real   = lift3 (\a b c -> Real $ (read (a ++ [b] ++ c))) nat (char '.') nat
-ast_int    = lift Int (fmap read nat)
+ast_args    = many ref
+ast_args1   = many1 ref
+ast_ref     = lift Ref $ lexeme $ sepBy1 token (char '.') 
+ast_list    = lift List $ within '[' ']' (sepBy ast_exp br)
+ast_algebra = lift Recursive $ within '{' '}' (sepBy1 (many1 $ ref) (lexeme $ char '|'))
+ast_struct  = lift Struct $ within '{' '}' defines
+ast_char    = lift Char $ within '\'' '\'' (noneOf ['\''])
+ast_string  = lift String $ within '"' '"' (many $ noneOf ['"'])
+ast_bool    = lift (\x -> Bool $ x == "true") (string "true" <|> string "false")
+ast_real    = lift3 (\a b c -> Real $ (read (a ++ [b] ++ c))) nat (char '.') nat
+ast_int     = lift Int (fmap read nat)
 
--- lexeme
-ref = lexeme $ name
+-- with lexeme
+ref = lexeme $ token
 op1 = lexeme $ oneOf "+-!~"
 op2 = lexeme (string "<="
   <|> string ">="
@@ -103,13 +114,13 @@ op2 = lexeme (string "<="
 op_define = lexeme $ oneOf "=:"
 arrow = lexeme $ string "=>"
 
--- utility
+-- bottom
 alpha     = oneOf "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 nat       = many1 $ oneOf "0123456789"
-name      = lift2 (:) alpha (many $ oneOf "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+token     = lift2 (:) alpha (many $ oneOf "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
 spaces    = many $ oneOf " \t"
 spaces1   = many1 $ oneOf " \t"
-group l r p = between (rtrim $ char l) (ltrim $ char r) p
+within l r p = between (rtrim $ char l) (ltrim $ char r) p
   where
     ltrim f = white_space >> f
     rtrim f = f >> white_space
