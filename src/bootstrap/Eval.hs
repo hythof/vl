@@ -10,27 +10,30 @@ import           Debug.Trace (trace)
 eval :: [(String, AST)] -> AST -> AST
 
 -- Value
-eval _ v@(Char      _) = v
-eval _ v@(Int       _) = v
-eval _ v@(Real      _) = v
-eval s v@(List     xs) = List $ map (eval s) xs
-eval _ v@(Bool      _) = v
-eval _ v@(String    _) = v
-eval _ v@(Func    _ _) = v
-eval _ v@(Struct    _) = v
-eval _ v@(Recursive _) = v
-eval _ v@(Algebra _ _) = v
-eval _ v@(Assign  _ _) = v
-eval _ v@(Error     _) = v
+eval _ v@(Char      _)  = v
+eval _ v@(Int       _)  = v
+eval _ v@(Real      _)  = v
+eval s v@(List     xs)  = List $ map (eval s) xs
+eval _ v@(Bool      _)  = v
+eval _ v@(String    _)  = v
+eval _ v@(Func [] ast)  = ast
+eval _ v@(Func    _ _)  = v
+eval _ v@(Struct    _)  = v
+eval _ v@(Recursive _)  = v
+eval s v@(Instance name fields) = Instance name (map (\(field, ast) -> (field, eval s ast)) fields)
+eval _ v@(Assign  _ _)  = v
+eval _ v@(Error     _)  = v
 
 -- Ref
-eval s v@(Ref (x:xs)) = case lookup x s of
-    Nothing  -> notfound "Ref1" x s
-    Just hit -> go hit xs
+eval s v@(Ref (first:relatives)) = case lookup first s of
+    Nothing  -> notfound "Ref1" first s
+    Just hit -> eval s $ go hit relatives
   where
     go acc [] = eval s acc
-    go (Recursive []) _ = notfound "Ref2" x s
-    go (Recursive ((y:ys):zs)) [x] = if x == y then Algebra y (map String ys) else go (Recursive zs) [x]
+    go (Recursive []) names = notfound "Ref2" (show names) s
+    go (Recursive ((name1:fields):rest)) [name2] = if name1 == name2
+      then Func fields $ Instance name1 (map (\name -> (name, Ref [name])) fields)
+      else go (Recursive rest) [name2]
     go (Struct fields) (x:xs) = case lookup x fields of
       Just hit -> go hit xs
       Nothing -> notfound "Ref3 " x s
@@ -57,7 +60,6 @@ eval s term@(Call all@(first:args)) = case first of
     buildin op [l, r] = binaryOp op (eval s l) (eval s r)
     buildin name args = Error $ "buildin " ++ name ++ " " ++ show args
     -- lookup user defination
-    call ((Algebra x _):args) = Algebra x args
     call ((Func names ast):args) = eval ((zip names args) ++ s) ast
     call ((Struct fields):args) = Struct $ map (\((name, _), arg) -> (name, arg)) $ zip fields args
     call ((Ref name):[Struct fields]) = eval (fields ++ s) (Ref name)
@@ -107,7 +109,7 @@ eval s term@(Call all@(first:args)) = case first of
 -- utility
 format glue [] = ""
 format glue (x:xs) = x ++ glue ++ format glue xs
-notfound mark name s = Error $ mark ++ " not found '" ++ name ++ "' scope=" ++ (join "" $ map fst s)
+notfound mark name s = Error $ mark ++ " not found '" ++ name ++ "' scope =" ++ (join "" $ map fst s)
 join acc [] = acc
 join acc (x:xs) = join (acc ++ " " ++ x) xs
 isBuildin [] = False

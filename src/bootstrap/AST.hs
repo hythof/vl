@@ -11,7 +11,7 @@ data AST =
   | Func   [String] AST -- arguments, return
   | Struct [(String, AST)]
   | Recursive [[String]]
-  | Algebra String [AST]
+  | Instance String [(String, AST)]
   | Call   [AST]
   | Seq    [AST]
   | Assign String AST
