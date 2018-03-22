@@ -1,8 +1,8 @@
 all:
-	@echo "# metrics"
+	@echo "# Metrics"
 	@make -s metrics
 	@echo
-	@echo "# test"
+	@echo "# Tests"
 	@make -s test
 
 metrics:
@@ -10,4 +10,7 @@ metrics:
 	@echo `cat src/bootstrap/test/*.hs | wc -l` "lines bootstrap/test"
 
 test:
-	@cd src/bootstrap; runghc test/ParserTest.hs && runghc test/EvalTest.hs
+	@echo "parse "
+	@cd src/bootstrap; runghc test/ParserTest.hs
+	@echo "eval  "
+	@cd src/bootstrap; runghc test/EvalTest.hs
