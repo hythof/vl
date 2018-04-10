@@ -1,0 +1,106 @@
+package: compiler
+
+# 1. compile simple calculator
+# 2. numbers with gnump
+#    | int  # variable length integer
+#    | num  # variable length decimal
+#    | i8 .. i64   # 0.i8
+#    | u8 .. u64   # 0.u8
+#    | f16 .. f64  # 0.f16
+#    | d64 .. d128 # 0.d64
+#    | + - * /
+# 3. strings
+#    | char # utf8
+#    | string = [char]
+#    | +
+# 4. function
+#    | func [string] ast
+#    | call [ast]
+# 5. container
+#    | array { length u32; values [ast] }
+#    | binary = [u8] # "hello".binary
+#    | struct [string, ast]
+#    | recursive [string, ast] # only on the AST
+#    | instance string [ast] # only on the AST
+# 6. boolean
+#    | bool | true | false
+# 7. variable
+#    | assign string ast
+#    | ref [string]
+# 8. monad
+#    | seq [ast]
+# 9. gc
+#    | mark and 
+
+ast
+| int int
+| add ast ast
+
+source {
+  input string
+  pos int
+}
+
+result a
+| hit a
+| miss string
+
+parser a = source => result(a, source)
+
+monad m {
+  return a : m.a
+  bind a b : m.a (a m.b) m.b
+  drop a b : m.a m.b m.b
+  drop ma mb = bind(ma (_ => mb))
+}
+
+parser.monad {
+    return a = hit a
+    bind (hit a) f = f a
+    bind (miss m) _ = miss m
+}
+
+main : io._
+parse : parser.ast
+eval : ast int
+
+main = (do
+  ast = parse(stdin.string)
+  code = eval(ast)
+  puts "#include <stdio.h>"
+  puts "int main() { printf(\"calculate %d\", calc()); }"
+  puts "int calc() { return {code}; }"
+  puts "/* codes"
+  puts code
+  puts "-- ast"
+  puts ast
+  puts "*/")
+
+parse = top
+top = add || num
+add = (do
+    l = top
+    char '+'
+    r = top
+    add l r)
+num = has_one("0123456789").many1.int
+has_one xs = satisfy(xs.has)
+char c = satisfy(c == _)
+many f = (do
+    go acc = s => satisfy(f).case(
+        hit v => go(([v.value] + acc) v.input)
+        miss v => acc)
+    go [])
+many1 f = (do
+    x = f
+    xs = many f
+    [x] + xs)
+int (hit {v}) = v.int
+int m@(miss) = m
+satisfy f = {src; pos} => if(
+    pos < src.length && f(src(pos))
+    hit source(src (pos + 1)) src(pos)
+    miss "miss $f($src $pos)")
+
+eval (num v) = v.string
+eval (add x y) = "({x.eval}) + ({y.eval})"
