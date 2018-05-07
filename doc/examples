@@ -1,0 +1,23 @@
+levenshtein a b = do
+    n = a.length + 1
+    m = b.length + 1
+
+    dp = array n m 0
+
+    for i n (dp! i 0 i)
+    for j m (dp! 0 j j)
+
+    for i 1..n
+    for j 1..m
+    do
+		i' = i - 1
+		j' = i - 1
+        cost = if (a i' == b j') 0 1
+        dp! i j min(
+            (dp i' j) + 1      # insertion
+            (dp i j') + 1      # deletion
+            (dp i' j') + cost) # replacement
+    end
+
+    dp (n - 1) (m - 1)
+end

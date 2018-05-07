@@ -10,7 +10,7 @@ metrics:
 	@echo `cat src/bootstrap/test/*.hs | wc -l` "lines bootstrap/test"
 
 test:
-	@echo "parse "
+	@echo "parse syntax"
 	@cd src/bootstrap; runghc test/ParserTest.hs
-	@echo "eval  "
+	@echo "eval ast"
 	@cd src/bootstrap; runghc test/EvalTest.hs
