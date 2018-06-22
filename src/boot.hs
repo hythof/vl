@@ -1,5 +1,6 @@
 module Boot where
 
+import Control.Monad
 import Control.Monad.Trans.State
 
 --( Syntax tree )------------------------------------------
@@ -12,24 +13,15 @@ data Exp = Text String
   deriving Show
 
 --( Parser )-----------------------------------------------
-data Source = Source {
-  source :: String,
-  position :: Int
-} deriving (Show)
 
-type Parser a = StateT Source Maybe a
+type Parser a = StateT String Maybe a
 
 satisfy :: (Char -> Bool) -> Parser Char
-satisfy f = StateT check
-  where
-    check s = if (length src) < pos && f char
-        then Just $ (char, succ)
-        else Nothing
-      where
-        src = source s
-        pos = position s
-        char = src !! pos
-        succ = Source src (1 + pos)
+satisfy f = do
+  (x:xs) <- get
+  guard $ f x
+  put xs
+  return x
 
 char :: Char -> Parser Char
 char c = satisfy (== c)
@@ -43,9 +35,19 @@ string text = check text
     check [] = return text
     check (x:xs) = satisfy (== x) >> check xs
 
---many f = many_r []
---  where
---    many_r acc = (satisfy f >>= \c -> many_r $ c : acc) <|> return $ reverse acc
+between :: Parser a -> Parser b -> Parser c -> Parser c
+between left right center = do
+  left
+  matched <- center
+  right
+  return matched
+
+many :: Parser a -> Parser [a]
+many p = many_r p []
+  where
+    many_r :: Parser a -> [a] -> Parser [a]
+    many_r f acc = (f >>= \x -> many_r f $ x : acc) `mplus` return acc
+
 
 --( parse and eval )---------------------------------------
 run :: String -> String
@@ -77,3 +79,4 @@ eval scope (Apply exp_ params) = case eval scope exp_ of
 --( main )-------------------------------------------------
 main = do
   print $ run "\"hi\""
+  print $ run "123"
