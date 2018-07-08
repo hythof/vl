@@ -64,16 +64,16 @@ many1 p = do
 
 orElse :: Parser a -> Parser a -> Parser a
 orElse l r = MaybeT $ state $ \s -> case runState (runMaybeT l) s of
-  (Just _, _) -> (runState $ runMaybeT l) s
-  (Nothing, _) -> (runState $ runMaybeT r) s
+  (Just v, s') -> (Just v, s')
+  (Nothing, _) -> runState (runMaybeT r) s
 
 spaces :: Parser String
-spaces = many $ oneOf " \r\n\t"
+spaces = many $ oneOf " \t"
 
 lexeme :: Parser a -> Parser a
 lexeme p = do
   v <- p
-  many $ oneOf " \r\n\t"
+  many $ oneOf " \t"
   return v
 
 read_id :: Parser String
@@ -112,14 +112,15 @@ run src = case lookup "main" env of
     env = parse src
 
 parse :: String -> Env
-parse s = case runState (runMaybeT parse_named_declears) s of
+parse s = case runState (runMaybeT parse_env) (s ++ "\n") of
   (Just env, _) -> env
   (Nothing, s) -> []
 
-parse_named_declears :: Parser Env
-parse_named_declears = many $ do
+parse_env :: Parser Env
+parse_env = many $ do
   name <- read_id
   declear <- parse_declear
+  many1 ((many $ oneOf " \t") >> oneOf "\r\n")
   return (name, declear)
 
 parse_declear :: Parser Exp
@@ -143,10 +144,10 @@ parse_exp = parse_lambda
   `orElse` parse_bottom
 
 parse_bottom :: Parser Exp
-parse_bottom = read_between "(" ")" parse_top
-  `orElse` parse_text
+parse_bottom = parse_text
   `orElse` parse_number
   `orElse` parse_ref
+  `orElse` read_between "(" ")" parse_top
 
 parse_lambda :: Parser Exp
 parse_lambda = do
@@ -176,20 +177,20 @@ eval _ e@(Text _) = e
 eval _ e@(Number _) = e
 eval _ e@(Lambda _ _ _) = e
 
-eval scope (Ref name) = case lookup name scope of
-    Just exp_ -> eval scope exp_
-    Nothing -> error $ "Not found " ++ name ++ " in " ++ show_scope scope
-  where
-    show_scope [] = ""
-    show_scope ((name, exp_):xs) = name ++ " " ++ (show exp_) ++ "\n" ++ show_scope xs
+eval env (Ref name) = case lookup name env of
+  Just exp_ -> eval env exp_
+  Nothing -> error $ "Not found " ++ name ++ " in " ++ show_env env
 
-eval scope (Op2 op l r) = case (op, eval scope l, eval scope r) of
+eval env (Op2 op l r) = case (op, eval env l, eval env r) of
   ("+", Number a, Number b) -> Number $ a + b
   (op, ll, rr) -> error $ "Can't operate " ++ (show ll) ++ " " ++ op ++ " " ++ (show rr)
 
-eval scope (Apply exp_ params) = case eval scope exp_ of
-    Lambda args binds body -> eval ((zip args (binds ++ params)) ++ scope) body
+eval env (Apply exp_ params) = case eval env exp_ of
+    Lambda args binds body -> eval ((zip args (binds ++ params)) ++ env) body
     _ -> error $ "Panic " ++ show exp_ ++ " with " ++ show params
+
+show_env [] = ""
+show_env ((name, exp_):xs) = "- " ++ name ++ " = " ++ (show exp_) ++ "\n" ++ show_env xs
 
 --( main )-------------------------------------------------
 detail :: String -> String -> IO ()
@@ -198,7 +199,7 @@ detail expect src = do
   putStrLn $ "Expect | " ++ expect
   putStrLn $ "   Run | " ++ run src
   putStrLn $ " Input | " ++ src
-  putStrLn $ "   Env | " ++ (show $ parse src)
+  putStrLn $ show_env $ parse src
   error "fail"
 
 test :: String -> String -> IO ()
@@ -211,4 +212,5 @@ main = do
   test "0.1" "main = 0.1"
   test "2.0" "main = 1 + 1"
   test "2.0" "main = (s => s + 1) 1"
+  test "55.0" "add a b = a + b\nmain = (add 1 2) + (add (add 3 4) 5) + (add 6 (add 7 8)) + 9 + 10"
   putStrLn "ok"
