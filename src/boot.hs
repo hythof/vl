@@ -7,6 +7,7 @@ import Control.Monad.Trans.Maybe (MaybeT(..))
 import Control.Monad.Trans.State (State, runState, state, get, put)
 
 
+
 --( Syntax tree )------------------------------------------
 
 type Env = [(String, Exp)]
@@ -17,6 +18,8 @@ data Exp = Text String
   | Op2 String Exp Exp
   | Apply Exp [Exp]
   deriving Show
+
+
 
 --( Parser )-----------------------------------------------
 
@@ -99,7 +102,8 @@ dump m = do
   trace ("DUMP: " ++ m ++ " " ++ x) (MaybeT $ state $ \s -> (Just "", s))
 
 
---( parse and eval )---------------------------------------
+
+--( parser )-----------------------------------------------
 
 run :: String -> String
 run src = case lookup "main" env of
@@ -172,6 +176,10 @@ parse_number = Number <$> read_num
 parse_ref :: Parser Exp
 parse_ref = Ref <$> read_id
 
+
+
+--( evaluator )--------------------------------------------
+
 eval :: Env -> Exp -> Exp
 eval _ e@(Text _) = e
 eval _ e@(Number _) = e
@@ -191,6 +199,8 @@ eval env (Apply exp_ params) = case eval env exp_ of
 
 show_env [] = ""
 show_env ((name, exp_):xs) = "- " ++ name ++ " = " ++ (show exp_) ++ "\n" ++ show_env xs
+
+
 
 --( main )-------------------------------------------------
 detail :: String -> String -> IO ()
