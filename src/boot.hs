@@ -1,18 +1,20 @@
 module Boot where
 
-import Data.Char(isAlphaNum)
-import Debug.Trace(trace)
-import Control.Monad
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Maybe
-import Control.Monad.Trans.State
+import Debug.Trace (trace)
+import Control.Monad (guard)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Maybe (MaybeT(..))
+import Control.Monad.Trans.State (State, runState, state, get, put)
+
 
 --( Syntax tree )------------------------------------------
+
 type Env = [(String, Exp)]
 data Exp = Text String
   | Number Double
   | Lambda [String] [Exp] Exp -- args, binds, body
   | Ref String
+  | Op2 String Exp Exp
   | Apply Exp [Exp]
   deriving Show
 
@@ -96,7 +98,9 @@ dump m = do
   x <- lift get
   trace ("DUMP: " ++ m ++ " " ++ x) (MaybeT $ state $ \s -> (Just "", s))
 
+
 --( parse and eval )---------------------------------------
+
 run :: String -> String
 run src = case lookup "main" env of
     Nothing -> show env
@@ -112,14 +116,14 @@ parse s = case runState (runMaybeT parse_named_declears) s of
   (Just env, _) -> env
   (Nothing, s) -> []
 
+parse_named_declears :: Parser Env
 parse_named_declears = many $ do
   name <- read_id
   declear <- parse_declear
   return (name, declear)
 
-parse_declear = parse_func
-
-parse_func = do
+parse_declear :: Parser Exp
+parse_declear = do
   args <- many $ read_id
   lexeme $ char '='
   body <- parse_top
@@ -127,17 +131,20 @@ parse_func = do
     0 -> body
     _ -> Lambda args [] body
 
+parse_top :: Parser Exp
 parse_top = do
   (exp_:args) <- many1 parse_exp
   return $ if length args == 0 then exp_ else Apply exp_ args
 
-parse_exp = read_between "(" ")" parse_exp
-  `orElse` parse_lambda
+parse_exp :: Parser Exp
+parse_exp = parse_lambda
   `orElse` parse_op2
   `orElse` parse_ref
   `orElse` parse_bottom
 
-parse_bottom = parse_text
+parse_bottom :: Parser Exp
+parse_bottom = read_between "(" ")" parse_top
+  `orElse` parse_text
   `orElse` parse_number
   `orElse` parse_ref
 
@@ -153,7 +160,7 @@ parse_op2 = do
   left <- parse_bottom
   op <- read_op
   right <- parse_exp
-  return $ Apply (Ref op) [left, right]
+  return $ Op2 op left right
 
 parse_text :: Parser Exp
 parse_text = Text <$> lexeme (between (char '"') (char '"') (many $ noneOf "\""))
@@ -168,16 +175,18 @@ eval :: Env -> Exp -> Exp
 eval _ e@(Text _) = e
 eval _ e@(Number _) = e
 eval _ e@(Lambda _ _ _) = e
+
 eval scope (Ref name) = case lookup name scope of
     Just exp_ -> eval scope exp_
     Nothing -> error $ "Not found " ++ name ++ " in " ++ show_scope scope
   where
     show_scope [] = ""
     show_scope ((name, exp_):xs) = name ++ " " ++ (show exp_) ++ "\n" ++ show_scope xs
-eval scope (Apply (Ref "+") [Number a, Number b]) = Number $ a + b
-eval scope (Apply (Ref "+") [l, r]) = case (eval scope l, eval scope r) of
-  (Number a, Number b) -> Number $ a + b
-  (ll, rr) -> error $ "Can't add " ++ (show ll) ++ (show rr)
+
+eval scope (Op2 op l r) = case (op, eval scope l, eval scope r) of
+  ("+", Number a, Number b) -> Number $ a + b
+  (op, ll, rr) -> error $ "Can't operate " ++ (show ll) ++ " " ++ op ++ " " ++ (show rr)
+
 eval scope (Apply exp_ params) = case eval scope exp_ of
     Lambda args binds body -> eval ((zip args (binds ++ params)) ++ scope) body
     _ -> error $ "Panic " ++ show exp_ ++ " with " ++ show params
@@ -202,4 +211,4 @@ main = do
   test "0.1" "main = 0.1"
   test "2.0" "main = 1 + 1"
   test "2.0" "main = (s => s + 1) 1"
-  putStrLn "done"
+  putStrLn "ok"
