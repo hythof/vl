@@ -1,6 +1,7 @@
 module Boot where
 
 import Debug.Trace (trace)
+import Data.List (isSuffixOf, intercalate)
 import Control.Monad (guard)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
@@ -11,10 +12,14 @@ import Control.Monad.Trans.State (State, runState, state, get, put)
 --( Syntax tree )------------------------------------------
 
 type Env = [(String, Exp)]
-data Exp = Text String
+data Exp = String String
   | Number Double
+  | Bool Bool
   | Lambda [String] [Exp] Exp -- args, binds, body
   | Ref String
+  | List [Exp]
+  | Struct [(String, Exp)]
+  | Map [(String, Exp)]
   | Op2 String Exp Exp
   | Apply Exp [Exp]
   deriving Show
@@ -107,13 +112,22 @@ dump m = do
 
 run :: String -> String
 run src = case lookup "main" env of
+    Just main -> format $ eval env main
     Nothing -> show env
-    Just main -> case eval env main of
-      Text v -> v
-      Number v -> show v
-      _ -> show $ eval env main
   where
     env = parse src
+    number_format s = if isSuffixOf ".0" s then (take ((length s) - 2) s) else s
+    bracket xs = "[" ++ (intercalate ", " xs) ++ "]"
+    brace xs = "{" ++ (intercalate ", " xs) ++ "}"
+    format x = case x of
+      String v -> v
+      Bool True -> "true"
+      Bool False -> "false"
+      Number v -> number_format $ show v
+      List xs -> bracket $ map format xs
+      Map xs -> brace $ map (\(k, v) -> k ++ ": " ++ (format v)) xs
+      Struct xs -> brace $ map (\(k, v) -> k ++ " = " ++ (format v)) xs
+      _ -> show x
 
 parse :: String -> Env
 parse s = case runState (runMaybeT parse_env) (s ++ "\n") of
@@ -144,12 +158,12 @@ parse_top = do
 parse_exp :: Parser Exp
 parse_exp = parse_lambda
   `orElse` parse_op2
-  `orElse` parse_ref
   `orElse` parse_bottom
 
 parse_bottom :: Parser Exp
 parse_bottom = parse_text
   `orElse` parse_number
+  `orElse` parse_bool
   `orElse` parse_ref
   `orElse` read_between "(" ")" parse_top
 
@@ -168,7 +182,9 @@ parse_op2 = do
   return $ Op2 op left right
 
 parse_text :: Parser Exp
-parse_text = Text <$> lexeme (between (char '"') (char '"') (many $ noneOf "\""))
+parse_text = String <$> lexeme (
+             (between (char '"') (char '"') (many $ noneOf "\""))
+    `orElse` (between (char '\'') (char '\'') (many $ noneOf "'")))
 
 parse_number :: Parser Exp
 parse_number = Number <$> read_num
@@ -176,13 +192,19 @@ parse_number = Number <$> read_num
 parse_ref :: Parser Exp
 parse_ref = Ref <$> read_id
 
+parse_bool :: Parser Exp
+parse_bool = Bool <$> lexeme (
+                (string "true" >> return True)
+       `orElse` (string "false" >> return False))
+
 
 
 --( evaluator )--------------------------------------------
 
 eval :: Env -> Exp -> Exp
-eval _ e@(Text _) = e
+eval _ e@(String _) = e
 eval _ e@(Number _) = e
+eval _ e@(Bool _) = e
 eval _ e@(Lambda _ _ _) = e
 
 eval env (Ref name) = case lookup name env of
@@ -217,10 +239,17 @@ test expect src = if run src == expect then putStr "." else detail expect src
 
 main :: IO ()
 main = do
+  -- values
+  test "a" "main = 'a'"
   test "hi" "main = \"hi\""
-  test "123.0" "main = 123"
+  test "123" "main = 123"
   test "0.1" "main = 0.1"
-  test "2.0" "main = 1 + 1"
-  test "2.0" "main = (s => s + 1) 1"
-  test "55.0" "add a b = a + b\nmain = (add 1 2) + (add (add 3 4) 5) + (add 6 (add 7 8)) + 9 + 10"
+  test "true" "main = true"
+  test "false" "main = false"
+  -- containers
+  test "[]" "main = []"
+  -- exp
+  test "2" "main = 1 + 1"
+  test "2" "main = (s => s + 1) 1"
+  test "55" "add a b = a + b\nmain = (add 1 2) + (add (add 3 4) 5) + (add 6 (add 7 8)) + 9 + 10"
   putStrLn "ok"
