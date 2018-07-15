@@ -17,8 +17,9 @@ data Exp = String String
   | Bool Bool
   | Lambda [String] [Exp] Exp -- args, binds, body
   | Ref String
-  | List [Exp]
+  | Tuple [Exp]
   | Struct [(String, Exp)]
+  | List [Exp]
   | Map [(String, Exp)]
   | Op2 String Exp Exp
   | Apply Exp [Exp]
@@ -52,6 +53,18 @@ string text = check text
     check [] = return text
     check (x:xs) = satisfy (== x) >> check xs
 
+sepBy :: Parser a -> Parser b -> Parser [a]
+sepBy p sep = do
+  x <- p
+  xs <- many (sep >> p)
+  return $ x : xs
+
+sepBy1 :: Parser a -> Parser b -> Parser [a]
+sepBy1 p sep = do
+  x <- p
+  xs <- many1 (sep >> p)
+  return $ x : xs
+
 between :: Parser a -> Parser b -> Parser c -> Parser c
 between left right center = match `orElse` fail ""
   where
@@ -84,8 +97,14 @@ lexeme p = do
   many $ oneOf " \t"
   return v
 
+read_char :: Char -> Parser Char
+read_char = lexeme . char
+
 read_id :: Parser String
 read_id = lexeme $ many1 $ oneOf "ABCDEFGHIJKLMNOPQRSTUVXWYZabcdefghijklmnopqrstuvxwyz_"
+
+read_args :: Parser [String]
+read_args = many read_id
 
 read_num :: Parser Double
 read_num = lexeme $ ((many1 $ oneOf "0123456789.") >>= return . read)
@@ -96,10 +115,10 @@ read_op = lexeme $ (many1 $ oneOf "+-*/<>?|~&%")
 read_between :: String -> String -> Parser a -> Parser a
 read_between l r c = between (lexeme $ string l) (lexeme $ string r) c
 
-debug :: Parser a -> Parser a
-debug p = do
+debug :: String -> Parser Int
+debug msg = do
   x <- lift get
-  trace ("DEBUG: " ++ x) p
+  trace ("DEBUG: " ++ msg ++ " " ++ x) (return 1)
 
 dump :: String -> Parser String
 dump m = do
@@ -117,16 +136,20 @@ run src = case lookup "main" env of
   where
     env = parse src
     number_format s = if isSuffixOf ".0" s then (take ((length s) - 2) s) else s
-    bracket xs = "[" ++ (intercalate ", " xs) ++ "]"
-    brace xs = "{" ++ (intercalate ", " xs) ++ "}"
+    bracket xs = "[" ++ (intercalate " " xs) ++ "]"
+    brace xs = "{" ++ (intercalate "; " xs) ++ "}"
     format x = case x of
       String v -> v
       Bool True -> "true"
       Bool False -> "false"
       Number v -> number_format $ show v
-      List xs -> bracket $ map format xs
-      Map xs -> brace $ map (\(k, v) -> k ++ ": " ++ (format v)) xs
+      Lambda args [] exp -> (intercalate ", " args) ++ " => " ++ format exp
+      Tuple xs -> intercalate ", " $ map format xs
       Struct xs -> brace $ map (\(k, v) -> k ++ " = " ++ (format v)) xs
+      List xs -> bracket $ map format xs
+      Map xs -> bracket $ map (\(k, v) -> k ++ ": " ++ (format v)) xs
+      Ref a -> a
+      Op2 op l r -> (format l) ++ " " ++ op ++ " " ++ (format r)
       _ -> show x
 
 parse :: String -> Env
@@ -143,12 +166,10 @@ parse_env = many $ do
 
 parse_declear :: Parser Exp
 parse_declear = do
-  args <- many $ read_id
-  lexeme $ char '='
-  body <- parse_top
-  return $ case length args of
-    0 -> body
-    _ -> Lambda args [] body
+  args <- read_args
+  read_char '='
+  exp <- parse_top
+  return $ make_lambda args exp
 
 parse_top :: Parser Exp
 parse_top = do
@@ -157,7 +178,11 @@ parse_top = do
 
 parse_exp :: Parser Exp
 parse_exp = parse_lambda
+  `orElse` parse_tuple
+  `orElse` parse_struct
   `orElse` parse_op2
+  `orElse` parse_map
+  `orElse` parse_list
   `orElse` parse_bottom
 
 parse_bottom :: Parser Exp
@@ -169,10 +194,23 @@ parse_bottom = parse_text
 
 parse_lambda :: Parser Exp
 parse_lambda = do
-  arg <- read_id
+  args <- sepBy read_id (read_char ',')
   lexeme $ string "=>"
-  body <- parse_exp
-  return $ Lambda [arg] [] body
+  exp <- parse_exp
+  return $ make_lambda args exp
+
+parse_tuple :: Parser Exp
+parse_tuple = Tuple <$> sepBy1 parse_bottom (read_char ',')
+
+parse_struct :: Parser Exp
+parse_struct = Struct <$> read_between "{" "}" (sepBy1 func (read_char ';'))
+  where
+    func = do
+      id <- read_id
+      args <- read_args
+      read_char '='
+      exp <- parse_exp
+      return (id, make_lambda args exp)
 
 parse_op2 :: Parser Exp
 parse_op2 = do
@@ -180,6 +218,19 @@ parse_op2 = do
   op <- read_op
   right <- parse_exp
   return $ Op2 op left right
+
+parse_map :: Parser Exp
+parse_map = Map <$> (lexeme $ string "[:]" >> return [])
+            `orElse` read_between "[" "]" (many1 kv)
+  where
+    kv = do
+      id <- read_id
+      read_char ':'
+      exp <- parse_bottom
+      return (id, exp)
+
+parse_list :: Parser Exp
+parse_list = List <$> read_between "[" "]" (many parse_exp)
 
 parse_text :: Parser Exp
 parse_text = String <$> lexeme (
@@ -197,6 +248,8 @@ parse_bool = Bool <$> lexeme (
                 (string "true" >> return True)
        `orElse` (string "false" >> return False))
 
+make_lambda [] exp = exp
+make_lambda args exp = Lambda args [] exp
 
 
 --( evaluator )--------------------------------------------
@@ -206,6 +259,10 @@ eval _ e@(String _) = e
 eval _ e@(Number _) = e
 eval _ e@(Bool _) = e
 eval _ e@(Lambda _ _ _) = e
+eval env (Tuple xs) = Tuple $ map (eval env) xs
+eval _ e@(Struct _) = e
+eval env (List xs) = List $ map (eval env) xs
+eval env (Map xs) = Map $ map (\(k, v) -> (k, eval env v)) xs
 
 eval env (Ref name) = case lookup name env of
   Just exp_ -> eval env exp_
@@ -241,13 +298,22 @@ main :: IO ()
 main = do
   -- values
   test "a" "main = 'a'"
-  test "hi" "main = \"hi\""
-  test "123" "main = 123"
+  test "ab" "main = \"ab\""
+  test "0" "main = 0"
   test "0.1" "main = 0.1"
   test "true" "main = true"
   test "false" "main = false"
+  -- tuple
+  test "1, 2, 3" "main = 1, 2, (1 + 2)"
+  -- struct
+  test "{a = 1; b = c => a + c}" "main = {a = 1; b c = a + c}"
+  -- function
+  test "3" "main = (x => x + 1) 2"
+  test "3" "main = (x, y => x + y) 1 2"
   -- containers
   test "[]" "main = []"
+  test "[1 2]" "main = [1 (1 + 1)]"
+  test "[a: 1 b: 2]" "main = [a: 1 b: (1 + 1)]"
   -- exp
   test "2" "main = 1 + 1"
   test "2" "main = (s => s + 1) 1"
