@@ -291,8 +291,8 @@ eval env (Op2 op l r) = case (eval env l, eval env r) of
     string_op = case op of
       "+" -> (++)
     bool_op = case op of
-      "&" -> (&&)
-      "|" -> (||)
+      "&&" -> (&&)
+      "||" -> (||)
     list_op = case op of
       "+" -> (++)
       "-" -> (\\)
@@ -363,10 +363,10 @@ main = do
   test "5" "main = 3 + (4 / 2)"
   test "3.5" "main = (3 + 4) / 2"
   -- exp boolean
-  test "true"  "main = true & true"
-  test "false" "main = true & false"
-  test "true"  "main = true | false"
-  test "false" "main = false | false"
+  test "true"  "main = true && true"
+  test "false" "main = true && false"
+  test "true"  "main = true || false"
+  test "false" "main = false || false"
   -- exp list
   test "[]" "main = []"
   test "[0 1]" "main = [0] + [1]"
