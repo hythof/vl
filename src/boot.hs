@@ -1,7 +1,8 @@
 module Boot where
 
 import Debug.Trace (trace)
-import Data.List (isSuffixOf, intercalate)
+import Data.Fixed (div', mod')
+import Data.List (isSuffixOf, intercalate, intersect, union, (\\))
 import Control.Monad (guard)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
@@ -12,10 +13,11 @@ import Control.Monad.Trans.State (State, runState, state, get, put)
 --( Syntax tree )------------------------------------------
 
 type Env = [(String, Exp)]
-data Exp = String String
+data Exp = Char Char
+  | String String
   | Number Double
   | Bool Bool
-  | Lambda [String] [Exp] Exp -- args, binds, body
+  | Lambda [String] Exp -- args, body
   | Ref String
   | Tuple [Exp]
   | Struct [(String, Exp)]
@@ -23,7 +25,7 @@ data Exp = String String
   | Map [(String, Exp)]
   | Op2 String Exp Exp
   | Apply Exp [Exp]
-  deriving Show
+  deriving (Show, Eq)
 
 
 
@@ -143,7 +145,7 @@ run src = case lookup "main" env of
       Bool True -> "true"
       Bool False -> "false"
       Number v -> number_format $ show v
-      Lambda args [] exp -> (intercalate ", " args) ++ " => " ++ format exp
+      Lambda args exp -> (intercalate ", " args) ++ " => " ++ format exp
       Tuple xs -> intercalate ", " $ map format xs
       Struct xs -> brace $ map (\(k, v) -> k ++ " = " ++ (format v)) xs
       List xs -> bracket $ map format xs
@@ -179,10 +181,7 @@ parse_top = do
 parse_exp :: Parser Exp
 parse_exp = parse_lambda
   `orElse` parse_tuple
-  `orElse` parse_struct
   `orElse` parse_op2
-  `orElse` parse_map
-  `orElse` parse_list
   `orElse` parse_bottom
 
 parse_bottom :: Parser Exp
@@ -190,6 +189,9 @@ parse_bottom = parse_text
   `orElse` parse_number
   `orElse` parse_bool
   `orElse` parse_ref
+  `orElse` parse_struct
+  `orElse` parse_map
+  `orElse` parse_list
   `orElse` read_between "(" ")" parse_top
 
 parse_lambda :: Parser Exp
@@ -249,7 +251,7 @@ parse_bool = Bool <$> lexeme (
        `orElse` (string "false" >> return False))
 
 make_lambda [] exp = exp
-make_lambda args exp = Lambda args [] exp
+make_lambda args exp = Lambda args exp
 
 
 --( evaluator )--------------------------------------------
@@ -258,7 +260,7 @@ eval :: Env -> Exp -> Exp
 eval _ e@(String _) = e
 eval _ e@(Number _) = e
 eval _ e@(Bool _) = e
-eval _ e@(Lambda _ _ _) = e
+eval _ e@(Lambda _ _) = e
 eval env (Tuple xs) = Tuple $ map (eval env) xs
 eval _ e@(Struct _) = e
 eval env (List xs) = List $ map (eval env) xs
@@ -266,14 +268,46 @@ eval env (Map xs) = Map $ map (\(k, v) -> (k, eval env v)) xs
 
 eval env (Ref name) = case lookup name env of
   Just exp_ -> eval env exp_
-  Nothing -> error $ "Not found " ++ name ++ " in " ++ show_env env
+  Nothing -> error $ "Not found " ++ name ++ " in \n" ++ show_env env
 
-eval env (Op2 op l r) = case (op, eval env l, eval env r) of
-  ("+", Number a, Number b) -> Number $ a + b
-  (op, ll, rr) -> error $ "Can't operate " ++ (show ll) ++ " " ++ op ++ " " ++ (show rr)
+eval env (Op2 op l r) = case (eval env l, eval env r) of
+    (Number a, Number b) -> Number $ num_op a b
+    (Bool a, Bool b) -> Bool $ bool_op a b
+    (Char a, Char b) -> String $ char_op a b
+    (String a, String b) -> String $ string_op a b
+    (List a, List b) -> List $ list_op a b
+    (a, b) -> error $ "Can't operate " ++ (show a) ++ " " ++ op ++ " " ++ (show b)
+  where
+    num_op = case op of
+      "+" -> (+)
+      "-" -> (-)
+      "*" -> (*)
+      "/" -> (/)
+      "//" -> (\a b -> fromIntegral (a `div'` b) :: Double)
+      "%" -> mod'
+      "**" -> (**)
+    char_op = case op of
+      "+" -> (\a b -> a : [b])
+    string_op = case op of
+      "+" -> (++)
+    bool_op = case op of
+      "&" -> (&&)
+      "|" -> (||)
+    list_op = case op of
+      "+" -> (++)
+      "-" -> (\\)
+      "&" -> intersect
+      "|" -> union
 
 eval env (Apply exp_ params) = case eval env exp_ of
-    Lambda args binds body -> eval ((zip args (binds ++ params)) ++ env) body
+    Lambda args body -> if lack then eval_ curry else eval_ body
+      where
+        pl = length params
+        al = length args
+        binds = zip args params
+        lack = pl < al
+        curry = Lambda (drop pl args) body
+        eval_ = eval (binds ++ env)
     _ -> error $ "Panic " ++ show exp_ ++ " with " ++ show params
 
 show_env [] = ""
@@ -308,14 +342,39 @@ main = do
   -- struct
   test "{a = 1; b = c => a + c}" "main = {a = 1; b c = a + c}"
   -- function
+  test "x => x + 1" "main = x => x + 1"
   test "3" "main = (x => x + 1) 2"
+  test "3" "main = (x, y => x + y) 1 2"
+  test "y => x + y" "main = (x, y => x + y) 1"
   test "3" "main = (x, y => x + y) 1 2"
   -- containers
   test "[]" "main = []"
+  test "[0]" "main = [0]"
   test "[1 2]" "main = [1 (1 + 1)]"
   test "[a: 1 b: 2]" "main = [a: 1 b: (1 + 1)]"
-  -- exp
-  test "2" "main = 1 + 1"
-  test "2" "main = (s => s + 1) 1"
+  -- exp number
+  test "3" "main = 1 + 2"
+  test "-1" "main = 1 - 2"
+  test "6" "main = 2 * 3"
+  test "0.5" "main = 2 / 4"
+  test "2" "main = 5 // 2"
+  test "1" "main = 3 % 2"
+  test "8" "main = 2 ** 3"
+  test "5" "main = 3 + (4 / 2)"
+  test "3.5" "main = (3 + 4) / 2"
+  -- exp boolean
+  test "true"  "main = true & true"
+  test "false" "main = true & false"
+  test "true"  "main = true | false"
+  test "false" "main = false | false"
+  -- exp list
+  test "[]" "main = []"
+  test "[0 1]" "main = [0] + [1]"
+  test "[0]" "main = [0 1] - [1]"
+  test "[0]" "main = [0 1] & [0]"
+  test "[0 1]" "main = [0] | [0 1]"
+  test "[0]" "main = [1 - 1]"
+
+  -- call
   test "55" "add a b = a + b\nmain = (add 1 2) + (add (add 3 4) 5) + (add 6 (add 7 8)) + 9 + 10"
   putStrLn "ok"
