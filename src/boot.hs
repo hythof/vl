@@ -18,6 +18,7 @@ data Exp = Char Char
   | Number Double
   | Bool Bool
   | Lambda [String] Exp -- args, body
+  | Match [([Exp], Exp)] -- conds, body
   | Ref String
   | Tuple [Exp]
   | Struct [(String, Exp)]
@@ -92,6 +93,9 @@ orElse l r = MaybeT $ state $ \s -> case runState (runMaybeT l) s of
 
 spaces :: Parser String
 spaces = many $ oneOf " \t"
+
+white_spaces :: Parser String
+white_spaces = many $ oneOf " \t\r\n"
 
 lexeme :: Parser a -> Parser a
 lexeme p = do
@@ -180,8 +184,10 @@ parse_top = do
 
 parse_exp :: Parser Exp
 parse_exp = parse_lambda
+  `orElse` parse_match
   `orElse` parse_tuple
   `orElse` parse_op2
+  `orElse` parse_apply
   `orElse` parse_bottom
 
 parse_bottom :: Parser Exp
@@ -193,6 +199,15 @@ parse_bottom = parse_text
   `orElse` parse_map
   `orElse` parse_list
   `orElse` read_between "(" ")" parse_top
+
+parse_match :: Parser Exp
+parse_match = do
+  matches <- flip sepBy1 white_spaces $ do
+    conds <- sepBy1 parse_bottom (read_char ',')
+    lexeme $ string "=>"
+    exp <- parse_exp
+    return (conds, exp)
+  return $ Match matches
 
 parse_lambda :: Parser Exp
 parse_lambda = do
@@ -241,6 +256,13 @@ parse_text = String <$> lexeme (
 
 parse_number :: Parser Exp
 parse_number = Number <$> read_num
+
+parse_apply :: Parser Exp
+parse_apply = do
+  id <- read_id
+  debug "parse apply 2"
+  args <- read_between "(" ")" (many1 (white_spaces >> parse_exp))
+  return $ Apply (Ref id) args
 
 parse_ref :: Parser Exp
 parse_ref = Ref <$> read_id
@@ -299,6 +321,10 @@ eval env (Op2 op l r) = case (eval env l, eval env r) of
       "&" -> intersect
       "|" -> union
 
+eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
+  Bool True -> eval env t
+  Bool False -> eval env f
+  _ -> error $ "Condition is not boolean " ++ show cond
 eval env (Apply exp_ params) = case eval env exp_ of
     Lambda args body -> if lack then eval_ curry else eval_ body
       where
@@ -330,6 +356,8 @@ test expect src = if run src == expect then putStr "." else detail expect src
 
 main :: IO ()
 main = do
+  test "4" "main = (3 => 4\n_ => 5) 3"
+  test "5" "main = (3 => 4\n_ => 5) 4"
   -- values
   test "a" "main = 'a'"
   test "ab" "main = \"ab\""
@@ -352,6 +380,9 @@ main = do
   test "[0]" "main = [0]"
   test "[1 2]" "main = [1 (1 + 1)]"
   test "[a: 1 b: 2]" "main = [a: 1 b: (1 + 1)]"
+  -- branch
+  test "2" "main = if false 1 2"
+  test "3" "main = if false 1 (if false 2 3)"
   -- exp number
   test "3" "main = 1 + 2"
   test "-1" "main = 1 - 2"
