@@ -179,6 +179,19 @@ parse_declear = do
 
 parse_top :: Parser Exp
 parse_top = do
+  left <- parse_call
+  MaybeT $ do
+    m <- runMaybeT read_op
+    case m of
+      Nothing -> return $ Just left
+      Just op -> do
+        right <- runMaybeT parse_top
+        case right of
+          Nothing -> error "fail parse top"
+          Just right -> return $ Just $ Op2 op left right
+
+parse_call :: Parser Exp
+parse_call = do
   (exp_:args) <- many1 parse_exp
   return $ if length args == 0 then exp_ else Apply exp_ args
 
@@ -260,7 +273,6 @@ parse_number = Number <$> read_num
 parse_apply :: Parser Exp
 parse_apply = do
   id <- read_id
-  debug "parse apply 2"
   args <- read_between "(" ")" (many1 (white_spaces >> parse_exp))
   return $ Apply (Ref id) args
 
@@ -356,8 +368,6 @@ test expect src = if run src == expect then putStr "." else detail expect src
 
 main :: IO ()
 main = do
-  test "4" "main = (3 => 4\n_ => 5) 3"
-  test "5" "main = (3 => 4\n_ => 5) 4"
   -- values
   test "a" "main = 'a'"
   test "ab" "main = \"ab\""
@@ -407,5 +417,5 @@ main = do
   test "[0]" "main = [1 - 1]"
 
   -- call
-  test "55" "add a b = a + b\nmain = (add 1 2) + (add (add 3 4) 5) + (add 6 (add 7 8)) + 9 + 10"
+  test "55" "add a b = a + b\nmain = add(1 2) + add(add(3 4) 5) + add(6 add(7 8)) + 9 + 10"
   putStrLn "ok"
