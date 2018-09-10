@@ -16,7 +16,7 @@ data Exp =
 -- value
     Char Char
   | String String
-  | Int Int -- TODO: Implement
+  | Int Int
   | Real Double
   | Bool Bool
 -- container
@@ -150,8 +150,17 @@ read_id = lexeme $ many1 $ oneOf "ABCDEFGHIJKLMNOPQRSTUVXWYZabcdefghijklmnopqrst
 read_args :: Parser [String]
 read_args = many read_id
 
-read_num :: Parser Double
-read_num = lexeme $ ((many1 $ oneOf "0123456789.") >>= return . read)
+read_int :: Parser Int
+read_int = lexeme $ ((many1 $ oneOf "0123456789") >>= return . read)
+
+read_real :: Parser Double
+read_real = do
+  a <- many1 $ oneOf "0123456789"
+  char '.'
+  b <- lexeme $ many1 $ oneOf "0123456789"
+  let str = a ++ "." ++ b
+  let d = read str :: Double
+  return d
 
 read_op :: Parser String
 read_op = lexeme $ (many1 $ oneOf "+-*/<>?|~&%")
@@ -244,7 +253,8 @@ parse_exp = parse_lambda
 
 parse_bottom :: Parser Exp
 parse_bottom = parse_text
-  `orElse` parse_number
+  `orElse` parse_real
+  `orElse` parse_int
   `orElse` parse_bool
   `orElse` parse_ref
   `orElse` parse_struct
@@ -314,8 +324,11 @@ parse_text = String <$> lexeme (
              (between (char '"') (char '"') (many $ noneOf "\""))
     `orElse` (between (char '\'') (char '\'') (many $ noneOf "'")))
 
-parse_number :: Parser Exp
-parse_number = Real <$> read_num
+parse_int :: Parser Exp
+parse_int = Int <$> read_int
+
+parse_real :: Parser Exp
+parse_real = Real <$> read_real
 
 parse_apply :: Parser Exp
 parse_apply = do
@@ -365,8 +378,10 @@ eval env (Op2 op l r) = case (eval env l, eval env r) of
       "+" -> (+)
       "-" -> (-)
       "*" -> (*)
+      "/" -> (\a b -> fromIntegral (a `div'` b) :: Int)
       "//" -> (\a b -> fromIntegral (a `div'` b) :: Int)
       "%" -> mod'
+      "**" -> (^)
     real_op = case op of
       "+" -> (+)
       "-" -> (-)
@@ -427,6 +442,7 @@ main = do
   test "a" "main = 'a'"
   test "ab" "main = \"ab\""
   test "0" "main = 0"
+  test "1" "main = 1"
   test "0.1" "main = 0.1"
   test "true" "main = true"
   test "false" "main = false"
@@ -452,12 +468,12 @@ main = do
   test "3" "main = 1 + 2"
   test "-1" "main = 1 - 2"
   test "6" "main = 2 * 3"
-  test "0.5" "main = 2 / 4"
+  test "0.5" "main = 2.0 / 4.0"
   test "2" "main = 5 // 2"
   test "1" "main = 3 % 2"
   test "8" "main = 2 ** 3"
   test "5" "main = 3 + (4 / 2)"
-  test "3.5" "main = (3 + 4) / 2"
+  test "3.5" "main = (3.0 + 4.0) / 2.0"
   -- exp boolean
   test "true"  "main = true && true"
   test "false" "main = true && false"
