@@ -8,26 +8,64 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 import Control.Monad.Trans.State (State, runState, state, get, put)
 
-
-
 --( Syntax tree )------------------------------------------
 
 type Env = [(String, Exp)]
-data Exp = Char Char
+
+data Exp =
+-- value
+    Char Char
   | String String
-  | Number Double
+  | Int Int -- TODO: Implement
+  | Real Double
   | Bool Bool
-  | Lambda [String] Exp -- args, body
-  | Match [([Exp], Exp)] -- conds, body
-  | Ref String
+-- container
   | Tuple [Exp]
-  | Struct [(String, Exp)]
   | List [Exp]
   | Map [(String, Exp)]
+  | Struct [(String, Exp)]
+-- expression
+  | Lambda [String] Exp
+  | Match [([Match], Exp)] -- TODO: Implement
+  | Ref String
   | Op2 String Exp Exp
   | Apply Exp [Exp]
+  | Statement [Line] -- TODO: Implement
+-- meta information
+  | Package [(String, Type)] [(String, Exp)] -- TODO: Implement
   deriving (Show, Eq)
 
+-- TODO: following implements
+data Type =
+-- primitive
+    TypeInt
+  | TypeFloat
+  | TypeString
+  | TypeFunc [Type] Type
+-- container
+  | TypeTuple [Type]
+  | TypeArray Type
+  | TypeHash Type Type
+  | TypeStruct [(String, Type)]
+  | TypeEnum [(String, Type)]
+-- lambda
+  | TypeDeclare [Type] Type
+-- type inference
+  | TypeUndef [String] -- inference
+  deriving (Show, Eq)
+
+data Line = Call Exp
+  | Def String Exp
+  | Assign [String] Exp
+  | Mutable String Type
+  deriving (Show, Eq)
+
+data Match = MatchExp Exp
+  | MatchType Type String
+  | MatchArray [String]
+  | MatchTuple [String]
+  | MatchAll
+  deriving (Show, Eq)
 
 
 --( Parser )-----------------------------------------------
@@ -148,7 +186,8 @@ run src = case lookup "main" env of
       String v -> v
       Bool True -> "true"
       Bool False -> "false"
-      Number v -> number_format $ show v
+      Int v -> number_format $ show v
+      Real v -> number_format $ show v
       Lambda args exp -> (intercalate ", " args) ++ " => " ++ format exp
       Tuple xs -> intercalate ", " $ map format xs
       Struct xs -> brace $ map (\(k, v) -> k ++ " = " ++ (format v)) xs
@@ -216,11 +255,19 @@ parse_bottom = parse_text
 parse_match :: Parser Exp
 parse_match = do
   matches <- flip sepBy1 white_spaces $ do
-    conds <- sepBy1 parse_bottom (read_char ',')
+    --conds <- sepBy1 parse_bottom (read_char ',')
+    conds <- sepBy parse_cond (read_char ',')
     lexeme $ string "=>"
     exp <- parse_exp
     return (conds, exp)
   return $ Match matches
+  where
+    parse_cond :: Parser Match
+    parse_cond = MatchExp <$> parse_bottom
+      --TODO <|> MatchType Type String
+      --TODO <|> MatchArray [String]
+      --TODO <|> MatchTuple [String]
+      --TODO <|> MatchAll
 
 parse_lambda :: Parser Exp
 parse_lambda = do
@@ -268,7 +315,7 @@ parse_text = String <$> lexeme (
     `orElse` (between (char '\'') (char '\'') (many $ noneOf "'")))
 
 parse_number :: Parser Exp
-parse_number = Number <$> read_num
+parse_number = Real <$> read_num
 
 parse_apply :: Parser Exp
 parse_apply = do
@@ -292,7 +339,8 @@ make_lambda args exp = Lambda args exp
 
 eval :: Env -> Exp -> Exp
 eval _ e@(String _) = e
-eval _ e@(Number _) = e
+eval _ e@(Int _) = e
+eval _ e@(Real _) = e
 eval _ e@(Bool _) = e
 eval _ e@(Lambda _ _) = e
 eval env (Tuple xs) = Tuple $ map (eval env) xs
@@ -305,14 +353,21 @@ eval env (Ref name) = case lookup name env of
   Nothing -> error $ "Not found " ++ name ++ " in \n" ++ show_env env
 
 eval env (Op2 op l r) = case (eval env l, eval env r) of
-    (Number a, Number b) -> Number $ num_op a b
+    (Int a, Int b) -> Int $ int_op a b
+    (Real a, Real b) -> Real $ real_op a b
     (Bool a, Bool b) -> Bool $ bool_op a b
     (Char a, Char b) -> String $ char_op a b
     (String a, String b) -> String $ string_op a b
     (List a, List b) -> List $ list_op a b
     (a, b) -> error $ "Can't operate " ++ (show a) ++ " " ++ op ++ " " ++ (show b)
   where
-    num_op = case op of
+    int_op = case op of
+      "+" -> (+)
+      "-" -> (-)
+      "*" -> (*)
+      "//" -> (\a b -> fromIntegral (a `div'` b) :: Int)
+      "%" -> mod'
+    real_op = case op of
       "+" -> (+)
       "-" -> (-)
       "*" -> (*)
