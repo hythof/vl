@@ -219,11 +219,23 @@ parse_env = many $ do
   return (name, declear)
 
 parse_declear :: Parser Exp
-parse_declear = do
+parse_declear = parse_declear_func
+       `orElse` parse_declear_if
+
+parse_declear_func :: Parser Exp
+parse_declear_func = do
   args <- read_args
   read_char '='
   exp <- parse_top
   return $ make_lambda args exp
+
+parse_declear_if :: Parser Exp
+parse_declear_if = do
+  cond <- read_id
+  lexeme $ read_char '='
+  t <- do { char '\n'; lexeme $ char '|'; parse_top }
+  f <- do { char '\n'; lexeme $ char '|'; parse_top }
+  return $ make_lambda [cond] (Apply (Ref "if") [Ref cond, t, f])
 
 parse_top :: Parser Exp
 parse_top = do
@@ -428,7 +440,7 @@ detail :: String -> String -> IO ()
 detail expect src = do
   putStrLn ""
   putStrLn $ "Expect | " ++ expect
-  putStrLn $ "   Run | " ++ run src
+  putStrLn $ "  Eval | " ++ run src
   putStrLn $ " Input | " ++ src
   putStrLn $ show_env $ parse src
   error "fail"
@@ -464,6 +476,8 @@ main = do
   -- branch
   test "2" "main = if false 1 2"
   test "3" "main = if false 1 (if false 2 3)"
+  test "1" "bool _ =\n| 1\n| 2\nmain = bool true"
+  test "2" "bool _ =\n| 1\n| 2\nmain = bool false"
   -- exp number
   test "3" "main = 1 + 2"
   test "-1" "main = 1 - 2"
