@@ -191,7 +191,8 @@ run src = case lookup "main" env of
     env = parse src
     number_format s = if isSuffixOf ".0" s then (take ((length s) - 2) s) else s
     bracket xs = "[" ++ (intercalate " " xs) ++ "]"
-    brace xs = "{" ++ (intercalate "; " xs) ++ "}"
+    --brace xs = "{" ++ (intercalate "; " xs) ++ "}"
+    parentheses xs = "(" ++ (intercalate "; " xs) ++ ")"
     format x = case x of
       String v -> v
       Bool True -> "true"
@@ -200,7 +201,7 @@ run src = case lookup "main" env of
       Real v -> number_format $ show v
       Lambda args exp -> (intercalate ", " args) ++ " => " ++ format exp
       Tuple xs -> intercalate ", " $ map format xs
-      Struct xs -> brace $ map (\(k, v) -> k ++ " = " ++ (format v)) xs
+      Struct xs -> parentheses $ map (\(k, v) -> k ++ ": " ++ (format v)) xs
       List xs -> bracket $ map format xs
       Map xs -> bracket $ map (\(k, v) -> k ++ ": " ++ (format v)) xs
       Ref a -> a
@@ -236,8 +237,8 @@ parse_declear_if :: Parser Exp
 parse_declear_if = do
   cond <- read_id
   lexeme $ read_char '='
-  t <- do { char '\n'; lexeme $ char '|'; parse_top }
-  f <- do { char '\n'; lexeme $ char '|'; parse_top }
+  t <- do { char '\n'; lexeme $ char '|'; parse_call }
+  f <- do { char '\n'; lexeme $ char '|'; parse_call }
   return $ make_lambda [cond] (Apply (Ref "if") [Ref cond, t, f])
 
 parse_declear_stmt :: Parser Exp
@@ -273,7 +274,7 @@ parse_declear_value = do
     lexeme $ char '|'
     args <- many parse_match
     read_char '='
-    exp <- parse_top
+    exp <- parse_call
     return (args, exp)
   return $ Match matcher
   where
@@ -490,7 +491,7 @@ detail :: String -> String -> IO ()
 detail expect src = do
   putStrLn ""
   putStrLn $ "Expect | " ++ expect
-  putStrLn $ "  Eval | " ++ run src
+  putStrLn $ "Actual | " ++ run src
   putStrLn $ " Input | " ++ src
   putStrLn $ "   AST | " ++ (show_env $ parse src)
   error "fail"
@@ -511,7 +512,7 @@ main = do
   -- tuple
   test "1, 2, 3" "main = 1, 2, (1 + 2)"
   -- struct
-  test "{a = 1; b = c => a + c}" "main = {a = 1; b c = a + c}"
+  test "(a: 1; b: c => a + c)" "main = {a = 1; b c = a + c}"
   -- function
   test "x => x + 1" "main = x => x + 1"
   test "3" "main = (x => x + 1) 2"
@@ -532,6 +533,8 @@ main = do
   test "false" "zero _ =\n| 0 = true\n| 1 = false\nmain = zero 1"
   -- statement
   test "3" "main =\n  a = 1\n  b = 2\n  a + b"
+  -- type
+  -- test "(count: 1)" "type counter:\n  count int\nmain = counter 1"
   -- exp number
   test "3" "main = 1 + 2"
   test "-1" "main = 1 - 2"
