@@ -1,12 +1,13 @@
 module Boot where
 
-import Debug.Trace (trace)
-import Data.Fixed (div', mod')
-import Data.List (isSuffixOf, intercalate, intersect, union, (\\))
-import Control.Monad (guard)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Maybe (MaybeT(..))
-import Control.Monad.Trans.State (State, runState, state, get, put)
+import           Control.Monad             (guard)
+import           Control.Monad.Trans.Class (lift)
+import           Control.Monad.Trans.Maybe (MaybeT (..))
+import           Control.Monad.Trans.State (State, get, put, runState, state)
+import           Data.Fixed                (div', mod')
+import           Data.List                 (intercalate, intersect, isPrefixOf,
+                                            isSuffixOf, union, (\\))
+import           Debug.Trace               (trace)
 
 --( Syntax tree )------------------------------------------
 
@@ -26,49 +27,35 @@ data Exp =
   | Struct [(String, Exp)]
 -- expression
   | Lambda [String] Exp
-  | Match [([Match], Exp)] -- TODO: Implement
+  | Match [([Match], Exp)]
   | Ref String
   | Op2 String Exp Exp
   | Apply Exp [Exp]
-  | Statement [Line] -- TODO: Implement
--- meta information
-  | Package [(String, Type)] [(String, Exp)] -- TODO: Implement
+  | Stmt [Line]
+-- runtime error
+  | Error String
   deriving (Show, Eq)
 
 -- TODO: following implements
 data Type =
--- primitive
-    TypeInt
-  | TypeFloat
-  | TypeString
-  | TypeFunc [Type] Type
--- container
-  | TypeTuple [Type]
-  | TypeArray Type
-  | TypeHash Type Type
-  | TypeStruct [(String, Type)]
-  | TypeEnum [(String, Type)]
--- lambda
-  | TypeDeclare [Type] Type
--- type inference
-  | TypeUndef [String] -- inference
+  Type String [Type]
   deriving (Show, Eq)
 
 data Line = Call Exp
   | Def String Exp
-  | Assign [String] Exp
-  | Mutable String Type
+  | Assign String Exp
+  -- | Mutable String Type -- omit
   deriving (Show, Eq)
 
 data Match = MatchExp Exp
-  | MatchType Type String
-  | MatchArray [String]
-  | MatchTuple [String]
+  | MatchType Type
+--  | MatchArray [String] -- omit
+--  | MatchTuple [String] -- omit
   | MatchAll
   deriving (Show, Eq)
 
 
---( Parser )-----------------------------------------------
+--( parser library )-----------------------------------------------
 
 type Parser a = MaybeT (State String) a
 
@@ -78,6 +65,11 @@ satisfy f = do
   guard $ f x
   lift $ put xs
   return x
+
+look :: String -> Parser Bool
+look s = do
+  x <- lift get
+  return $ isPrefixOf s x
 
 char :: Char -> Parser Char
 char c = satisfy (== c)
@@ -91,7 +83,7 @@ noneOf xs = satisfy $ \x -> not $ elem x xs
 string :: String -> Parser String
 string text = check text
   where
-    check [] = return text
+    check []     = return text
     check (x:xs) = satisfy (== x) >> check xs
 
 sepBy :: Parser a -> Parser b -> Parser [a]
@@ -129,6 +121,12 @@ orElse l r = MaybeT $ state $ \s -> case runState (runMaybeT l) s of
   (Just v, s') -> (Just v, s')
   (Nothing, _) -> runState (runMaybeT r) s
 
+indent :: Parser String
+indent = do
+  spaces
+  many $ oneOf "\r\n"
+  spaces
+
 spaces :: Parser String
 spaces = many $ oneOf " \t"
 
@@ -143,6 +141,9 @@ lexeme p = do
 
 read_char :: Char -> Parser Char
 read_char = lexeme . char
+
+read_string :: String -> Parser String
+read_string = lexeme . string
 
 read_id :: Parser String
 read_id = lexeme $ many1 $ oneOf "ABCDEFGHIJKLMNOPQRSTUVXWYZabcdefghijklmnopqrstuvxwyz_"
@@ -185,7 +186,7 @@ dump m = do
 run :: String -> String
 run src = case lookup "main" env of
     Just main -> format $ eval env main
-    Nothing -> show env
+    Nothing   -> show env
   where
     env = parse src
     number_format s = if isSuffixOf ".0" s then (take ((length s) - 2) s) else s
@@ -209,7 +210,7 @@ run src = case lookup "main" env of
 parse :: String -> Env
 parse s = case runState (runMaybeT parse_env) (s ++ "\n") of
   (Just env, _) -> env
-  (Nothing, s) -> []
+  (Nothing, s)  -> []
 
 parse_env :: Parser Env
 parse_env = many $ do
@@ -221,6 +222,8 @@ parse_env = many $ do
 parse_declear :: Parser Exp
 parse_declear = parse_declear_func
        `orElse` parse_declear_if
+       `orElse` parse_declear_stmt
+       `orElse` parse_declear_value
 
 parse_declear_func :: Parser Exp
 parse_declear_func = do
@@ -237,6 +240,50 @@ parse_declear_if = do
   f <- do { char '\n'; lexeme $ char '|'; parse_top }
   return $ make_lambda [cond] (Apply (Ref "if") [Ref cond, t, f])
 
+parse_declear_stmt :: Parser Exp
+parse_declear_stmt = do
+  args <- read_args
+  read_char '='
+  lines <- many1 (indent >> parse_line)
+  return $ make_lambda args $ Stmt lines
+  where
+    parse_line = parse_assign
+        `orElse` parse_def
+        `orElse` parse_call
+    parse_assign = do
+      name <- read_id
+      read_string "<="
+      exp <- parse_exp
+      return $ Assign name exp
+    parse_def = do
+      name <- read_id
+      read_char '='
+      exp <- parse_exp
+      return $ Def name exp
+    parse_call = do
+      exp <- parse_exp
+      return $ Call exp
+
+parse_declear_value :: Parser Exp
+parse_declear_value = do
+  cond <- read_id
+  lexeme $ read_char '='
+  matcher <- many $ do
+    char '\n'
+    lexeme $ char '|'
+    args <- many parse_match
+    read_char '='
+    exp <- parse_top
+    return (args, exp)
+  return $ Match matcher
+  where
+     parse_match = do
+       v <- parse_bottom
+       return $ case v of
+         Ref "_" -> MatchAll
+         Ref n   -> MatchType (Type n [])
+         _       -> MatchExp v
+
 parse_top :: Parser Exp
 parse_top = do
   left <- parse_call
@@ -247,7 +294,7 @@ parse_top = do
       Just op -> do
         right <- runMaybeT parse_top
         case right of
-          Nothing -> error "fail parse top"
+          Nothing    -> error "fail parse top"
           Just right -> return $ Just $ Op2 op left right
 
 parse_call :: Parser Exp
@@ -257,7 +304,6 @@ parse_call = do
 
 parse_exp :: Parser Exp
 parse_exp = parse_lambda
-  `orElse` parse_match
   `orElse` parse_tuple
   `orElse` parse_op2
   `orElse` parse_apply
@@ -273,23 +319,6 @@ parse_bottom = parse_text
   `orElse` parse_map
   `orElse` parse_list
   `orElse` read_between "(" ")" parse_top
-
-parse_match :: Parser Exp
-parse_match = do
-  matches <- flip sepBy1 white_spaces $ do
-    --conds <- sepBy1 parse_bottom (read_char ',')
-    conds <- sepBy parse_cond (read_char ',')
-    lexeme $ string "=>"
-    exp <- parse_exp
-    return (conds, exp)
-  return $ Match matches
-  where
-    parse_cond :: Parser Match
-    parse_cond = MatchExp <$> parse_bottom
-      --TODO <|> MatchType Type String
-      --TODO <|> MatchArray [String]
-      --TODO <|> MatchTuple [String]
-      --TODO <|> MatchAll
 
 parse_lambda :: Parser Exp
 parse_lambda = do
@@ -356,7 +385,7 @@ parse_bool = Bool <$> lexeme (
                 (string "true" >> return True)
        `orElse` (string "false" >> return False))
 
-make_lambda [] exp = exp
+make_lambda [] exp   = exp
 make_lambda args exp = Lambda args exp
 
 
@@ -368,14 +397,23 @@ eval _ e@(Int _) = e
 eval _ e@(Real _) = e
 eval _ e@(Bool _) = e
 eval _ e@(Lambda _ _) = e
+eval _ e@(Match _) = e
 eval env (Tuple xs) = Tuple $ map (eval env) xs
 eval _ e@(Struct _) = e
 eval env (List xs) = List $ map (eval env) xs
 eval env (Map xs) = Map $ map (\(k, v) -> (k, eval env v)) xs
+eval env (Stmt xs) = eval_line env xs (Error "not fond line in statement")
+  where
+    eval_line :: Env -> [Line] -> Exp -> Exp
+    eval_line _ [] v = v
+    eval_line env (line:lines) v = case line of
+      Call exp ->  eval_line env lines $ eval env exp
+      Def name exp -> eval_line ((name, eval env exp) : env) lines (Error "not found return in statement")
+      Assign name exp -> eval_line ((name, eval env exp) : env) lines (Error "not found return in statement")
 
 eval env (Ref name) = case lookup name env of
   Just exp_ -> eval env exp_
-  Nothing -> error $ "Not found " ++ name ++ " in \n" ++ show_env env
+  Nothing   -> error $ "Not found " ++ name ++ " in \n" ++ show_env env
 
 eval env (Op2 op l r) = case (eval env l, eval env r) of
     (Int a, Int b) -> Int $ int_op a b
@@ -387,20 +425,20 @@ eval env (Op2 op l r) = case (eval env l, eval env r) of
     (a, b) -> error $ "Can't operate " ++ (show a) ++ " " ++ op ++ " " ++ (show b)
   where
     int_op = case op of
-      "+" -> (+)
-      "-" -> (-)
-      "*" -> (*)
-      "/" -> (\a b -> fromIntegral (a `div'` b) :: Int)
+      "+"  -> (+)
+      "-"  -> (-)
+      "*"  -> (*)
+      "/"  -> (\a b -> fromIntegral (a `div'` b) :: Int)
       "//" -> (\a b -> fromIntegral (a `div'` b) :: Int)
-      "%" -> mod'
+      "%"  -> mod'
       "**" -> (^)
     real_op = case op of
-      "+" -> (+)
-      "-" -> (-)
-      "*" -> (*)
-      "/" -> (/)
+      "+"  -> (+)
+      "-"  -> (-)
+      "*"  -> (*)
+      "/"  -> (/)
       "//" -> (\a b -> fromIntegral (a `div'` b) :: Double)
-      "%" -> mod'
+      "%"  -> mod'
       "**" -> (**)
     char_op = case op of
       "+" -> (\a b -> a : [b])
@@ -416,9 +454,9 @@ eval env (Op2 op l r) = case (eval env l, eval env r) of
       "|" -> union
 
 eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
-  Bool True -> eval env t
+  Bool True  -> eval env t
   Bool False -> eval env f
-  _ -> error $ "Condition is not boolean " ++ show cond
+  _          -> error $ "Condition is not boolean " ++ show cond
 eval env (Apply exp_ params) = case eval env exp_ of
     Lambda args body -> if lack then eval_ curry else eval_ body
       where
@@ -428,7 +466,19 @@ eval env (Apply exp_ params) = case eval env exp_ of
         lack = pl < al
         curry = Lambda (drop pl args) body
         eval_ = eval (binds ++ env)
-    _ -> error $ "Panic " ++ show exp_ ++ " with " ++ show params
+    Match ms -> switch ms
+    _ -> error $ "Panic " ++ show exp_ ++ " with " ++ show params ++ " env " ++ (show env)
+  where
+    switch [] = error $ "Nothing match " ++ " params=" ++ (show params)
+    switch ((matchers, exp):xs) = if (match matchers params)
+      then exp
+      else switch xs
+    match [] []                    = True
+    match ((MatchExp e):xs) (y:ys) = e == y && match xs ys
+    match (MatchAll:xs) (y:ys)     = True
+    -- Ref n -> MatchType (TypeUndef [n]) "_"
+    match _ _                      = False
+
 
 show_env [] = ""
 show_env ((name, exp_):xs) = "- " ++ name ++ " = " ++ (show exp_) ++ "\n" ++ show_env xs
@@ -442,7 +492,7 @@ detail expect src = do
   putStrLn $ "Expect | " ++ expect
   putStrLn $ "  Eval | " ++ run src
   putStrLn $ " Input | " ++ src
-  putStrLn $ show_env $ parse src
+  putStrLn $ "   AST | " ++ (show_env $ parse src)
   error "fail"
 
 test :: String -> String -> IO ()
@@ -478,6 +528,10 @@ main = do
   test "3" "main = if false 1 (if false 2 3)"
   test "1" "bool _ =\n| 1\n| 2\nmain = bool true"
   test "2" "bool _ =\n| 1\n| 2\nmain = bool false"
+  test "true" "zero _ =\n| 0 = true\n| 1 = false\nmain = zero 0"
+  test "false" "zero _ =\n| 0 = true\n| 1 = false\nmain = zero 1"
+  -- statement
+  test "3" "main =\n  a = 1\n  b = 2\n  a + b"
   -- exp number
   test "3" "main = 1 + 2"
   test "-1" "main = 1 - 2"
