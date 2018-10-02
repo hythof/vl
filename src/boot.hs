@@ -32,6 +32,8 @@ data Exp =
   | Op2 String Exp Exp
   | Apply Exp [Exp]
   | Stmt [Line]
+-- enum
+  | Enum String Exp
 -- runtime error
   | Error String
   deriving (Show, Eq)
@@ -44,11 +46,11 @@ data Type =
 data Line = Call Exp
   | Def String Exp
   | Assign String Exp
-  -- | Mutable String Type -- omit
   deriving (Show, Eq)
 
 data Match = MatchExp Exp
   | MatchType Type
+  | MatchEnum String
 --  | MatchArray [String] -- omit
 --  | MatchTuple [String] -- omit
   | MatchAll
@@ -399,6 +401,7 @@ eval _ e@(Real _) = e
 eval _ e@(Bool _) = e
 eval _ e@(Lambda _ _) = e
 eval _ e@(Match _) = e
+eval _ e@(Enum _ _) = e
 eval env (Tuple xs) = Tuple $ map (eval env) xs
 eval _ e@(Struct _) = e
 eval env (List xs) = List $ map (eval env) xs
@@ -458,7 +461,7 @@ eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
   Bool True  -> eval env t
   Bool False -> eval env f
   _          -> error $ "Condition is not boolean " ++ show cond
-eval env (Apply exp_ params) = case eval env exp_ of
+eval env (Apply exp_ params_) = case eval env exp_ of
     Lambda args body -> if lack then eval_ curry else eval_ body
       where
         pl = length params
@@ -467,22 +470,26 @@ eval env (Apply exp_ params) = case eval env exp_ of
         lack = pl < al
         curry = Lambda (drop pl args) body
         eval_ = eval (binds ++ env)
-    Match ms -> switch ms
+    Match ms -> case exp_ of
+      Ref name -> switch name ms
+      _        -> switch "_" ms
     _ -> error $ "Panic " ++ show exp_ ++ " with " ++ show params ++ " env " ++ (show env)
   where
-    switch [] = error $ "Nothing match " ++ " params=" ++ (show params)
-    switch ((matchers, exp):xs) = if (match matchers params)
-      then exp
-      else switch xs
-    match [] []                    = True
-    match ((MatchExp e):xs) (y:ys) = e == y && match xs ys
-    match (MatchAll:xs) (y:ys)     = True
-    -- Ref n -> MatchType (TypeUndef [n]) "_"
-    match _ _                      = False
+    params = map (eval env) params_
+    switch name [] = error $ "Nothing match " ++ name ++ " params=" ++ (show params)
+    switch name all@((matchers, exp):rest) = if (length matchers) == (length params)
+      then match matchers params
+      else error $ "Miss match length \n  " ++ (show params) ++ "\n  " ++ (show all)
+      where
+        match [] [] = exp
+        match (x:xs) (y:ys) = case (x, y) of
+          (MatchExp e, _) -> if e == y then match xs ys else switch name rest
+          (MatchAll, _)   -> exp
+          (_, _)          -> error $ "Bug in match process"
 
 
 show_env [] = ""
-show_env ((name, exp_):xs) = "- " ++ name ++ " = " ++ (show exp_) ++ "\n" ++ show_env xs
+show_env ((name, exp_):xs) = "* " ++ name ++ " = " ++ (show exp_) ++ "\n" ++ show_env xs
 
 
 
@@ -492,9 +499,11 @@ detail expect src = do
   putStrLn ""
   putStrLn $ "Expect | " ++ expect
   putStrLn $ "Actual | " ++ run src
-  putStrLn $ " Input | " ++ src
-  putStrLn $ "   AST | " ++ (show_env $ parse src)
-  error "fail"
+  putStrLn ""
+  putStrLn $ show_env $ parse src
+  putStrLn src
+  putStrLn ""
+  error "FAILED"
 
 test :: String -> String -> IO ()
 test expect src = if run src == expect then putStr "." else detail expect src
@@ -529,8 +538,9 @@ main = do
   test "3" "main = if false 1 (if false 2 3)"
   test "1" "bool _ =\n| 1\n| 2\nmain = bool true"
   test "2" "bool _ =\n| 1\n| 2\nmain = bool false"
-  test "true" "zero _ =\n| 0 = true\n| 1 = false\nmain = zero 0"
-  test "false" "zero _ =\n| 0 = true\n| 1 = false\nmain = zero 1"
+  test "false" "zero _ =\n| 0 = false\n| 1 = true\nmain = zero 0"
+  test "true" "zero _ =\n| 0 = false\n| 1 = true\nmain = zero 1"
+  test "true" "zero _ =\n| 0 = false\n| _ = true\nmain = zero 2"
   -- statement
   test "3" "main =\n  a = 1\n  b = 2\n  a + b"
   -- type
