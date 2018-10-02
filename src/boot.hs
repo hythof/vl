@@ -7,6 +7,7 @@ import           Control.Monad.Trans.State (State, get, put, runState, state)
 import           Data.Fixed                (div', mod')
 import           Data.List                 (intercalate, intersect, isPrefixOf,
                                             isSuffixOf, union, (\\))
+import           Data.Maybe                (catMaybes)
 import           Debug.Trace               (trace)
 
 --( Syntax tree )------------------------------------------
@@ -34,6 +35,8 @@ data Exp =
   | Stmt [Line]
 -- enum
   | Enum String Exp
+-- void
+  | Void
 -- runtime error
   | Error String
   deriving (Show, Eq)
@@ -129,6 +132,17 @@ indent = do
   many $ oneOf "\r\n"
   spaces
 
+indent1 :: Parser String
+indent1 = do
+  spaces
+  many $ oneOf "\r\n"
+  string "  "
+  spaces
+
+br :: Parser String
+br = do
+  many $ oneOf " \r\n"
+
 spaces :: Parser String
 spaces = many $ oneOf " \t"
 
@@ -208,6 +222,8 @@ run src = case lookup "main" env of
       Map xs -> bracket $ map (\(k, v) -> k ++ ": " ++ (format v)) xs
       Ref a -> a
       Op2 op l r -> (format l) ++ " " ++ op ++ " " ++ (format r)
+      Enum tag Void -> tag
+      Enum tag value -> tag ++ " " ++ (format value)
       _ -> show x
 
 parse :: String -> Env
@@ -216,11 +232,36 @@ parse s = case runState (runMaybeT parse_env) (s ++ "\n") of
   (Nothing, s)  -> []
 
 parse_env :: Parser Env
-parse_env = many $ do
-  name <- read_id
-  declear <- parse_declear
-  many1 ((many $ oneOf " \t") >> oneOf "\r\n")
-  return (name, declear)
+parse_env = parse_env_top []
+  where
+    parse_env_top :: Env -> Parser Env
+    parse_env_top acc = MaybeT $ do
+      result <- runMaybeT parse_nested_env
+      case result of
+       Nothing   -> return $ Just acc
+       Just hits -> runMaybeT $ br >> parse_env_top (acc ++ hits)
+    parse_nested_env :: Parser Env
+    parse_nested_env = do
+      name <- read_id
+      case name of
+        "enum" -> do
+          name <- read_id
+          many read_id -- drop type information
+          read_char ':'
+          lines <- many1 $ (indent1 >> parse_enum_line)
+          return lines
+        _ -> do
+          declear <- parse_declear
+          many1 ((many $ oneOf " \t") >> oneOf "\r\n")
+          return [(name, declear)]
+      where
+        parse_enum_line = do
+          name <- read_id
+          arg <- read_id `orElse` (return "")
+          return (name, make_enum name arg)
+        make_enum name arg = if arg == ""
+            then Enum name Void
+            else Lambda [arg] $ Enum name $ Ref arg
 
 parse_declear :: Parser Exp
 parse_declear = parse_declear_func
@@ -395,13 +436,14 @@ make_lambda args exp = Lambda args exp
 --( evaluator )--------------------------------------------
 
 eval :: Env -> Exp -> Exp
+eval _ Void = Void
 eval _ e@(String _) = e
 eval _ e@(Int _) = e
 eval _ e@(Real _) = e
 eval _ e@(Bool _) = e
 eval _ e@(Lambda _ _) = e
 eval _ e@(Match _) = e
-eval _ e@(Enum _ _) = e
+eval env (Enum tag v) = Enum tag (eval env v)
 eval env (Tuple xs) = Tuple $ map (eval env) xs
 eval _ e@(Struct _) = e
 eval env (List xs) = List $ map (eval env) xs
@@ -478,14 +520,18 @@ eval env (Apply exp_ params_) = case eval env exp_ of
     params = map (eval env) params_
     switch name [] = error $ "Nothing match " ++ name ++ " params=" ++ (show params)
     switch name all@((matchers, exp):rest) = if (length matchers) == (length params)
-      then match matchers params
+      then match env matchers params
       else error $ "Miss match length \n  " ++ (show params) ++ "\n  " ++ (show all)
       where
-        match [] [] = exp
-        match (x:xs) (y:ys) = case (x, y) of
-          (MatchExp e, _) -> if e == y then match xs ys else switch name rest
+        match env [] [] = exp
+        match env (x:xs) (y:ys) = case (x, y) of
+          (MatchExp e, _) -> if e == y then match env xs ys else switch name rest
+          -- TODO: modify variabl in env by matched enum name
+          (MatchEnum enum, Enum tag e) -> if enum == tag then match env xs ys else switch name rest
           (MatchAll, _)   -> exp
           (_, _)          -> error $ "Bug in match process"
+
+eval env e = error $ "Does not support type " ++ show e
 
 
 show_env [] = ""
@@ -496,11 +542,11 @@ show_env ((name, exp_):xs) = "* " ++ name ++ " = " ++ (show exp_) ++ "\n" ++ sho
 --( main )-------------------------------------------------
 detail :: String -> String -> IO ()
 detail expect src = do
-  putStrLn ""
   putStrLn $ "Expect | " ++ expect
   putStrLn $ "Actual | " ++ run src
-  putStrLn ""
-  putStrLn $ show_env $ parse src
+  putStrLn $ "   Env |"
+  putStr $ show_env $ parse src
+  putStrLn $ "   Src |"
   putStrLn src
   putStrLn ""
   error "FAILED"
@@ -510,6 +556,7 @@ test expect src = if run src == expect then putStr "." else detail expect src
 
 main :: IO ()
 main = do
+
   -- values
   test "a" "main = 'a'"
   test "ab" "main = \"ab\""
@@ -567,6 +614,10 @@ main = do
   test "[0]" "main = [0 1] & [0]"
   test "[0 1]" "main = [0] | [0 1]"
   test "[0]" "main = [1 - 1]"
+  -- enum
+  test "none" "enum maybe a:\n  just a\n  none\nmain = none"
+  test "just 1" "enum maybe a:\n  just a\n  none\nmain = just 1"
+  test "just hi" "enum maybe a:\n  just a\n  none\nmain = just \"hi\""
 
   -- call
   test "55" "add a b = a + b\nmain = add(1 2) + add(add(3 4) 5) + add(6 add(7 8)) + 9 + 10"
