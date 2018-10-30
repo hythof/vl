@@ -47,10 +47,10 @@ data Line = Call Exp
   deriving (Show, Eq)
 
 data Match = MatchExp Exp
---  | MatchType Type -- omit
+--  | MatchType Type -- next version
   | MatchEnum String
---  | MatchArray [String] -- omit
---  | MatchTuple [String] -- omit
+--  | MatchArray [String] -- next version
+--  | MatchTuple [String] -- next version
   | MatchAll
   deriving (Show, Eq)
 
