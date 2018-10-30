@@ -41,18 +41,13 @@ data Exp =
   | Error String
   deriving (Show, Eq)
 
--- TODO: following implements
-data Type =
-  Type String [Type]
-  deriving (Show, Eq)
-
 data Line = Call Exp
   | Def String Exp
   | Assign String Exp
   deriving (Show, Eq)
 
 data Match = MatchExp Exp
-  | MatchType Type
+--  | MatchType Type -- omit
   | MatchEnum String
 --  | MatchArray [String] -- omit
 --  | MatchTuple [String] -- omit
@@ -250,6 +245,12 @@ parse_env = parse_env_top []
           read_char ':'
           lines <- many1 $ (indent1 >> parse_enum_line)
           return lines
+        "type" -> do
+          name <- read_id
+          many read_id -- drop type information
+          read_char ':'
+          fields <- many1 $ (indent1 >> parse_type_line)
+          return $ [(name, Struct fields)]
         _ -> do
           declear <- parse_declear
           many1 ((many $ oneOf " \t") >> oneOf "\r\n")
@@ -259,6 +260,10 @@ parse_env = parse_env_top []
           name <- read_id
           arg <- read_id `orElse` (return "")
           return (name, make_enum name arg)
+        parse_type_line = do
+          name <- read_id
+          many read_id -- drop type information
+          return (name, String "")
         make_enum name arg = if arg == ""
             then Enum name Void
             else Lambda [arg] $ Enum name $ Ref arg
@@ -325,7 +330,6 @@ parse_declear_value = do
        v <- parse_bottom
        return $ case v of
          Ref "_" -> MatchAll
-         Ref n   -> MatchType (Type n [])
          _       -> MatchExp v
 
 parse_top :: Parser Exp
@@ -515,6 +519,7 @@ eval env (Apply exp_ params_) = case eval env exp_ of
     Match ms -> case exp_ of
       Ref name -> switch name ms
       _        -> switch "_" ms
+    Struct fields -> Struct $ zip (map fst fields) params_
     _ -> error $ "Panic " ++ show exp_ ++ " with " ++ show params ++ " env " ++ (show env)
   where
     params = map (eval env) params_
@@ -556,7 +561,6 @@ test expect src = if run src == expect then putStr "." else detail expect src
 
 main :: IO ()
 main = do
-
   -- values
   test "a" "main = 'a'"
   test "ab" "main = \"ab\""
@@ -591,7 +595,7 @@ main = do
   -- statement
   test "3" "main =\n  a = 1\n  b = 2\n  a + b"
   -- type
-  -- test "(count: 1)" "type counter:\n  count int\nmain = counter 1"
+  test "(count: 1)" "type counter:\n  count int\nmain = counter 1"
   -- exp number
   test "3" "main = 1 + 2"
   test "-1" "main = 1 - 2"
