@@ -28,6 +28,7 @@ data Exp =
   | Struct [(String, Exp)]
 -- expression
   | Lambda [String] Exp
+  | Func [Arg] Exp
   | Match [([Match], Exp)]
   | Ref String
   | Op2 String Exp Exp
@@ -37,20 +38,26 @@ data Exp =
   | Enum String Exp
 -- void
   | Void
--- runtime error
+-- runtime only
   | Error String
+  | Agg [Exp]
   deriving (Show, Eq)
 
-data Line = Call Exp
+data Line =
+    Call Exp
   | Def String Exp
   | Assign String Exp
   deriving (Show, Eq)
 
-data Match = MatchExp Exp
---  | MatchType Type -- next version
+data Arg =
+    ArgRef String
+  | ArgType String String -- type name, capture name
+  | ArgMatch Exp
+  deriving (Show, Eq)
+
+data Match =
+    MatchExp Exp
   | MatchEnum String
---  | MatchArray [String] -- next version
---  | MatchTuple [String] -- next version
   | MatchAll
   deriving (Show, Eq)
 
@@ -270,12 +277,35 @@ parse_env = parse_env_top []
 
 parse_declear :: Parser Exp
 parse_declear = parse_declear_func
+       `orElse` parse_declear_lambda
        `orElse` parse_declear_if
        `orElse` parse_declear_stmt
        `orElse` parse_declear_value
 
 parse_declear_func :: Parser Exp
 parse_declear_func = do
+  args <- parse_args
+  read_char '='
+  exp <- parse_top
+  return $ make_func args exp
+
+parse_args :: Parser [Arg]
+parse_args = many parse_arg
+  where
+    parse_arg = parse_ref
+      `orElse` parse_type
+      `orElse` parse_match
+    parse_ref = ArgRef <$> read_id
+    parse_type = do
+      read_char '('
+      type_name <- read_id
+      ref_name <- read_id `orElse` (return "")
+      read_char ')'
+      return $ ArgType type_name ref_name
+    parse_match = ArgMatch <$> parse_exp
+
+parse_declear_lambda :: Parser Exp
+parse_declear_lambda = do
   args <- read_args
   read_char '='
   exp <- parse_top
@@ -436,6 +466,9 @@ parse_bool = Bool <$> lexeme (
 make_lambda [] exp   = exp
 make_lambda args exp = Lambda args exp
 
+make_func [] exp   = exp
+make_func args exp = Func args exp
+
 
 --( evaluator )--------------------------------------------
 
@@ -445,6 +478,8 @@ eval _ e@(String _) = e
 eval _ e@(Int _) = e
 eval _ e@(Real _) = e
 eval _ e@(Bool _) = e
+eval _ e@(Func _ _) = e
+eval env e@(Agg xs) = Agg $ map (eval env) xs
 eval _ e@(Lambda _ _) = e
 eval _ e@(Match _) = e
 eval env (Enum tag v) = Enum tag (eval env v)
@@ -461,9 +496,16 @@ eval env (Stmt xs) = eval_line env xs (Error "not fond line in statement")
       Def name exp -> eval_line ((name, eval env exp) : env) lines (Error "not found return in statement")
       Assign name exp -> eval_line ((name, eval env exp) : env) lines (Error "not found return in statement")
 
-eval env (Ref name) = case lookup name env of
-  Just exp_ -> eval env exp_
-  Nothing   -> error $ "Not found " ++ name ++ " in \n" ++ show_env env
+eval env (Ref name) = case filter1 env of
+    [x] -> eval env x
+    xs -> Agg $ xs
+  where
+    filter1 ((name', exp):xs) = if name == name'
+      then reverse $ filter2 xs [exp]
+      else filter1 xs
+    filter2 ((name', exp):xs) acc = if name == name'
+      then filter2 xs (exp : acc)
+      else acc
 
 eval env (Op2 op l r) = case (eval env l, eval env r) of
     (Int a, Int b) -> Int $ int_op a b
@@ -508,6 +550,12 @@ eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
   Bool False -> eval env f
   _          -> error $ "Condition is not boolean " ++ show cond
 eval env (Apply exp_ params_) = case eval env exp_ of
+    Func args body -> case apply args body of
+      Just x -> x
+      Nothing -> panic "func" [show exp_, show params, show env]
+    Agg xs -> case apply_agg xs of
+      Just x -> x
+      Nothing -> panic "agg" [show exp_, show params, show env]
     Lambda args body -> if lack then eval_ curry else eval_ body
       where
         pl = length params
@@ -520,8 +568,32 @@ eval env (Apply exp_ params_) = case eval env exp_ of
       Ref name -> switch name ms
       _        -> switch "_" ms
     Struct fields -> Struct $ zip (map fst fields) params_
-    _ -> error $ "Panic " ++ show exp_ ++ " with " ++ show params ++ " env " ++ (show env)
+    _ -> panic "struct" [show exp_, show params, show env]
   where
+    apply_agg ((Func args body):xs) = case apply args body of
+      Just hit -> Just hit
+      Nothing -> apply_agg xs
+    apply_agg [] = Nothing
+    apply args body = case matches args params_ of
+      Just hit -> Just $ eval (hit ++ env) body
+      Nothing -> Nothing
+    matches :: [Arg] -> [Exp] -> Maybe [(String, Exp)]
+    matches xxs yys = go xxs yys []
+      where
+        go :: [Arg] -> [Exp] -> [(String, Exp)] -> Maybe [(String, Exp)]
+        go [] [] acc = Just acc
+        go (x:xs) (y:ys) acc = case match x (eval env y) of
+          Just hit -> go xs ys (hit ++ acc)
+          Nothing -> Nothing
+        go _ _ _ = Nothing
+    match :: Arg -> Exp -> Maybe [(String, Exp)]
+    match (ArgRef name) exp = Just [(name, exp)]
+    match (ArgType type_name name) (Enum tag_name exp) =
+      if type_name == tag_name
+      then Just [(name, exp)]
+      else Nothing
+    match (ArgMatch exp1) exp2 = if exp1 == exp2 then Just [] else Nothing
+    match a b = error $ "Bug unknown match case:\n  " ++ show exp_ ++ " " ++ show params_ ++ "\n  " ++ show a ++ "\n  " ++ show b
     params = map (eval env) params_
     switch name [] = error $ "Nothing match " ++ name ++ " params=" ++ (show params)
     switch name all@((matchers, exp):rest) = if (length matchers) == (length params)
@@ -538,10 +610,10 @@ eval env (Apply exp_ params_) = case eval env exp_ of
 
 eval env e = error $ "Does not support type " ++ show e
 
+panic m xs = error $ "Panic: " ++ m ++ "\n  " ++ (intercalate "\n  " xs)
 
 show_env [] = ""
 show_env ((name, exp_):xs) = "* " ++ name ++ " = " ++ (show exp_) ++ "\n" ++ show_env xs
-
 
 
 --( main )-------------------------------------------------
@@ -587,11 +659,10 @@ main = do
   -- branch
   test "2" "main = if false 1 2"
   test "3" "main = if false 1 (if false 2 3)"
-  test "1" "bool _ =\n| 1\n| 2\nmain = bool true"
-  test "2" "bool _ =\n| 1\n| 2\nmain = bool false"
-  test "false" "zero _ =\n| 0 = false\n| 1 = true\nmain = zero 0"
-  test "true" "zero _ =\n| 0 = false\n| 1 = true\nmain = zero 1"
-  test "true" "zero _ =\n| 0 = false\n| _ = true\nmain = zero 2"
+  test "1" "f 1 = 1\nf 2 = 2\nmain = f 1"
+  test "2" "f 1 = 1\nf 2 = 2\nmain = f 2"
+  test "false" "zero 0 = false\nzero _ = true\nmain = zero 0"
+  test "true" "zero 0 = false\nzero _ = true\nmain = zero 1"
   -- statement
   test "3" "main =\n  a = 1\n  b = 2\n  a + b"
   -- type
@@ -622,6 +693,8 @@ main = do
   test "none" "enum maybe a:\n  just a\n  none\nmain = none"
   test "just 1" "enum maybe a:\n  just a\n  none\nmain = just 1"
   test "just hi" "enum maybe a:\n  just a\n  none\nmain = just \"hi\""
+  test "hi" "enum maybe a:\n  just a\n  none\nf (just a) = a\nf (none) = 0\nmain = f(just(\"hi\"))"
+  test "0" "enum maybe a:\n  just a\n  none\nf (just a) = a\nf (none) = 0\nmain = f(none)"
 
   -- call
   test "55" "add a b = a + b\nmain = add(1 2) + add(add(3 4) 5) + add(6 add(7 8)) + 9 + 10"
