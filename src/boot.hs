@@ -27,9 +27,7 @@ data Exp =
   | Map [(String, Exp)]
   | Struct [(String, Exp)]
 -- expression
-  | Lambda [String] Exp
   | Func [Arg] Exp
-  | Match [([Match], Exp)]
   | Ref String
   | Op2 String Exp Exp
   | Apply Exp [Exp]
@@ -53,12 +51,6 @@ data Arg =
     ArgRef String
   | ArgType String String -- type name, capture name
   | ArgMatch Exp
-  deriving (Show, Eq)
-
-data Match =
-    MatchExp Exp
-  | MatchEnum String
-  | MatchAll
   deriving (Show, Eq)
 
 
@@ -217,7 +209,6 @@ run src = case lookup "main" env of
       Bool False -> "false"
       Int v -> number_format $ show v
       Real v -> number_format $ show v
-      Lambda args exp -> (intercalate ", " args) ++ " => " ++ format exp
       Tuple xs -> intercalate ", " $ map format xs
       Struct xs -> parentheses $ map (\(k, v) -> k ++ ": " ++ (format v)) xs
       List xs -> bracket $ map format xs
@@ -226,7 +217,11 @@ run src = case lookup "main" env of
       Op2 op l r -> (format l) ++ " " ++ op ++ " " ++ (format r)
       Enum tag Void -> tag
       Enum tag value -> tag ++ " " ++ (format value)
+      Func xs y -> (intercalate " " (map format_arg xs)) ++ " => " ++ format y
       _ -> show x
+    format_arg (ArgRef name) = name
+    format_arg (ArgType type_name ref_name) = "(" ++ type_name ++ " " ++ ref_name ++ ")"
+    format_arg (ArgMatch exp) = show exp
 
 parse :: String -> Env
 parse s = case runState (runMaybeT parse_env) (s ++ "\n") of
@@ -273,14 +268,11 @@ parse_env = parse_env_top []
           return (name, String "")
         make_enum name arg = if arg == ""
             then Enum name Void
-            else Lambda [arg] $ Enum name $ Ref arg
+            else Func [ArgRef arg] $ Enum name $ Ref arg
 
 parse_declear :: Parser Exp
 parse_declear = parse_declear_func
-       `orElse` parse_declear_lambda
-       `orElse` parse_declear_if
        `orElse` parse_declear_stmt
-       `orElse` parse_declear_value
 
 parse_declear_func :: Parser Exp
 parse_declear_func = do
@@ -291,10 +283,12 @@ parse_declear_func = do
 
 parse_args :: Parser [Arg]
 parse_args = many parse_arg
+
+parse_arg :: Parser Arg
+parse_arg = parse_ref
+  `orElse` parse_type
+  `orElse` parse_match
   where
-    parse_arg = parse_ref
-      `orElse` parse_type
-      `orElse` parse_match
     parse_ref = ArgRef <$> read_id
     parse_type = do
       read_char '('
@@ -304,27 +298,12 @@ parse_args = many parse_arg
       return $ ArgType type_name ref_name
     parse_match = ArgMatch <$> parse_exp
 
-parse_declear_lambda :: Parser Exp
-parse_declear_lambda = do
-  args <- read_args
-  read_char '='
-  exp <- parse_top
-  return $ make_lambda args exp
-
-parse_declear_if :: Parser Exp
-parse_declear_if = do
-  cond <- read_id
-  lexeme $ read_char '='
-  t <- do { char '\n'; lexeme $ char '|'; parse_call }
-  f <- do { char '\n'; lexeme $ char '|'; parse_call }
-  return $ make_lambda [cond] (Apply (Ref "if") [Ref cond, t, f])
-
 parse_declear_stmt :: Parser Exp
 parse_declear_stmt = do
-  args <- read_args
+  args <- parse_args
   read_char '='
   lines <- many1 (indent >> parse_line)
-  return $ make_lambda args $ Stmt lines
+  return $ make_func args $ Stmt lines
   where
     parse_line = parse_assign
         `orElse` parse_def
@@ -342,25 +321,6 @@ parse_declear_stmt = do
     parse_call = do
       exp <- parse_exp
       return $ Call exp
-
-parse_declear_value :: Parser Exp
-parse_declear_value = do
-  cond <- read_id
-  lexeme $ read_char '='
-  matcher <- many $ do
-    char '\n'
-    lexeme $ char '|'
-    args <- many parse_match
-    read_char '='
-    exp <- parse_call
-    return (args, exp)
-  return $ Match matcher
-  where
-     parse_match = do
-       v <- parse_bottom
-       return $ case v of
-         Ref "_" -> MatchAll
-         _       -> MatchExp v
 
 parse_top :: Parser Exp
 parse_top = do
@@ -381,11 +341,18 @@ parse_call = do
   return $ if length args == 0 then exp_ else Apply exp_ args
 
 parse_exp :: Parser Exp
-parse_exp = parse_lambda
+parse_exp = parse_func
   `orElse` parse_tuple
   `orElse` parse_op2
   `orElse` parse_apply
   `orElse` parse_bottom
+
+parse_func :: Parser Exp
+parse_func = do
+  args <- sepBy read_id (read_char ',')
+  lexeme $ string "=>"
+  exp <- parse_exp
+  return $ make_func (map ArgRef args) exp
 
 parse_bottom :: Parser Exp
 parse_bottom = parse_text
@@ -398,13 +365,6 @@ parse_bottom = parse_text
   `orElse` parse_list
   `orElse` read_between "(" ")" parse_top
 
-parse_lambda :: Parser Exp
-parse_lambda = do
-  args <- sepBy read_id (read_char ',')
-  lexeme $ string "=>"
-  exp <- parse_exp
-  return $ make_lambda args exp
-
 parse_tuple :: Parser Exp
 parse_tuple = Tuple <$> sepBy1 parse_bottom (read_char ',')
 
@@ -413,10 +373,10 @@ parse_struct = Struct <$> read_between "{" "}" (sepBy1 func (read_char ';'))
   where
     func = do
       id <- read_id
-      args <- read_args
+      args <- parse_args
       read_char '='
       exp <- parse_exp
-      return (id, make_lambda args exp)
+      return (id, make_func args exp)
 
 parse_op2 :: Parser Exp
 parse_op2 = do
@@ -463,9 +423,6 @@ parse_bool = Bool <$> lexeme (
                 (string "true" >> return True)
        `orElse` (string "false" >> return False))
 
-make_lambda [] exp   = exp
-make_lambda args exp = Lambda args exp
-
 make_func [] exp   = exp
 make_func args exp = Func args exp
 
@@ -480,8 +437,6 @@ eval _ e@(Real _) = e
 eval _ e@(Bool _) = e
 eval _ e@(Func _ _) = e
 eval env e@(Agg xs) = Agg $ map (eval env) xs
-eval _ e@(Lambda _ _) = e
-eval _ e@(Match _) = e
 eval env (Enum tag v) = Enum tag (eval env v)
 eval env (Tuple xs) = Tuple $ map (eval env) xs
 eval _ e@(Struct _) = e
@@ -556,17 +511,6 @@ eval env (Apply exp_ params_) = case eval env exp_ of
     Agg xs -> case apply_agg xs of
       Just x -> x
       Nothing -> panic "agg" [show exp_, show params, show env]
-    Lambda args body -> if lack then eval_ curry else eval_ body
-      where
-        pl = length params
-        al = length args
-        binds = zip args params
-        lack = pl < al
-        curry = Lambda (drop pl args) body
-        eval_ = eval (binds ++ env)
-    Match ms -> case exp_ of
-      Ref name -> switch name ms
-      _        -> switch "_" ms
     Struct fields -> Struct $ zip (map fst fields) params_
     _ -> panic "struct" [show exp_, show params, show env]
   where
@@ -575,13 +519,14 @@ eval env (Apply exp_ params_) = case eval env exp_ of
       Nothing -> apply_agg xs
     apply_agg [] = Nothing
     apply args body = case matches args params_ of
-      Just hit -> Just $ eval (hit ++ env) body
-      Nothing -> Nothing
-    matches :: [Arg] -> [Exp] -> Maybe [(String, Exp)]
+        Just ([], hits) -> Just $ eval (hits ++ env) body
+        Just (rest, hits) -> Just $ eval (hits ++ env) (Func rest body)
+        Nothing -> Nothing
+    matches :: [Arg] -> [Exp] -> Maybe ([Arg], [(String, Exp)])
     matches xxs yys = go xxs yys []
       where
-        go :: [Arg] -> [Exp] -> [(String, Exp)] -> Maybe [(String, Exp)]
-        go [] [] acc = Just acc
+        go :: [Arg] -> [Exp] -> [(String, Exp)] -> Maybe ([Arg], [(String, Exp)])
+        go remaining [] acc = Just (remaining, acc)
         go (x:xs) (y:ys) acc = case match x (eval env y) of
           Just hit -> go xs ys (hit ++ acc)
           Nothing -> Nothing
@@ -595,18 +540,6 @@ eval env (Apply exp_ params_) = case eval env exp_ of
     match (ArgMatch exp1) exp2 = if exp1 == exp2 then Just [] else Nothing
     match a b = error $ "Bug unknown match case:\n  " ++ show exp_ ++ " " ++ show params_ ++ "\n  " ++ show a ++ "\n  " ++ show b
     params = map (eval env) params_
-    switch name [] = error $ "Nothing match " ++ name ++ " params=" ++ (show params)
-    switch name all@((matchers, exp):rest) = if (length matchers) == (length params)
-      then match env matchers params
-      else error $ "Miss match length \n  " ++ (show params) ++ "\n  " ++ (show all)
-      where
-        match env [] [] = exp
-        match env (x:xs) (y:ys) = case (x, y) of
-          (MatchExp e, _) -> if e == y then match env xs ys else switch name rest
-          -- TODO: modify variabl in env by matched enum name
-          (MatchEnum enum, Enum tag e) -> if enum == tag then match env xs ys else switch name rest
-          (MatchAll, _)   -> exp
-          (_, _)          -> error $ "Bug in match process"
 
 eval env e = error $ "Does not support type " ++ show e
 
