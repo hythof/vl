@@ -51,6 +51,7 @@ data Arg =
     ArgRef String
   | ArgType String String -- type name, capture name
   | ArgMatch Exp
+  | ArgOpt String Exp
   deriving (Show, Eq)
 
 
@@ -84,6 +85,12 @@ string text = check text
   where
     check []     = return text
     check (x:xs) = satisfy (== x) >> check xs
+
+token :: Parser String
+token = do
+  f <- many1 $ oneOf "ABCDEFGHIJKLMNOPQRSTUVXWYZabcdefghijklmnopqrstuvxwyz_"
+  b <- many $ oneOf "0123456789"
+  return $ f ++ b
 
 sepBy :: Parser a -> Parser b -> Parser [a]
 sepBy p sep = do
@@ -155,11 +162,11 @@ read_char = lexeme . char
 read_string :: String -> Parser String
 read_string = lexeme . string
 
-read_id :: Parser String
-read_id = lexeme $ many1 $ oneOf "ABCDEFGHIJKLMNOPQRSTUVXWYZabcdefghijklmnopqrstuvxwyz_"
+read_token :: Parser String
+read_token = lexeme $ token
 
 read_args :: Parser [String]
-read_args = many read_id
+read_args = many read_token
 
 read_int :: Parser Int
 read_int = lexeme $ ((many1 $ oneOf "0123456789") >>= return . read)
@@ -178,17 +185,6 @@ read_op = lexeme $ (many1 $ oneOf "+-*/<>?|~&%")
 
 read_between :: String -> String -> Parser a -> Parser a
 read_between l r c = between (lexeme $ string l) (lexeme $ string r) c
-
-debug :: String -> Parser Int
-debug msg = do
-  x <- lift get
-  trace ("DEBUG: " ++ msg ++ " " ++ x) (return 1)
-
-dump :: String -> Parser String
-dump m = do
-  x <- lift get
-  trace ("DUMP: " ++ m ++ " " ++ x) (MaybeT $ state $ \s -> (Just "", s))
-
 
 
 --( parser )-----------------------------------------------
@@ -222,6 +218,7 @@ run src = case lookup "main" env of
     format_arg (ArgRef name) = name
     format_arg (ArgType type_name ref_name) = "(" ++ type_name ++ " " ++ ref_name ++ ")"
     format_arg (ArgMatch exp) = show exp
+    format_arg (ArgOpt name exp) = name ++ ":" ++ show exp
 
 parse :: String -> Env
 parse s = case runState (runMaybeT parse_env) (s ++ "\n") of
@@ -239,17 +236,17 @@ parse_env = parse_env_top []
        Just hits -> runMaybeT $ br >> parse_env_top (acc ++ hits)
     parse_nested_env :: Parser Env
     parse_nested_env = do
-      name <- read_id
+      name <- read_token
       case name of
         "enum" -> do
-          name <- read_id
-          many read_id -- drop type information
+          name <- read_token
+          many read_token -- drop type information
           read_char ':'
           lines <- many1 $ (indent1 >> parse_enum_line)
           return lines
         "type" -> do
-          name <- read_id
-          many read_id -- drop type information
+          name <- read_token
+          many read_token -- drop type information
           read_char ':'
           fields <- many1 $ (indent1 >> parse_type_line)
           return $ [(name, Struct fields)]
@@ -259,12 +256,12 @@ parse_env = parse_env_top []
           return [(name, declear)]
       where
         parse_enum_line = do
-          name <- read_id
-          arg <- read_id `orElse` (return "")
+          name <- read_token
+          arg <- read_token `orElse` (return "")
           return (name, make_enum name arg)
         parse_type_line = do
-          name <- read_id
-          many read_id -- drop type information
+          name <- read_token
+          many read_token -- drop type information
           return (name, String "")
         make_enum name arg = if arg == ""
             then Enum name Void
@@ -285,18 +282,24 @@ parse_args :: Parser [Arg]
 parse_args = many parse_arg
 
 parse_arg :: Parser Arg
-parse_arg = parse_ref
+parse_arg = parse_opt
+  `orElse` parse_ref
   `orElse` parse_type
   `orElse` parse_match
   where
-    parse_ref = ArgRef <$> read_id
+    parse_ref = ArgRef <$> read_token
     parse_type = do
       read_char '('
-      type_name <- read_id
-      ref_name <- read_id `orElse` (return "")
+      type_name <- read_token
+      ref_name <- read_token `orElse` (return "")
       read_char ')'
       return $ ArgType type_name ref_name
     parse_match = ArgMatch <$> parse_exp
+    parse_opt = do
+      name <- token
+      char ':'
+      value <- parse_bottom
+      return $ ArgOpt name value
 
 parse_declear_stmt :: Parser Exp
 parse_declear_stmt = do
@@ -309,12 +312,12 @@ parse_declear_stmt = do
         `orElse` parse_def
         `orElse` parse_call
     parse_assign = do
-      name <- read_id
+      name <- read_token
       read_string "<="
       exp <- parse_exp
       return $ Assign name exp
     parse_def = do
-      name <- read_id
+      name <- read_token
       read_char '='
       exp <- parse_exp
       return $ Def name exp
@@ -349,7 +352,7 @@ parse_exp = parse_func
 
 parse_func :: Parser Exp
 parse_func = do
-  args <- sepBy read_id (read_char ',')
+  args <- sepBy read_token (read_char ',')
   lexeme $ string "=>"
   exp <- parse_exp
   return $ make_func (map ArgRef args) exp
@@ -372,7 +375,7 @@ parse_struct :: Parser Exp
 parse_struct = Struct <$> read_between "{" "}" (sepBy1 func (read_char ';'))
   where
     func = do
-      id <- read_id
+      id <- read_token
       args <- parse_args
       read_char '='
       exp <- parse_exp
@@ -390,7 +393,7 @@ parse_map = Map <$> (lexeme $ string "[:]" >> return [])
             `orElse` read_between "[" "]" (many1 kv)
   where
     kv = do
-      id <- read_id
+      id <- read_token
       read_char ':'
       exp <- parse_bottom
       return (id, exp)
@@ -411,12 +414,12 @@ parse_real = Real <$> read_real
 
 parse_apply :: Parser Exp
 parse_apply = do
-  id <- read_id
+  id <- read_token
   args <- read_between "(" ")" (many1 (white_spaces >> parse_exp))
   return $ Apply (Ref id) args
 
 parse_ref :: Parser Exp
-parse_ref = Ref <$> read_id
+parse_ref = Ref <$> read_token
 
 parse_bool :: Parser Exp
 parse_bool = Bool <$> lexeme (
@@ -451,16 +454,17 @@ eval env (Stmt xs) = eval_line env xs (Error "not fond line in statement")
       Def name exp -> eval_line ((name, eval env exp) : env) lines (Error "not found return in statement")
       Assign name exp -> eval_line ((name, eval env exp) : env) lines (Error "not found return in statement")
 
-eval env (Ref name) = case filter1 env of
-    [x] -> eval env x
+eval env (Ref name) = case map snd $ filter (\x -> fst x == name) env of
+    [x] -> eval0 x
     xs -> Agg $ xs
   where
-    filter1 ((name', exp):xs) = if name == name'
-      then reverse $ filter2 xs [exp]
-      else filter1 xs
-    filter2 ((name', exp):xs) acc = if name == name'
-      then filter2 xs (exp : acc)
-      else acc
+    eval0 e@(Func args body) = case apply0 args [] of
+      Just hits -> eval (hits ++ env) body
+      Nothing -> eval env e
+    eval0 e = eval env e
+    apply0 [] acc = Just acc
+    apply0 ((ArgOpt name exp):xs) acc = apply0 xs $ (name, exp) : acc
+    apply0 _ _ = Nothing
 
 eval env (Op2 op l r) = case (eval env l, eval env r) of
     (Int a, Int b) -> Int $ int_op a b
@@ -504,31 +508,33 @@ eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
   Bool True  -> eval env t
   Bool False -> eval env f
   _          -> error $ "Condition is not boolean " ++ show cond
-eval env (Apply exp_ params_) = case eval env exp_ of
-    Func args body -> case apply args body of
+eval env (Apply exp_ params_) = top exp_
+  where
+    top (Func args body) = case apply args body of
       Just x -> x
       Nothing -> panic "func" [show exp_, show params, show env]
-    Agg xs -> case apply_agg xs of
+    top (Agg xs) = case apply_agg xs of
       Just x -> x
       Nothing -> panic "agg" [show exp_, show params, show env]
-    Struct fields -> Struct $ zip (map fst fields) params_
-    _ -> panic "struct" [show exp_, show params, show env]
-  where
+    top (Struct fields) = Struct $ zip (map fst fields) params_
+    top (Ref name) = case map snd $ filter (\x -> fst x == name) env of
+      [x] -> top x
+      xs -> top $ Agg xs
+    apply args body = case matches args params_ of
+        Just (rest, hits) -> Just $ eval (hits ++ env) $ make_func rest body
+        Nothing -> Nothing
+    apply_agg [] = Nothing
     apply_agg ((Func args body):xs) = case apply args body of
       Just hit -> Just hit
       Nothing -> apply_agg xs
-    apply_agg [] = Nothing
-    apply args body = case matches args params_ of
-        Just ([], hits) -> Just $ eval (hits ++ env) body
-        Just (rest, hits) -> Just $ eval (hits ++ env) (Func rest body)
-        Nothing -> Nothing
     matches :: [Arg] -> [Exp] -> Maybe ([Arg], [(String, Exp)])
     matches xxs yys = go xxs yys []
       where
         go :: [Arg] -> [Exp] -> [(String, Exp)] -> Maybe ([Arg], [(String, Exp)])
+        go ((ArgOpt name exp):xs) [] acc = go xs [] $ (name, exp) : acc
         go remaining [] acc = Just (remaining, acc)
         go (x:xs) (y:ys) acc = case match x (eval env y) of
-          Just hit -> go xs ys (hit ++ acc)
+          Just hit -> go xs ys $ hit ++ acc
           Nothing -> Nothing
         go _ _ _ = Nothing
     match :: Arg -> Exp -> Maybe [(String, Exp)]
@@ -538,7 +544,7 @@ eval env (Apply exp_ params_) = case eval env exp_ of
       then Just [(name, exp)]
       else Nothing
     match (ArgMatch exp1) exp2 = if exp1 == exp2 then Just [] else Nothing
-    match a b = error $ "Bug unknown match case:\n  " ++ show exp_ ++ " " ++ show params_ ++ "\n  " ++ show a ++ "\n  " ++ show b
+    match (ArgOpt name _) exp = Just [(name, exp)]
     params = map (eval env) params_
 
 eval env e = error $ "Does not support type " ++ show e
@@ -584,6 +590,10 @@ main = do
   test "3" "main = (x, y => x + y) 1 2"
   test "y => x + y" "main = (x, y => x + y) 1"
   test "3" "main = (x, y => x + y) 1 2"
+  test "0" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3 0 0 0"
+  test "3" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3 0 0"
+  test "5" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3 0"
+  test "6" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3"
   -- containers
   test "[]" "main = []"
   test "[0]" "main = [0]"
