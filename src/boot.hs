@@ -92,8 +92,8 @@ token = do
   b <- many $ oneOf "0123456789ABCDEFGHIJKLMNOPQRSTUVXWYZabcdefghijklmnopqrstuvxwyz_"
   return $ f ++ b
 
-dot :: Parser String
-dot = do
+token_with_dot :: Parser String
+token_with_dot = do
   xs <- sepBy token (char '.')
   return $ intercalate "." xs
 
@@ -170,8 +170,8 @@ lex_string = lexeme . string
 lex_token :: Parser String
 lex_token = lexeme $ token
 
-lex_dot :: Parser String
-lex_dot = lexeme $ dot
+lex_token_with_dot :: Parser String
+lex_token_with_dot = lexeme $ token_with_dot
 
 lex_args :: Parser [String]
 lex_args = many lex_token
@@ -192,7 +192,11 @@ lex_op :: Parser String
 lex_op = lexeme $ (many1 $ oneOf "+-*/<>?|~&%.")
 
 lex_between :: String -> String -> Parser a -> Parser a
-lex_between l r c = between (lexeme $ string l) (lexeme $ string r) (lexeme c)
+lex_between l r c = between ll lr lc
+  where
+    ll = lexeme $ string l
+    lr = lexeme $ string r
+    lc = lexeme c
 
 debug :: String -> Parser Int
 debug msg = do
@@ -218,7 +222,9 @@ run src = case lookup "main" env of
     Nothing   -> show env
   where
     env = parse src
-    number_format s = if isSuffixOf ".0" s then (take ((length s) - 2) s) else s
+    number_format s = if isSuffixOf ".0" s
+      then (take ((length s) - 2) s)
+      else s
     bracket xs = "[" ++ (intercalate " " xs) ++ "]"
     --brace xs = "{" ++ (intercalate "; " xs) ++ "}"
     parentheses xs = "(" ++ (intercalate "; " xs) ++ ")"
@@ -229,7 +235,7 @@ run src = case lookup "main" env of
       Int v -> number_format $ show v
       Real v -> number_format $ show v
       Tuple xs -> intercalate ", " $ map format xs
-      Struct xs -> parentheses $ map (\(k, v) -> k ++ ": " ++ (format v)) xs
+      Struct fields -> parentheses $ map (\(k, v) -> k ++ ": " ++ (format v)) fields
       List xs -> bracket $ map format xs
       Map xs -> bracket $ map (\(k, v) -> k ++ ": " ++ (format v)) xs
       Ref a -> a
@@ -257,8 +263,10 @@ parse_env = parse_env_top []
     parse_env_top acc = MaybeT $ do
       result <- runMaybeT parse_nested_env
       case result of
-       Just (name, exp) -> runMaybeT $ br >> parse_env_top ((name, exp) : acc)
        Nothing          -> return $ Just $ reverse acc
+       Just (name, exp) -> runMaybeT $ do
+         br
+         parse_env_top ((name, exp) : acc)
     parse_nested_env :: Parser (String, Exp)
     parse_nested_env = do
       prefix <- lex_token
@@ -301,10 +309,12 @@ parse_declear name = (parse_declear_func name)
 
 parse_declear_func :: String -> Parser Exp
 parse_declear_func name = do
-    patterns <- sepBy relative_func (white_spaces >> lex_string name)
+    patterns <- sepBy relative_func $ do
+      white_spaces
+      lex_string name
     return $ case patterns of
       [([], x)] -> x
-      xs -> Func xs
+      _ -> Func patterns
   where
     relative_func = do
       args <- parse_args
@@ -324,7 +334,7 @@ parse_arg = arg_opt
     arg_ref = ArgRef <$> lex_token
     arg_type = do
       lex_char '('
-      type_name <- lex_dot
+      type_name <- lex_token_with_dot
       ref_name <- lex_token `orElse` (return "")
       lex_char ')'
       return $ ArgType type_name ref_name
@@ -386,7 +396,7 @@ parse_exp = parse_func
 
 parse_func :: Parser Exp
 parse_func = do
-  args <- sepBy lex_dot (lex_char ',')
+  args <- sepBy lex_token_with_dot (lex_char ',')
   lex_string "=>"
   exp <- parse_exp
   return $ make_func (map ArgRef args) exp
@@ -406,8 +416,9 @@ parse_tuple :: Parser Exp
 parse_tuple = Tuple <$> sepBy1 parse_bottom (lex_char ',')
 
 parse_struct :: Parser Exp
-parse_struct = Struct <$> lex_between "{" "}" (sepBy1 func (lex_char ';'))
+parse_struct = Struct <$> lex_between "{" "}" fields1
   where
+    fields1 = sepBy1 func (lex_char ';')
     func = do
       id <- lex_token
       args <- parse_args
@@ -448,14 +459,14 @@ parse_real = Real <$> lex_real
 
 parse_apply :: Parser Exp
 parse_apply = do
-  id <- dot
+  id <- token_with_dot
   char '('
   args <- many1 (white_spaces >> parse_exp)
   lex_char ')'
   return $ make_apply (Ref id) args
 
 parse_ref :: Parser Exp
-parse_ref = Ref <$> lex_dot
+parse_ref = Ref <$> lex_token_with_dot
 
 parse_bool :: Parser Exp
 parse_bool = Bool <$> lexeme (
@@ -484,7 +495,7 @@ eval env (Tuple xs) = Tuple $ map (eval env) xs
 eval env (Struct fields) = Struct $ map (\(label, body) -> (label, eval env body)) fields
 eval env (List xs) = List $ map (eval env) xs
 eval env (Map xs) = Map $ map (\(k, v) -> (k, eval env v)) xs
-eval env (Stmt xs) = eval_line env xs (Error "not fond line in statement")
+eval env (Stmt lines) = eval_line env lines (Error "not fond line in statement")
   where
     eval_line :: Env -> [Line] -> Exp -> Exp
     eval_line _ [] v = v
@@ -558,7 +569,7 @@ eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
   Bool False -> eval env f
   _          -> Error $ "Condition is not boolean " ++ show cond
 eval env e@(Apply exp_ params_) = case eval env exp_ of
-    Func xs -> apply_func xs
+    Func patterns -> apply_func patterns
     x -> Error $ "apply top" ++ show x
   where
     params = map (eval env) params_
@@ -580,19 +591,19 @@ eval env e@(Apply exp_ params_) = case eval env exp_ of
         bind [] _ local_env = error $ "Too many arguments " ++ show e
         bind ((ArgOpt name exp):xs) [] local_env = bind xs [] $ (name, exp) : local_env
         bind (x:xs) (y:ys) local_env = do
-          new_env <- match x y
-          bind xs ys $ new_env ++ local_env
+          kv <- match x y
+          bind xs ys $ kv : local_env
         bind _ [] local_env = Just local_env
-        match :: Arg -> Exp -> Maybe [(String, Exp)]
+        match :: Arg -> Exp -> Maybe (String, Exp)
         match (ArgMatch exp1) exp2 = do
           guard $ exp1 == exp2
-          return [("", exp1)]
-        match (ArgRef name) exp = Just [(name, exp)]
-        match (ArgOpt name _) exp = Just [(name, exp)]
+          return ("", exp1)
+        match (ArgRef name) exp = Just (name, exp)
+        match (ArgOpt name _) exp = Just (name, exp)
         match (ArgType type_name name) (Enum tag_name exp) = do
           guard $ type_name == tag_name
-          return [(name, exp)]
-        match (ArgType _ name) exp = Just [(name, exp)] -- now, match any types
+          return (name, exp)
+        match (ArgType _ name) exp = Just (name, exp) -- now, match any types
 
 eval env e = Error $ "Does not support type " ++ show e
 
