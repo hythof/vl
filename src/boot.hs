@@ -92,6 +92,11 @@ token = do
   b <- many $ oneOf "0123456789"
   return $ f ++ b
 
+dot :: Parser String
+dot = do
+  xs <- sepBy token (char '.')
+  return $ intercalate "." xs
+
 sepBy :: Parser a -> Parser b -> Parser [a]
 sepBy p sep = do
   x <- p
@@ -165,6 +170,9 @@ read_string = lexeme . string
 read_token :: Parser String
 read_token = lexeme $ token
 
+read_dot :: Parser String
+read_dot = lexeme $ dot
+
 read_args :: Parser [String]
 read_args = many read_token
 
@@ -181,13 +189,19 @@ read_real = do
   return d
 
 read_op :: Parser String
-read_op = lexeme $ (many1 $ oneOf "+-*/<>?|~&%")
+read_op = lexeme $ (many1 $ oneOf "+-*/<>?|~&%.")
 
 read_between :: String -> String -> Parser a -> Parser a
 read_between l r c = between (lexeme $ string l) (lexeme $ string r) c
 
 
 --( parser )-----------------------------------------------
+
+debug :: String -> String
+debug src = (run src) ++ "\n--\n" ++ intercalate "\n" lines
+  where
+    env = parse src
+    lines = map (\(name, exp) -> name ++ ": " ++ show exp) env
 
 run :: String -> String
 run src = case lookup "main" env of
@@ -232,9 +246,9 @@ parse_env = parse_env_top []
     parse_env_top acc = MaybeT $ do
       result <- runMaybeT parse_nested_env
       case result of
-       Nothing   -> return $ Just acc
-       Just hits -> runMaybeT $ br >> parse_env_top (acc ++ hits)
-    parse_nested_env :: Parser Env
+       Nothing   -> return $ Just $ reverse acc
+       Just (name, exp) -> runMaybeT $ br >> parse_env_top ((name, exp) : acc)
+    parse_nested_env :: Parser (String, Exp)
     parse_nested_env = do
       name <- read_token
       case name of
@@ -243,17 +257,19 @@ parse_env = parse_env_top []
           many read_token -- drop type information
           read_char ':'
           lines <- many1 $ (indent1 >> parse_enum_line)
-          return lines
+          return (name, Struct lines)
         "type" -> do
           name <- read_token
           many read_token -- drop type information
           read_char ':'
           fields <- many1 $ (indent1 >> parse_type_line)
-          return $ [(name, Struct fields)]
+          let arg_refs = map ArgRef fields
+          let body = Struct $ map (\x -> (x, Ref x)) fields
+          return $ (name, Func arg_refs body)
         _ -> do
           declear <- parse_declear
           many1 ((many $ oneOf " \t") >> oneOf "\r\n")
-          return [(name, declear)]
+          return (name, declear)
       where
         parse_enum_line = do
           name <- read_token
@@ -262,7 +278,7 @@ parse_env = parse_env_top []
         parse_type_line = do
           name <- read_token
           many read_token -- drop type information
-          return (name, String "")
+          return name
         make_enum name arg = if arg == ""
             then Enum name Void
             else Func [ArgRef arg] $ Enum name $ Ref arg
@@ -282,20 +298,20 @@ parse_args :: Parser [Arg]
 parse_args = many parse_arg
 
 parse_arg :: Parser Arg
-parse_arg = parse_opt
-  `orElse` parse_ref
-  `orElse` parse_type
-  `orElse` parse_match
+parse_arg = arg_opt
+  `orElse` arg_ref
+  `orElse` arg_type
+  `orElse` arg_match
   where
-    parse_ref = ArgRef <$> read_token
-    parse_type = do
+    arg_ref = ArgRef <$> read_token
+    arg_type = do
       read_char '('
       type_name <- read_token
       ref_name <- read_token `orElse` (return "")
       read_char ')'
       return $ ArgType type_name ref_name
-    parse_match = ArgMatch <$> parse_exp
-    parse_opt = do
+    arg_match = ArgMatch <$> parse_exp
+    arg_opt = do
       name <- token
       char ':'
       value <- parse_bottom
@@ -419,7 +435,7 @@ parse_apply = do
   return $ Apply (Ref id) args
 
 parse_ref :: Parser Exp
-parse_ref = Ref <$> read_token
+parse_ref = Ref <$> read_dot
 
 parse_bool :: Parser Exp
 parse_bool = Bool <$> lexeme (
@@ -442,7 +458,7 @@ eval _ e@(Func _ _) = e
 eval env e@(Agg xs) = Agg $ map (eval env) xs
 eval env (Enum tag v) = Enum tag (eval env v)
 eval env (Tuple xs) = Tuple $ map (eval env) xs
-eval _ e@(Struct _) = e
+eval env (Struct fields) = Struct $ map (\(label, body) -> (label, eval env body)) fields
 eval env (List xs) = List $ map (eval env) xs
 eval env (Map xs) = Map $ map (\(k, v) -> (k, eval env v)) xs
 eval env (Stmt xs) = eval_line env xs (Error "not fond line in statement")
@@ -466,14 +482,20 @@ eval env (Ref name) = case map snd $ filter (\x -> fst x == name) env of
     apply0 ((ArgOpt name exp):xs) acc = apply0 xs $ (name, exp) : acc
     apply0 _ _ = Nothing
 
-eval env (Op2 op l r) = case (eval env l, eval env r) of
-    (Int a, Int b) -> Int $ int_op a b
-    (Real a, Real b) -> Real $ real_op a b
-    (Bool a, Bool b) -> Bool $ bool_op a b
-    (Char a, Char b) -> String $ char_op a b
-    (String a, String b) -> String $ string_op a b
-    (List a, List b) -> List $ list_op a b
-    (a, b) -> error $ "Can't operate " ++ (show a) ++ " " ++ op ++ " " ++ (show b)
+eval env (Op2 op l r) = case op of
+    "." -> case (eval env l, r) of
+      (Struct fields, Ref name) -> case lookup name fields of
+        Just hit -> hit
+        Nothing -> error $ "Can't lookup " ++ name ++ " in " ++ (show fields)
+      x -> panic "op2" [op, show l, show r, show $ eval env l, show $ eval env r, show env]
+    _ -> case (eval env l, eval env r) of
+      (Int a, Int b) -> Int $ int_op a b
+      (Real a, Real b) -> Real $ real_op a b
+      (Bool a, Bool b) -> Bool $ bool_op a b
+      (Char a, Char b) -> String $ char_op a b
+      (String a, String b) -> String $ string_op a b
+      (List a, List b) -> List $ list_op a b
+      (a, b) -> error $ "Can't operate " ++ (show a) ++ ":" ++ (show l) ++ " " ++ op ++ " " ++ (show b) ++ ":" ++ (show r)
   where
     int_op = case op of
       "+"  -> (+)
@@ -516,10 +538,17 @@ eval env (Apply exp_ params_) = top exp_
     top (Agg xs) = case apply_agg xs of
       Just x -> x
       Nothing -> panic "agg" [show exp_, show params, show env]
-    top (Struct fields) = Struct $ zip (map fst fields) params_
-    top (Ref name) = case map snd $ filter (\x -> fst x == name) env of
-      [x] -> top x
-      xs -> top $ Agg xs
+    top (Ref name) = case params of
+      [Struct fields] -> case lookup name fields of
+        Just hit -> hit
+        Nothing -> case lookup name env of
+          Just hit -> eval env $ Apply hit params_
+          Nothing -> panic "ref struct" [name, show fields]
+      _ -> case map snd $ filter (\x -> fst x == name) env of
+        [x] -> top x
+        xs -> top $ Agg xs
+    top x@(Op2 _ _ _) = top $ eval env x
+    top x = panic "apply top" [show x]
     apply args body = case matches args params_ of
         Just (rest, hits) -> Just $ eval (hits ++ env) $ make_func rest body
         Nothing -> Nothing
@@ -552,19 +581,25 @@ eval env e = error $ "Does not support type " ++ show e
 panic m xs = error $ "Panic: " ++ m ++ "\n  " ++ (intercalate "\n  " xs)
 
 show_env [] = ""
-show_env ((name, exp_):xs) = "* " ++ name ++ " = " ++ (show exp_) ++ "\n" ++ show_env xs
+show_env ((name, exp_):xs) = name ++ " = " ++ (show exp_) ++ "\n" ++ show_env xs
 
 
 --( main )-------------------------------------------------
 detail :: String -> String -> IO ()
 detail expect src = do
-  putStrLn $ "Expect | " ++ expect
-  putStrLn $ "Actual | " ++ run src
-  putStrLn $ "   Env |"
-  putStr $ show_env $ parse src
-  putStrLn $ "   Src |"
-  putStrLn src
+  putStrLn "---------------------------------------------------------"
+  putStrLn "# Expect"
+  putStrLn expect
   putStrLn ""
+  putStrLn "# Got"
+  putStrLn $ run src
+  putStrLn ""
+  putStrLn "# Env"
+  putStr $ show_env $ parse src
+  putStrLn ""
+  putStrLn "# Src"
+  putStrLn src
+  putStrLn "---------------------------------------------------------"
   error "FAILED"
 
 test :: String -> String -> IO ()
@@ -610,6 +645,7 @@ main = do
   test "3" "main =\n  a = 1\n  b = 2\n  a + b"
   -- type
   test "(count: 1)" "type counter:\n  count int\nmain = counter 1"
+  test "1" "type counter:\n  count int\nmain = counter(1).count"
   -- exp number
   test "3" "main = 1 + 2"
   test "-1" "main = 1 - 2"
@@ -633,12 +669,13 @@ main = do
   test "[0 1]" "main = [0] | [0 1]"
   test "[0]" "main = [1 - 1]"
   -- enum
-  test "none" "enum maybe a:\n  just a\n  none\nmain = none"
-  test "just 1" "enum maybe a:\n  just a\n  none\nmain = just 1"
-  test "just hi" "enum maybe a:\n  just a\n  none\nmain = just \"hi\""
-  test "hi" "enum maybe a:\n  just a\n  none\nf (just a) = a\nf (none) = 0\nmain = f(just(\"hi\"))"
-  test "0" "enum maybe a:\n  just a\n  none\nf (just a) = a\nf (none) = 0\nmain = f(none)"
+  --test "none" "enum maybe a:\n  just a\n  none\nmain = maybe.none"
+  --test "just 1" "enum maybe a:\n  just a\n  none\nmain = maybe.just 1"
+  --test "just hi" "enum maybe a:\n  just a\n  none\nmain = maybe.just \"hi\""
+  --test "hi" "enum maybe a:\n  just a\n  none\nf (maybe.just a) = a\nf (maybe.none) = 0\nmain = f(maybe.just(\"hi\"))"
+  --test "0" "enum maybe a:\n  just a\n  none\nf (maybe.just a) = a\nf (maybe.none) = 0\nmain = f(maybe.none)"
 
   -- call
   test "55" "add a b = a + b\nmain = add(1 2) + add(add(3 4) 5) + add(6 add(7 8)) + 9 + 10"
+
   putStrLn "ok"

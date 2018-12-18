@@ -1,0 +1,4 @@
+enum ast:
+  int int
+
+main = ast.int 1
