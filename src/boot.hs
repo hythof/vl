@@ -28,6 +28,7 @@ data Exp =
   | Struct [(String, Exp)]
 -- expression
   | Func [Arg] Exp
+  | Pattern [([Arg], Exp)]
   | Ref String
   | Op2 String Exp Exp
   | Apply Exp [Exp]
@@ -38,7 +39,6 @@ data Exp =
   | Void
 -- runtime only
   | Error String
-  | Agg [Exp]
   deriving (Show, Eq)
 
 data Line =
@@ -232,7 +232,7 @@ run src = case lookup "main" env of
     format_arg (ArgRef name) = name
     format_arg (ArgType type_name ref_name) = "(" ++ type_name ++ " " ++ ref_name ++ ")"
     format_arg (ArgMatch exp) = show exp
-    format_arg (ArgOpt name exp) = name ++ ":" ++ show exp
+    format_arg (ArgOpt name exp) = name ++ ":" ++ format exp
 
 parse :: String -> Env
 parse s = case runState (runMaybeT parse_env) (s ++ "\n") of
@@ -250,13 +250,13 @@ parse_env = parse_env_top []
        Just (name, exp) -> runMaybeT $ br >> parse_env_top ((name, exp) : acc)
     parse_nested_env :: Parser (String, Exp)
     parse_nested_env = do
-      name <- read_token
-      case name of
+      prefix <- read_token
+      case prefix of
         "enum" -> do
           name <- read_token
           many read_token -- drop type information
           read_char ':'
-          lines <- many1 $ (indent1 >> parse_enum_line)
+          lines <- many1 $ (indent1 >> parse_enum_line name)
           return (name, Struct lines)
         "type" -> do
           name <- read_token
@@ -267,14 +267,15 @@ parse_env = parse_env_top []
           let body = Struct $ map (\x -> (x, Ref x)) fields
           return $ (name, Func arg_refs body)
         _ -> do
-          declear <- parse_declear
+          declear <- parse_declear prefix
           many1 ((many $ oneOf " \t") >> oneOf "\r\n")
-          return (name, declear)
+          return (prefix, declear)
       where
-        parse_enum_line = do
+        parse_enum_line prefix = do
           name <- read_token
           arg <- read_token `orElse` (return "")
-          return (name, make_enum name arg)
+          let full_name = prefix ++ "." ++ name
+          return (name, make_enum full_name arg)
         parse_type_line = do
           name <- read_token
           many read_token -- drop type information
@@ -283,9 +284,21 @@ parse_env = parse_env_top []
             then Enum name Void
             else Func [ArgRef arg] $ Enum name $ Ref arg
 
-parse_declear :: Parser Exp
-parse_declear = parse_declear_func
+parse_declear :: String -> Parser Exp
+parse_declear name = (parse_declear_pattern name)
+       `orElse` parse_declear_func
        `orElse` parse_declear_stmt
+
+parse_declear_pattern :: String -> Parser Exp
+parse_declear_pattern name = do
+    patterns <- sepBy1 relative_patterns (white_spaces >> read_string name)
+    return $ Pattern patterns
+  where
+    relative_patterns = do
+      args <- parse_patterns
+      read_char '='
+      exp <- parse_top
+      return (args, exp)
 
 parse_declear_func :: Parser Exp
 parse_declear_func = do
@@ -293,6 +306,29 @@ parse_declear_func = do
   read_char '='
   exp <- parse_top
   return $ make_func args exp
+
+parse_patterns :: Parser [Arg]
+parse_patterns = many parse_pattern
+
+parse_pattern :: Parser Arg
+parse_pattern = arg_opt
+  `orElse` arg_ref
+  `orElse` arg_type
+  `orElse` arg_match
+  where
+    arg_ref = ArgRef <$> read_token
+    arg_type = do
+      read_char '('
+      type_name <- read_dot
+      ref_name <- read_token `orElse` (return "")
+      read_char ')'
+      return $ ArgType type_name ref_name
+    arg_match = ArgMatch <$> parse_exp
+    arg_opt = do
+      name <- token
+      char ':'
+      value <- parse_bottom
+      return $ ArgOpt name value
 
 parse_args :: Parser [Arg]
 parse_args = many parse_arg
@@ -430,7 +466,7 @@ parse_real = Real <$> read_real
 
 parse_apply :: Parser Exp
 parse_apply = do
-  id <- read_token
+  id <- dot
   args <- read_between "(" ")" (many1 (white_spaces >> parse_exp))
   return $ Apply (Ref id) args
 
@@ -455,7 +491,6 @@ eval _ e@(Int _) = e
 eval _ e@(Real _) = e
 eval _ e@(Bool _) = e
 eval _ e@(Func _ _) = e
-eval env e@(Agg xs) = Agg $ map (eval env) xs
 eval env (Enum tag v) = Enum tag (eval env v)
 eval env (Tuple xs) = Tuple $ map (eval env) xs
 eval env (Struct fields) = Struct $ map (\(label, body) -> (label, eval env body)) fields
@@ -470,17 +505,21 @@ eval env (Stmt xs) = eval_line env xs (Error "not fond line in statement")
       Def name exp -> eval_line ((name, eval env exp) : env) lines (Error "not found return in statement")
       Assign name exp -> eval_line ((name, eval env exp) : env) lines (Error "not found return in statement")
 
-eval env (Ref name) = case map snd $ filter (\x -> fst x == name) env of
-    [x] -> eval0 x
-    xs -> Agg $ xs
+eval env (Ref name_with_dot) = find_nest (names name_with_dot [] []) env
   where
-    eval0 e@(Func args body) = case apply0 args [] of
-      Just hits -> eval (hits ++ env) body
-      Nothing -> eval env e
-    eval0 e = eval env e
-    apply0 [] acc = Just acc
-    apply0 ((ArgOpt name exp):xs) acc = apply0 xs $ (name, exp) : acc
-    apply0 _ _ = Nothing
+    find_nest (x:xs) dict = case find_one x dict of
+      (Struct fields) -> find_nest xs fields
+      found -> case xs of
+        [] -> found
+        _ -> error $ "Panic: ref " ++ name_with_dot ++ " in " ++ x ++ " " ++ (show_env env)
+    find_one name dict = case lookup name dict of
+      Just found -> found
+      Nothing -> error $ "Panic: ref " ++ name_with_dot ++ show_env env
+    names :: String -> String -> [String] -> [String]
+    names [] [] acc2 = reverse acc2
+    names (('.'):xs) acc1 acc2 = names xs [] ((reverse acc1) : acc2)
+    names (x:xs) acc1 acc2 = names xs (x : acc1) acc2
+    names [] acc1 acc2 = reverse $ ((reverse acc1) : acc2)
 
 eval env (Op2 op l r) = case op of
     "." -> case (eval env l, r) of
@@ -530,34 +569,22 @@ eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
   Bool True  -> eval env t
   Bool False -> eval env f
   _          -> error $ "Condition is not boolean " ++ show cond
-eval env (Apply exp_ params_) = top exp_
-  where
-    top (Func args body) = case apply args body of
+eval env e@(Apply exp_ params_) = case eval env exp_ of
+    Func args body -> case apply args body of
       Just x -> x
       Nothing -> panic "func" [show exp_, show params, show env]
-    top (Agg xs) = case apply_agg xs of
-      Just x -> x
-      Nothing -> panic "agg" [show exp_, show params, show env]
-    top (Ref name) = case params of
-      [Struct fields] -> case lookup name fields of
-        Just hit -> hit
-        Nothing -> case lookup name env of
-          Just hit -> eval env $ Apply hit params_
-          Nothing -> panic "ref struct" [name, show fields]
-      _ -> case map snd $ filter (\x -> fst x == name) env of
-        [x] -> top x
-        xs -> top $ Agg xs
-    top x@(Op2 _ _ _) = top $ eval env x
-    top x = panic "apply top" [show x]
-    apply args body = case matches args params_ of
+    Pattern xs -> pattern_match xs
+    x -> panic "apply top" [show x]
+  where
+    pattern_match [] = error $ "pattern does not match " ++ show e ++ show_env env
+    pattern_match ((args, body):rest) = case apply args body of
+      Just matched -> matched
+      Nothing -> pattern_match rest
+    apply args body = case match_all args params of
         Just (rest, hits) -> Just $ eval (hits ++ env) $ make_func rest body
         Nothing -> Nothing
-    apply_agg [] = Nothing
-    apply_agg ((Func args body):xs) = case apply args body of
-      Just hit -> Just hit
-      Nothing -> apply_agg xs
-    matches :: [Arg] -> [Exp] -> Maybe ([Arg], [(String, Exp)])
-    matches xxs yys = go xxs yys []
+    match_all :: [Arg] -> [Exp] -> Maybe ([Arg], [(String, Exp)])
+    match_all xxs yys = go xxs yys []
       where
         go :: [Arg] -> [Exp] -> [(String, Exp)] -> Maybe ([Arg], [(String, Exp)])
         go ((ArgOpt name exp):xs) [] acc = go xs [] $ (name, exp) : acc
@@ -572,6 +599,7 @@ eval env (Apply exp_ params_) = top exp_
       if type_name == tag_name
       then Just [(name, exp)]
       else Nothing
+    match (ArgType _ name) exp = Just [(name, exp)] -- now, match any types
     match (ArgMatch exp1) exp2 = if exp1 == exp2 then Just [] else Nothing
     match (ArgOpt name _) exp = Just [(name, exp)]
     params = map (eval env) params_
@@ -628,7 +656,7 @@ main = do
   test "0" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3 0 0 0"
   test "3" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3 0 0"
   test "5" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3 0"
-  test "6" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3"
+  test "a:1 b:2 c:3 => a + b + c" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3"
   -- containers
   test "[]" "main = []"
   test "[0]" "main = [0]"
@@ -669,11 +697,11 @@ main = do
   test "[0 1]" "main = [0] | [0 1]"
   test "[0]" "main = [1 - 1]"
   -- enum
-  --test "none" "enum maybe a:\n  just a\n  none\nmain = maybe.none"
-  --test "just 1" "enum maybe a:\n  just a\n  none\nmain = maybe.just 1"
-  --test "just hi" "enum maybe a:\n  just a\n  none\nmain = maybe.just \"hi\""
-  --test "hi" "enum maybe a:\n  just a\n  none\nf (maybe.just a) = a\nf (maybe.none) = 0\nmain = f(maybe.just(\"hi\"))"
-  --test "0" "enum maybe a:\n  just a\n  none\nf (maybe.just a) = a\nf (maybe.none) = 0\nmain = f(maybe.none)"
+  test "maybe.none" "enum maybe a:\n  just a\n  none\nmain = maybe.none"
+  test "maybe.just 1" "enum maybe a:\n  just a\n  none\nmain = maybe.just 1"
+  test "maybe.just hi" "enum maybe a:\n  just a\n  none\nmain = maybe.just \"hi\""
+  test "hi" "enum maybe a:\n  just a\n  none\nf (maybe.just a) = a\nf (maybe.none) = 0\nmain = f(maybe.just(\"hi\"))"
+  test "0" "enum maybe a:\n  just a\n  none\nf (maybe.just a) = a\nf (maybe.none) = 0\nmain = f(maybe.none)"
 
   -- call
   test "55" "add a b = a + b\nmain = add(1 2) + add(add(3 4) 5) + add(6 add(7 8)) + 9 + 10"
