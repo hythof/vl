@@ -161,26 +161,26 @@ lexeme p = do
   many $ oneOf " \t"
   return v
 
-read_char :: Char -> Parser Char
-read_char = lexeme . char
+lex_char :: Char -> Parser Char
+lex_char = lexeme . char
 
-read_string :: String -> Parser String
-read_string = lexeme . string
+lex_string :: String -> Parser String
+lex_string = lexeme . string
 
-read_token :: Parser String
-read_token = lexeme $ token
+lex_token :: Parser String
+lex_token = lexeme $ token
 
-read_dot :: Parser String
-read_dot = lexeme $ dot
+lex_dot :: Parser String
+lex_dot = lexeme $ dot
 
-read_args :: Parser [String]
-read_args = many read_token
+lex_args :: Parser [String]
+lex_args = many lex_token
 
-read_int :: Parser Int
-read_int = lexeme $ ((many1 $ oneOf "0123456789") >>= return . read)
+lex_int :: Parser Int
+lex_int = lexeme $ ((many1 $ oneOf "0123456789") >>= return . read)
 
-read_real :: Parser Double
-read_real = do
+lex_real :: Parser Double
+lex_real = do
   a <- many1 $ oneOf "0123456789"
   char '.'
   b <- lexeme $ many1 $ oneOf "0123456789"
@@ -188,11 +188,11 @@ read_real = do
   let d = read str :: Double
   return d
 
-read_op :: Parser String
-read_op = lexeme $ (many1 $ oneOf "+-*/<>?|~&%.")
+lex_op :: Parser String
+lex_op = lexeme $ (many1 $ oneOf "+-*/<>?|~&%.")
 
-read_between :: String -> String -> Parser a -> Parser a
-read_between l r c = between (lexeme $ string l) (lexeme $ string r) (lexeme c)
+lex_between :: String -> String -> Parser a -> Parser a
+lex_between l r c = between (lexeme $ string l) (lexeme $ string r) (lexeme c)
 
 debug :: String -> Parser Int
 debug msg = do
@@ -261,18 +261,18 @@ parse_env = parse_env_top []
        Just (name, exp) -> runMaybeT $ br >> parse_env_top ((name, exp) : acc)
     parse_nested_env :: Parser (String, Exp)
     parse_nested_env = do
-      prefix <- read_token
+      prefix <- lex_token
       case prefix of
         "enum" -> do
-          name <- read_token
-          many read_token -- drop type information
-          read_char ':'
+          name <- lex_token
+          many lex_token -- drop type information
+          lex_char ':'
           lines <- many1 $ (indent1 >> parse_enum_line name)
           return (name, Struct lines)
         "type" -> do
-          name <- read_token
-          many read_token -- drop type information
-          read_char ':'
+          name <- lex_token
+          many lex_token -- drop type information
+          lex_char ':'
           fields <- many1 $ (indent1 >> parse_type_line)
           let args = map ArgRef fields
           let body = Struct $ map (\x -> (x, Ref x)) fields
@@ -283,13 +283,13 @@ parse_env = parse_env_top []
           return (prefix, declear)
       where
         parse_enum_line prefix = do
-          name <- read_token
-          arg <- read_token `orElse` (return "")
+          name <- lex_token
+          arg <- lex_token `orElse` (return "")
           let full_name = prefix ++ "." ++ name
           return (name, make_enum full_name arg)
         parse_type_line = do
-          name <- read_token
-          many read_token -- drop type information
+          name <- lex_token
+          many lex_token -- drop type information
           return name
         make_enum name arg = if arg == ""
             then Enum name Void
@@ -301,14 +301,14 @@ parse_declear name = (parse_declear_func name)
 
 parse_declear_func :: String -> Parser Exp
 parse_declear_func name = do
-    patterns <- sepBy relative_func (white_spaces >> read_string name)
+    patterns <- sepBy relative_func (white_spaces >> lex_string name)
     return $ case patterns of
       [([], x)] -> x
       xs -> Func xs
   where
     relative_func = do
       args <- parse_args
-      read_char '='
+      lex_char '='
       exp <- parse_top
       return (args, exp)
 
@@ -321,12 +321,12 @@ parse_arg = arg_opt
   `orElse` arg_type
   `orElse` arg_match
   where
-    arg_ref = ArgRef <$> read_token
+    arg_ref = ArgRef <$> lex_token
     arg_type = do
-      read_char '('
-      type_name <- read_dot
-      ref_name <- read_token `orElse` (return "")
-      read_char ')'
+      lex_char '('
+      type_name <- lex_dot
+      ref_name <- lex_token `orElse` (return "")
+      lex_char ')'
       return $ ArgType type_name ref_name
     arg_match = ArgMatch <$> parse_exp
     arg_opt = do
@@ -338,7 +338,7 @@ parse_arg = arg_opt
 parse_declear_stmt :: Parser Exp
 parse_declear_stmt = do
   args <- parse_args
-  read_char '='
+  lex_char '='
   lines <- many1 (indent >> parse_line)
   return $ make_func args $ Stmt lines
   where
@@ -346,13 +346,13 @@ parse_declear_stmt = do
         `orElse` parse_def
         `orElse` parse_call
     parse_assign = do
-      name <- read_token
-      read_string "<="
+      name <- lex_token
+      lex_string "<="
       exp <- parse_exp
       return $ Assign name exp
     parse_def = do
-      name <- read_token
-      read_char '='
+      name <- lex_token
+      lex_char '='
       exp <- parse_exp
       return $ Def name exp
     parse_call = do
@@ -363,7 +363,7 @@ parse_top :: Parser Exp
 parse_top = do
   left <- parse_call
   MaybeT $ do
-    m <- runMaybeT read_op
+    m <- runMaybeT lex_op
     case m of
       Nothing -> return $ Just left
       Just op -> do
@@ -386,8 +386,8 @@ parse_exp = parse_func
 
 parse_func :: Parser Exp
 parse_func = do
-  args <- sepBy read_dot (read_char ',')
-  read_string "=>"
+  args <- sepBy lex_dot (lex_char ',')
+  lex_string "=>"
   exp <- parse_exp
   return $ make_func (map ArgRef args) exp
 
@@ -400,40 +400,40 @@ parse_bottom = parse_text
   `orElse` parse_struct
   `orElse` parse_map
   `orElse` parse_list
-  `orElse` read_between "(" ")" parse_top
+  `orElse` lex_between "(" ")" parse_top
 
 parse_tuple :: Parser Exp
-parse_tuple = Tuple <$> sepBy1 parse_bottom (read_char ',')
+parse_tuple = Tuple <$> sepBy1 parse_bottom (lex_char ',')
 
 parse_struct :: Parser Exp
-parse_struct = Struct <$> read_between "{" "}" (sepBy1 func (read_char ';'))
+parse_struct = Struct <$> lex_between "{" "}" (sepBy1 func (lex_char ';'))
   where
     func = do
-      id <- read_token
+      id <- lex_token
       args <- parse_args
-      read_char '='
+      lex_char '='
       exp <- parse_exp
       return (id, make_func args exp)
 
 parse_op2 :: Parser Exp
 parse_op2 = do
   left <- parse_bottom
-  op <- read_op
+  op <- lex_op
   right <- parse_exp
   return $ Op2 op left right
 
 parse_map :: Parser Exp
-parse_map = Map <$> (lexeme $ string "[:]" >> return [])
-            `orElse` read_between "[" "]" (many1 kv)
+parse_map = Map <$> (lex_string "[:]" >> return [])
+            `orElse` lex_between "[" "]" (many1 kv)
   where
     kv = do
-      id <- read_token
-      read_char ':'
+      id <- lex_token
+      lex_char ':'
       exp <- parse_bottom
       return (id, exp)
 
 parse_list :: Parser Exp
-parse_list = List <$> read_between "[" "]" (many parse_exp)
+parse_list = List <$> lex_between "[" "]" (many parse_exp)
 
 parse_text :: Parser Exp
 parse_text = String <$> lexeme (
@@ -441,21 +441,21 @@ parse_text = String <$> lexeme (
     `orElse` (between (char '\'') (char '\'') (many $ noneOf "'")))
 
 parse_int :: Parser Exp
-parse_int = Int <$> read_int
+parse_int = Int <$> lex_int
 
 parse_real :: Parser Exp
-parse_real = Real <$> read_real
+parse_real = Real <$> lex_real
 
 parse_apply :: Parser Exp
 parse_apply = do
   id <- dot
   char '('
   args <- many1 (white_spaces >> parse_exp)
-  read_char ')'
+  lex_char ')'
   return $ make_apply (Ref id) args
 
 parse_ref :: Parser Exp
-parse_ref = Ref <$> read_dot
+parse_ref = Ref <$> lex_dot
 
 parse_bool :: Parser Exp
 parse_bool = Bool <$> lexeme (
@@ -576,7 +576,8 @@ eval env e@(Apply exp_ params_) = case eval env exp_ of
             rest_args = drop (length local_env) args
             binded_args = map (\(bind, exp) -> ArgOpt bind exp) local_env
         bind :: [Arg] -> [Exp] -> [(String, Exp)] -> Maybe [(String, Exp)]
-        bind [] _ local_env = Just local_env
+        bind [] [] local_env = Just local_env
+        bind [] _ local_env = error $ "Too many arguments " ++ show e
         bind ((ArgOpt name exp):xs) [] local_env = bind xs [] $ (name, exp) : local_env
         bind (x:xs) (y:ys) local_env = case match x y of
           Just new_env -> bind xs ys $ new_env ++ local_env
