@@ -257,8 +257,8 @@ parse_env = parse_env_top []
     parse_env_top acc = MaybeT $ do
       result <- runMaybeT parse_nested_env
       case result of
-       Nothing   -> return $ Just $ reverse acc
        Just (name, exp) -> runMaybeT $ br >> parse_env_top ((name, exp) : acc)
+       Nothing          -> return $ Just $ reverse acc
     parse_nested_env :: Parser (String, Exp)
     parse_nested_env = do
       prefix <- lex_token
@@ -499,10 +499,10 @@ eval env (Ref name_with_dot) = find_nest (names name_with_dot [] []) env
       (Struct fields) -> find_nest xs fields
       found -> case xs of
         [] -> found
-        _ -> error $ "Panic: ref " ++ name_with_dot ++ " in " ++ x ++ " " ++ (show_env env)
+        _ -> Error $ "Panic: ref " ++ name_with_dot ++ " in " ++ x ++ " " ++ (show_env env)
     find_one name dict = case lookup name dict of
       Just found -> found
-      Nothing -> error $ "Panic: ref " ++ name_with_dot ++ "\n" ++ show_env env
+      Nothing -> Error $ "Panic: ref " ++ name_with_dot ++ "\n" ++ show_env env
     names :: String -> String -> [String] -> [String]
     names [] [] acc2 = reverse acc2
     names (('.'):xs) acc1 acc2 = names xs [] ((reverse acc1) : acc2)
@@ -513,8 +513,8 @@ eval env (Op2 op l r) = case op of
     "." -> case (eval env l, r) of
       (Struct fields, Ref name) -> case lookup name fields of
         Just hit -> hit
-        Nothing -> error $ "Can't lookup " ++ name ++ " in " ++ (show fields)
-      x -> panic "op2" [op, show l, show r, show $ eval env l, show $ eval env r, show env]
+        Nothing -> Error $ "Can't lookup " ++ name ++ " in " ++ (show fields)
+      x -> Error "op2"
     _ -> case (eval env l, eval env r) of
       (Int a, Int b) -> Int $ int_op a b
       (Real a, Real b) -> Real $ real_op a b
@@ -522,7 +522,7 @@ eval env (Op2 op l r) = case op of
       (Char a, Char b) -> String $ char_op a b
       (String a, String b) -> String $ string_op a b
       (List a, List b) -> List $ list_op a b
-      (a, b) -> error $ "Can't operate " ++ (show a) ++ ":" ++ (show l) ++ " " ++ op ++ " " ++ (show b) ++ ":" ++ (show r)
+      (a, b) -> Error $ "Can't operate " ++ (show a) ++ ":" ++ (show l) ++ " " ++ op ++ " " ++ (show b) ++ ":" ++ (show r)
   where
     int_op = case op of
       "+"  -> (+)
@@ -556,18 +556,18 @@ eval env (Op2 op l r) = case op of
 eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
   Bool True  -> eval env t
   Bool False -> eval env f
-  _          -> error $ "Condition is not boolean " ++ show cond
+  _          -> Error $ "Condition is not boolean " ++ show cond
 eval env e@(Apply exp_ params_) = case eval env exp_ of
     Func xs -> apply_func xs
-    x -> error $ "apply top" ++ show x
+    x -> Error $ "apply top" ++ show x
   where
     params = map (eval env) params_
-    apply_func [] = error $ "pattern does not match " ++ show e ++ show_env env
+    apply_func [] = Error $ "pattern does not match " ++ show e ++ show_env env
     apply_func ((args, body):rest) = case bind args params [] of
         Just local_env -> case compare al (length local_env) of
           EQ -> eval (local_env ++ env) body
           GT -> closure local_env
-          LT -> error $ "Too many arguments " ++ show e
+          LT -> Error $ "Too many arguments " ++ show e
         Nothing -> apply_func rest
       where
         al = length args
@@ -579,23 +579,22 @@ eval env e@(Apply exp_ params_) = case eval env exp_ of
         bind [] [] local_env = Just local_env
         bind [] _ local_env = error $ "Too many arguments " ++ show e
         bind ((ArgOpt name exp):xs) [] local_env = bind xs [] $ (name, exp) : local_env
-        bind (x:xs) (y:ys) local_env = case match x y of
-          Just new_env -> bind xs ys $ new_env ++ local_env
-          Nothing -> Nothing
+        bind (x:xs) (y:ys) local_env = do
+          new_env <- match x y
+          bind xs ys $ new_env ++ local_env
         bind _ [] local_env = Just local_env
         match :: Arg -> Exp -> Maybe [(String, Exp)]
+        match (ArgMatch exp1) exp2 = do
+          guard $ exp1 == exp2
+          return [("", exp1)]
         match (ArgRef name) exp = Just [(name, exp)]
-        match (ArgType type_name name) (Enum tag_name exp) =
-          if type_name == tag_name
-          then Just [(name, exp)]
-          else Nothing
-        match (ArgType _ name) exp = Just [(name, exp)] -- now, match any types
-        match (ArgMatch exp1) exp2 = if exp1 == exp2 then Just [("", exp1)] else Nothing
         match (ArgOpt name _) exp = Just [(name, exp)]
+        match (ArgType type_name name) (Enum tag_name exp) = do
+          guard $ type_name == tag_name
+          return [(name, exp)]
+        match (ArgType _ name) exp = Just [(name, exp)] -- now, match any types
 
-eval env e = error $ "Does not support type " ++ show e
-
-panic m xs = error $ "Panic: " ++ m ++ "\n  " ++ (intercalate "\n  " xs)
+eval env e = Error $ "Does not support type " ++ show e
 
 show_env [] = ""
 show_env ((name, exp_):xs) = name ++ " = " ++ (show exp_) ++ "\n" ++ show_env xs
