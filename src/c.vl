@@ -1,4 +1,10 @@
+main = parse("1 + 2")
+eval (ast.int n) = n
+eval (ast.op2 o) = if (o == "+") (o.left + o.right) (o.left - o.right)
+parse _ = ast.op2("+" ast.int(1) ast.int(2))
 enum ast:
   int int
-
-main = ast.int 1
+  op2:
+    op string
+    left ast
+    right ast

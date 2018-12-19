@@ -138,12 +138,19 @@ indent = do
   many $ oneOf "\r\n"
   spaces
 
-indent1 :: Parser String
-indent1 = do
+indent_n :: Int -> Parser String
+indent_n n = do
   spaces
   many $ oneOf "\r\n"
-  string "  "
+  string $ replicate (n * 2) ' '
   spaces
+
+
+indent1 :: Parser String
+indent1 = indent_n 1
+
+indent2 :: Parser String
+indent2 = indent_n 2
 
 br :: Parser String
 br = do
@@ -211,10 +218,7 @@ dump m = do
 --( parser )-----------------------------------------------
 
 run_for_dev :: String -> String
-run_for_dev src = (run src) ++ "\n--\n" ++ intercalate "\n" lines
-  where
-    env = parse src
-    lines = map (\(name, exp) -> name ++ ": " ++ show exp) env
+run_for_dev src = "\n-- run\n" ++ (run src) ++ "\n--env \n" ++ show_env (parse src)
 
 run :: String -> String
 run src = case lookup "main" env of
@@ -284,22 +288,33 @@ parse_env = parse_env_top []
           fields <- many1 $ (indent1 >> parse_type_line)
           let args = map ArgRef fields
           let body = Struct $ map (\x -> (x, Ref x)) fields
-          return $ (name, make_func args body)
+          return (name, make_func args body)
         _ -> do
           declear <- parse_declear prefix
           many1 ((many $ oneOf " \t") >> oneOf "\r\n")
           return (prefix, declear)
       where
-        parse_enum_line prefix = do
-          name <- lex_token
-          arg <- lex_token `orElse` (return "")
-          let full_name = prefix ++ "." ++ name
-          return (name, make_enum full_name arg)
+        parse_enum_line prefix = parse_enum_nest
+          `orElse` parse_enum_single
+          where
+            parse_enum_nest = do
+              name <- lex_token
+              char ':'
+              fields <- many1 $ (indent2 >> parse_type_line)
+              let full_name = prefix ++ "." ++ name
+              let args = map ArgRef fields
+              let body = Enum full_name $ Struct $ map (\x -> (x, Ref x)) fields
+              return (name, make_func args body)
+            parse_enum_single = do
+              name <- lex_token
+              arg <- lex_token `orElse` (return "")
+              let full_name = prefix ++ "." ++ name
+              return (name, make_single_enum full_name arg)
         parse_type_line = do
           name <- lex_token
           many lex_token -- drop type information
           return name
-        make_enum name arg = if arg == ""
+        make_single_enum name arg = if arg == ""
             then Enum name Void
             else make_func [ArgRef arg] (Enum name $ Ref arg)
 
@@ -495,37 +510,37 @@ eval env (Tuple xs) = Tuple $ map (eval env) xs
 eval env (Struct fields) = Struct $ map (\(label, body) -> (label, eval env body)) fields
 eval env (List xs) = List $ map (eval env) xs
 eval env (Map xs) = Map $ map (\(k, v) -> (k, eval env v)) xs
-eval env (Stmt lines) = eval_line env lines (Error "not fond line in statement")
+eval env (Stmt lines) = eval_line env lines (error "not fond line in statement")
   where
     eval_line :: Env -> [Line] -> Exp -> Exp
     eval_line _ [] v = v
     eval_line env (line:lines) v = case line of
       Call exp -> eval_line env lines $ eval env exp
-      Def name exp -> eval_line ((name, eval env exp) : env) lines (Error "not found return in statement")
-      Assign name exp -> eval_line ((name, eval env exp) : env) lines (Error "not found return in statement")
+      Def name exp -> eval_line ((name, eval env exp) : env) lines (error "not found return in statement")
+      Assign name exp -> eval_line ((name, eval env exp) : env) lines (error "not found return in statement")
 
 eval env (Ref name_with_dot) = find_nest (names name_with_dot [] []) env
   where
-    find_nest (x:xs) dict = case find_one x dict of
-      (Struct fields) -> find_nest xs fields
-      found -> case xs of
+    find_nest (name:rest) dict = case find_one name dict of
+      (Struct fields) -> find_nest rest fields
+      found -> case rest of
         [] -> found
-        _ -> Error $ "Panic: ref " ++ name_with_dot ++ " in " ++ x ++ " " ++ (show_env env)
+        _ -> error $ "Not found1 " ++ name ++ " of " ++ name_with_dot ++ "\n" ++ (show_env dict)
     find_one name dict = case lookup name dict of
       Just found -> found
-      Nothing -> Error $ "Panic: ref " ++ name_with_dot ++ "\n" ++ show_env env
+      Nothing -> error $ "Not found2 " ++ name ++ " of " ++ name_with_dot ++ "\n" ++ show_env dict
     names :: String -> String -> [String] -> [String]
     names [] [] acc2 = reverse acc2
     names (('.'):xs) acc1 acc2 = names xs [] ((reverse acc1) : acc2)
     names (x:xs) acc1 acc2 = names xs (x : acc1) acc2
     names [] acc1 acc2 = reverse $ ((reverse acc1) : acc2)
 
-eval env (Op2 op l r) = case op of
+eval env e@(Op2 op l r) = case op of
     "." -> case (eval env l, r) of
       (Struct fields, Ref name) -> case lookup name fields of
         Just hit -> hit
-        Nothing -> Error $ "Can't lookup " ++ name ++ " in " ++ (show fields)
-      x -> Error "op2"
+        Nothing -> error $ "Can't lookup " ++ name ++ " in " ++ (show fields)
+      x -> error $ "op2 " ++ show x ++ "  " ++ show e
     _ -> case (eval env l, eval env r) of
       (Int a, Int b) -> Int $ int_op a b
       (Real a, Real b) -> Real $ real_op a b
@@ -533,7 +548,7 @@ eval env (Op2 op l r) = case op of
       (Char a, Char b) -> String $ char_op a b
       (String a, String b) -> String $ string_op a b
       (List a, List b) -> List $ list_op a b
-      (a, b) -> Error $ "Can't operate " ++ (show a) ++ ":" ++ (show l) ++ " " ++ op ++ " " ++ (show b) ++ ":" ++ (show r)
+      (a, b) -> error $ "Can't operate " ++ (show a) ++ ":" ++ (show l) ++ " " ++ op ++ " " ++ (show b) ++ ":" ++ (show r)
   where
     int_op = case op of
       "+"  -> (+)
@@ -567,18 +582,18 @@ eval env (Op2 op l r) = case op of
 eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
   Bool True  -> eval env t
   Bool False -> eval env f
-  _          -> Error $ "Condition is not boolean " ++ show cond
+  _          -> error $ "Condition is not boolean " ++ show cond
 eval env e@(Apply exp_ params_) = case eval env exp_ of
     Func patterns -> apply_func patterns
-    x -> Error $ "apply top" ++ show x
+    x -> error $ "apply top " ++ show x
   where
     params = map (eval env) params_
-    apply_func [] = Error $ "pattern does not match " ++ show e ++ show_env env
+    apply_func [] = error $ "pattern does not match " ++ show e ++ show_env env
     apply_func ((args, body):rest) = case bind args params [] of
         Just local_env -> case compare al (length local_env) of
           EQ -> eval (local_env ++ env) body
           GT -> closure local_env
-          LT -> Error $ "Too many arguments " ++ show e
+          LT -> error $ "Too many arguments " ++ show e
         Nothing -> apply_func rest
       where
         al = length args
@@ -605,7 +620,7 @@ eval env e@(Apply exp_ params_) = case eval env exp_ of
           return (name, exp)
         match (ArgType _ name) exp = Just (name, exp) -- now, match any types
 
-eval env e = Error $ "Does not support type " ++ show e
+eval env e = error $ "Does not support type " ++ show e
 
 show_env [] = ""
 show_env ((name, exp_):xs) = name ++ " = " ++ (show exp_) ++ "\n" ++ show_env xs
@@ -652,10 +667,12 @@ main = do
   test "3" "main = (x, y => x + y) 1 2"
   test "y x:1 => x + y" "main = (x, y => x + y) 1"
   test "3" "main = (x, y => x + y) 1 2"
-  test "0" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3 0 0 0"
-  test "3" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3 0 0"
-  test "5" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3 0"
-  test "a:1 b:2 c:3 => a + b + c" "add3 a:1 b:2 c:3 = a + b + c\nmain = add3"
+  scope "add3 a:1 b:2 c:3 = a + b + c" [
+      ("0", "add3 0 0 0")
+    , ("3", "add3 0 0")
+    , ("5", "add3 0")
+    , ("a:1 b:2 c:3 => a + b + c", "add3")
+    ]
   -- containers
   test "[]" "main = []"
   test "[0]" "main = [0]"
@@ -665,15 +682,17 @@ main = do
   test "2" "main = if false 1 2"
   test "3" "main = if false 1 if(false 2 3)"
   test "3" "main = if false 1 (if false 2 3)"
-  test "1" "f 1 = 1\nf 2 = 2\nmain = f 1"
-  test "2" "f 1 = 1\nf 2 = 2\nmain = f 2"
-  test "false" "zero 0 = false\nzero _ = true\nmain = zero 0"
-  test "true" "zero 0 = false\nzero _ = true\nmain = zero 1"
+  scope "f 1 = 1\nf 2 = 2" [
+      ("1", "f 1")
+    , ("2", "f 2")
+    ]
   -- statement
   test "3" "main =\n  a = 1\n  b = 2\n  a + b"
   -- type
-  test "(count: 1)" "type counter:\n  count int\nmain = counter 1"
-  test "1" "type counter:\n  count int\nmain = counter(1).count"
+  scope "type counter:\n  count int" [
+      ("(count: 1)", "counter 1")
+    , ("1", "counter(1).count")
+    ]
   -- exp number
   test "3" "main = 1 + 2"
   test "-1" "main = 1 - 2"
@@ -697,13 +716,46 @@ main = do
   test "[0 1]" "main = [0] | [0 1]"
   test "[0]" "main = [1 - 1]"
   -- enum
-  test "maybe.none" "enum maybe a:\n  just a\n  none\nmain = maybe.none"
-  test "maybe.just 1" "enum maybe a:\n  just a\n  none\nmain = maybe.just 1"
-  test "maybe.just hi" "enum maybe a:\n  just a\n  none\nmain = maybe.just \"hi\""
-  test "hi" "enum maybe a:\n  just a\n  none\nf (maybe.just a) = a\nf (maybe.none) = 0\nmain = f(maybe.just(\"hi\"))"
-  test "0" "enum maybe a:\n  just a\n  none\nf (maybe.just a) = a\nf (maybe.none) = 0\nmain = f(maybe.none)"
+  scope maybe_code [
+        ("maybe.none", " maybe.none")
+      , ("maybe.just 1", "maybe.just 1")
+      , ("maybe.just hi", "maybe.just \"hi\"")
+      , ("hi", "f(maybe.just(\"hi\"))")
+      , ("0", "f(maybe.none)")
+    ]
+  scope ast_code [
+      ("ast.int 1", "ast.int 1")
+    , ("ast.op2 (op: +; left: 1; right: 2)", "ast.op2 \"+\" 1 2")
+    , ("+", "op(ast.op2(\"+\" 1 2))")
+    , ("1", "left(ast.op2(\"+\" 1 2))")
+    , ("2", "right(ast.op2(\"+\" 1 2))")
+    ]
 
   -- call
-  test "55" "add a b = a + b\nmain = add(1 2) + add(add(3 4) 5) + add(6 add(7 8)) + 9 + 10"
+  scope "add a b = a + b" [
+      ("3", "add(1 2)")
+    , ("55", "add(1 2) + add(add(3 4) 5) + add(6 add(7 8)) + 9 + 10")
+    ]
 
   putStrLn "ok"
+ where
+  scope common [] = return ()
+  scope common ((expect, specific):rest) = test expect (common ++ "\nmain = " ++ specific) >> scope common rest
+  maybe_code = unlines [
+      "enum maybe a:"
+    , "  just a"
+    , "  none"
+    , "f (maybe.just a) = a"
+    , "f (maybe.none) = 0"
+    ]
+  ast_code = unlines [
+      "enum ast:"
+    , "  int int"
+    , "  op2:"
+    , "    op string"
+    , "    left ast"
+    , "    right ast"
+    , "op (ast.op2 o) = o.op"
+    , "left (ast.op2 o) = o.left"
+    , "right (ast.op2 o) = o.right"
+    ]

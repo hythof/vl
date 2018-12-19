@@ -6,4 +6,4 @@ import Boot hiding(main)
 main :: IO ()
 main = do
   source <- readFile "c.vl"
-  putStrLn $ debug source
+  putStrLn $ run_for_dev source
