@@ -39,20 +39,20 @@ data Exp =
 -- runtime only
   | Error String
   | Closure [(String, Exp)] Exp
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 data Line =
     Call Exp
   | Def String Exp
   | Assign String Exp
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 data Arg =
     ArgRef String
   | ArgType String String -- type name, capture name
   | ArgMatch Exp
   | ArgOpt String Exp
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 
 --( parser library )-----------------------------------------------
@@ -196,7 +196,10 @@ lex_real = do
   return d
 
 lex_op :: Parser String
-lex_op = lexeme $ (many1 $ oneOf "+-*/<>?|~&%.")
+lex_op = (lex_string "==")
+  `orElse` (lex_string ">=")
+  `orElse` (lex_string "<=")
+  `orElse` (lexeme $ (many1 $ oneOf "+-*/<>?|~&%."))
 
 lex_between :: String -> String -> Parser a -> Parser a
 lex_between l r c = between ll lr lc
@@ -324,18 +327,18 @@ parse_declear name = (parse_declear_func name)
 
 parse_declear_func :: String -> Parser Exp
 parse_declear_func name = do
-    patterns <- sepBy relative_func $ do
-      white_spaces
-      lex_string name
-    return $ case patterns of
-      [([], x)] -> x
-      _ -> Func patterns
-  where
-    relative_func = do
-      args <- parse_args
-      lex_char '='
-      exp <- parse_top
-      return (args, exp)
+  patterns <- sepBy relative_func $ do
+    white_spaces
+    lex_string name
+  return $ case patterns of
+    [([], x)] -> x
+    _ -> Func patterns
+ where
+  relative_func = do
+    args <- parse_args
+    lex_char '='
+    exp <- parse_top
+    return (args, exp)
 
 parse_args :: Parser [Arg]
 parse_args = many parse_arg
@@ -346,7 +349,13 @@ parse_arg = arg_opt
   `orElse` arg_type
   `orElse` arg_match
   where
-    arg_ref = ArgRef <$> lex_token
+    --arg_ref = ArgRef <$> lex_token
+    arg_ref = do
+      t <- lex_token
+      return $ case t of
+        "true" -> ArgMatch $ Bool True
+        "false" -> ArgMatch $ Bool False
+        _ -> ArgRef t
     arg_type = do
       lex_char '('
       type_name <- lex_token_with_dot
@@ -416,6 +425,24 @@ parse_func = do
   exp <- parse_exp
   return $ make_func (map ArgRef args) exp
 
+parse_tuple :: Parser Exp
+parse_tuple = Tuple <$> sepBy1 parse_bottom (lex_char ',')
+
+parse_op2 :: Parser Exp
+parse_op2 = do
+  left <- parse_bottom
+  op <- lex_op
+  right <- parse_exp
+  return $ Op2 op left right
+
+parse_apply :: Parser Exp
+parse_apply = do
+  id <- token_with_dot
+  char '('
+  args <- many1 (white_spaces >> parse_exp)
+  lex_char ')'
+  return $ make_apply (Ref id) args
+
 parse_bottom :: Parser Exp
 parse_bottom = parse_text
   `orElse` parse_real
@@ -427,9 +454,6 @@ parse_bottom = parse_text
   `orElse` parse_list
   `orElse` lex_between "(" ")" parse_top
 
-parse_tuple :: Parser Exp
-parse_tuple = Tuple <$> sepBy1 parse_bottom (lex_char ',')
-
 parse_struct :: Parser Exp
 parse_struct = Struct <$> lex_between "{" "}" fields1
   where
@@ -440,13 +464,6 @@ parse_struct = Struct <$> lex_between "{" "}" fields1
       lex_char '='
       exp <- parse_exp
       return (id, make_func args exp)
-
-parse_op2 :: Parser Exp
-parse_op2 = do
-  left <- parse_bottom
-  op <- lex_op
-  right <- parse_exp
-  return $ Op2 op left right
 
 parse_map :: Parser Exp
 parse_map = Map <$> (lex_string "[:]" >> return [])
@@ -471,14 +488,6 @@ parse_int = Int <$> lex_int
 
 parse_real :: Parser Exp
 parse_real = Real <$> lex_real
-
-parse_apply :: Parser Exp
-parse_apply = do
-  id <- token_with_dot
-  char '('
-  args <- many1 (white_spaces >> parse_exp)
-  lex_char ')'
-  return $ make_apply (Ref id) args
 
 parse_ref :: Parser Exp
 parse_ref = Ref <$> lex_token_with_dot
@@ -536,6 +545,11 @@ eval env (Ref name_with_dot) = find_nest (names name_with_dot [] []) env
     names [] acc1 acc2 = reverse $ ((reverse acc1) : acc2)
 
 eval env e@(Op2 op l r) = case op of
+    ">" -> Bool $ (eval env l) > (eval env r)
+    "<" -> Bool $ (eval env l) < (eval env r)
+    "==" -> Bool $ (eval env l) == (eval env r)
+    ">=" -> Bool $ (eval env l) >= (eval env r)
+    "<=" -> Bool $ (eval env l) <= (eval env r)
     "." -> case (eval env l, r) of
       (Struct fields, Ref name) -> case lookup name fields of
         Just hit -> hit
@@ -558,6 +572,7 @@ eval env e@(Op2 op l r) = case op of
       "//" -> (\a b -> fromIntegral (a `div'` b) :: Int)
       "%"  -> mod'
       "**" -> (^)
+      _ -> error $ "no op " ++ op
     real_op = case op of
       "+"  -> (+)
       "-"  -> (-)
@@ -566,18 +581,23 @@ eval env e@(Op2 op l r) = case op of
       "//" -> (\a b -> fromIntegral (a `div'` b) :: Double)
       "%"  -> mod'
       "**" -> (**)
+      _ -> error $ "no op " ++ op
     char_op = case op of
       "+" -> (\a b -> a : [b])
+      _ -> error $ "no op " ++ op
     string_op = case op of
       "+" -> (++)
+      _ -> error $ "no op " ++ op
     bool_op = case op of
       "&&" -> (&&)
       "||" -> (||)
+      _ -> error $ "no op " ++ op
     list_op = case op of
       "+" -> (++)
       "-" -> (\\)
       "&" -> intersect
       "|" -> union
+      _ -> error $ "no op " ++ op
 
 eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
   Bool True  -> eval env t
@@ -686,6 +706,11 @@ main = do
       ("1", "f 1")
     , ("2", "f 2")
     ]
+  scope "f true = 1\nf false = 2" [
+      ("1", "f true")
+    , ("2", "f false")
+    ]
+  test "false" "f a b = a || b\nmain = f(1 == 2 1 > 2)"
   -- statement
   test "3" "main =\n  a = 1\n  b = 2\n  a + b"
   -- type
@@ -708,6 +733,11 @@ main = do
   test "false" "main = true && false"
   test "true"  "main = true || false"
   test "false" "main = false || false"
+  test "true" "main = 1 == 1"
+  test "true" "main = 1 >= 1"
+  test "true" "main = 1 <= 1"
+  test "false" "main = 1 > 1"
+  test "false" "main = 1 < 1"
   -- exp list
   test "[]" "main = []"
   test "[0 1]" "main = [0] + [1]"
