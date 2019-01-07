@@ -220,9 +220,6 @@ dump m = do
 
 --( parser )-----------------------------------------------
 
-run_for_dev :: String -> String
-run_for_dev src = "\n-- run\n" ++ (run src) ++ "\n--env \n" ++ show_env (parse src)
-
 run :: String -> String
 run src = case lookup "main" env of
     Just main -> format $ eval env main
@@ -332,7 +329,7 @@ parse_declear_func name = do
     lex_string name
   return $ case patterns of
     [([], x)] -> x
-    _ -> Func patterns
+    _         -> Func patterns
  where
   relative_func = do
     args <- parse_args
@@ -353,9 +350,9 @@ parse_arg = arg_opt
     arg_ref = do
       t <- lex_token
       return $ case t of
-        "true" -> ArgMatch $ Bool True
+        "true"  -> ArgMatch $ Bool True
         "false" -> ArgMatch $ Bool False
-        _ -> ArgRef t
+        _       -> ArgRef t
     arg_type = do
       lex_char '('
       type_name <- lex_token_with_dot
@@ -535,14 +532,15 @@ eval env (Ref name_with_dot) = find_nest (names name_with_dot [] []) env
       found -> case rest of
         [] -> found
         _ -> error $ "Not found1 " ++ name ++ " of " ++ name_with_dot ++ "\n" ++ (show_env dict)
+    find_nest [] dict = error $ "Not found2 " ++ name_with_dot
     find_one name dict = case lookup name dict of
       Just found -> found
-      Nothing -> error $ "Not found2 " ++ name ++ " of " ++ name_with_dot ++ "\n" ++ show_env dict
+      Nothing -> error $ "Not found3 " ++ name ++ " of " ++ name_with_dot ++ "\n" ++ show_env dict
     names :: String -> String -> [String] -> [String]
-    names [] [] acc2 = reverse acc2
+    names [] [] acc2           = reverse acc2
     names (('.'):xs) acc1 acc2 = names xs [] ((reverse acc1) : acc2)
-    names (x:xs) acc1 acc2 = names xs (x : acc1) acc2
-    names [] acc1 acc2 = reverse $ ((reverse acc1) : acc2)
+    names (x:xs) acc1 acc2     = names xs (x : acc1) acc2
+    names [] acc1 acc2         = reverse $ ((reverse acc1) : acc2)
 
 eval env e@(Op2 op l r) = case op of
     ">" -> Bool $ (eval env l) > (eval env r)
@@ -572,7 +570,7 @@ eval env e@(Op2 op l r) = case op of
       "//" -> (\a b -> fromIntegral (a `div'` b) :: Int)
       "%"  -> mod'
       "**" -> (^)
-      _ -> error $ "no op " ++ op
+      _    -> error $ "no op " ++ op
     real_op = case op of
       "+"  -> (+)
       "-"  -> (-)
@@ -581,23 +579,23 @@ eval env e@(Op2 op l r) = case op of
       "//" -> (\a b -> fromIntegral (a `div'` b) :: Double)
       "%"  -> mod'
       "**" -> (**)
-      _ -> error $ "no op " ++ op
+      _    -> error $ "no op " ++ op
     char_op = case op of
       "+" -> (\a b -> a : [b])
-      _ -> error $ "no op " ++ op
+      _   -> error $ "no op " ++ op
     string_op = case op of
       "+" -> (++)
-      _ -> error $ "no op " ++ op
+      _   -> error $ "no op " ++ op
     bool_op = case op of
       "&&" -> (&&)
       "||" -> (||)
-      _ -> error $ "no op " ++ op
+      _    -> error $ "no op " ++ op
     list_op = case op of
       "+" -> (++)
       "-" -> (\\)
       "&" -> intersect
       "|" -> union
-      _ -> error $ "no op " ++ op
+      _   -> error $ "no op " ++ op
 
 eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
   Bool True  -> eval env t
@@ -605,7 +603,7 @@ eval env (Apply (Ref "if") [cond, t, f]) = case eval env cond of
   _          -> error $ "Condition is not boolean " ++ show cond
 eval env e@(Apply exp_ params_) = case eval env exp_ of
     Func patterns -> apply_func patterns
-    x -> error $ "apply top " ++ show x
+    x             -> error $ "apply top " ++ show x
   where
     params = map (eval env) params_
     apply_func [] = error $ "pattern does not match " ++ show e ++ show_env env
@@ -766,6 +764,8 @@ main = do
       ("3", "add(1 2)")
     , ("55", "add(1 2) + add(add(3 4) 5) + add(6 add(7 8)) + 9 + 10")
     ]
+  -- comment
+  test "1" "# comment1\nmain = 1\n#comment2"
 
   putStrLn "ok"
  where

@@ -1,10 +1,37 @@
-main = parse("1 + 2")
+main = eval parse("1 + 2")
+
+eval_op2 o l r = if (o == "+") (l + r) (l - r)
 eval (ast.int n) = n
-eval (ast.op2 o) = if (o == "+") (o.left + o.right) (o.left - o.right)
+eval (ast.op2 o) = eval_op2(o.op eval(o.left) eval(o.right))
+
 parse _ = ast.op2("+" ast.int(1) ast.int(2))
 enum ast:
+# value
+  char char
+  string string
   int int
+  real double
+  bool bool
+# container
+  tuple [ast]
+  list [ast]
+  map [(string, ast)]
+  struct [(string, ast)]
+# expression
+  func [([arg], ast)]
+  ref string
   op2:
     op string
     left ast
     right ast
+  apply:
+    target ast
+    args [ast]
+  stmt [line]
+# enum
+  enum string ast
+# void
+  void
+# runtime only
+  error string
+  closure [(string, ast)] ast
