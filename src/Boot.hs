@@ -1,6 +1,6 @@
 module Boot where
 
-import           Control.Monad             (guard)
+import           Control.Monad             (guard, when)
 import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.Trans.Maybe (MaybeT (..))
 import           Control.Monad.Trans.State (State, get, put, runState, state)
@@ -142,9 +142,9 @@ indent_n :: Int -> Parser String
 indent_n n = do
   spaces
   many $ oneOf "\r\n"
+  comments
   string $ replicate (n * 2) ' '
   spaces
-
 
 indent1 :: Parser String
 indent1 = indent_n 1
@@ -162,10 +162,20 @@ spaces = many $ oneOf " \t"
 white_spaces :: Parser String
 white_spaces = many $ oneOf " \t\r\n"
 
+comments :: Parser ()
+comments = do
+  hit <- look "#"
+  when hit $ do
+    many $ noneOf "\r\n"
+    many $ oneOf "\r\n"
+    comments
+  return ()
+
 lexeme :: Parser a -> Parser a
 lexeme p = do
   v <- p
   many $ oneOf " \t"
+  comments
   return v
 
 lex_char :: Char -> Parser Char
@@ -261,7 +271,10 @@ parse s = case runState (runMaybeT parse_env) (s ++ "\n") of
   (Nothing, s)  -> []
 
 parse_env :: Parser Env
-parse_env = parse_env_top []
+parse_env = do
+    spaces
+    comments
+    parse_env_top []
   where
     parse_env_top :: Env -> Parser Env
     parse_env_top acc = MaybeT $ do
@@ -277,13 +290,13 @@ parse_env = parse_env_top []
       case prefix of
         "enum" -> do
           name <- lex_token
-          many lex_token -- drop type information
+          many $ noneOf ":" -- drop type information
           lex_char ':'
           lines <- many1 $ (indent1 >> parse_enum_line name)
           return (name, Struct lines)
         "type" -> do
           name <- lex_token
-          many lex_token -- drop type information
+          lex_type -- drop type information
           lex_char ':'
           fields <- many1 $ (indent1 >> parse_type_line)
           let args = map ArgRef fields
@@ -307,16 +320,17 @@ parse_env = parse_env_top []
               return (name, make_func args body)
             parse_enum_single = do
               name <- lex_token
-              arg <- lex_token `orElse` (return "")
+              type_ <- lex_type
               let full_name = prefix ++ "." ++ name
-              return (name, make_single_enum full_name arg)
+              return (name, make_single_enum full_name type_)
         parse_type_line = do
           name <- lex_token
-          many lex_token -- drop type information
+          lex_type -- drop type information
           return name
         make_single_enum name arg = if arg == ""
             then Enum name Void
             else make_func [ArgRef arg] (Enum name $ Ref arg)
+        lex_type = many $ noneOf "\r\n:"
 
 parse_declear :: String -> Parser Exp
 parse_declear name = (parse_declear_func name)
@@ -753,6 +767,7 @@ main = do
     ]
   scope ast_code [
       ("ast.int 1", "ast.int 1")
+    , ("ast.string hi", "ast.string \"hi\"")
     , ("ast.op2 (op: +; left: 1; right: 2)", "ast.op2 \"+\" 1 2")
     , ("+", "op(ast.op2(\"+\" 1 2))")
     , ("1", "left(ast.op2(\"+\" 1 2))")
@@ -780,11 +795,13 @@ main = do
     ]
   ast_code = unlines [
       "enum ast:"
+    , "# comment 1"
     , "  int int"
     , "  op2:"
     , "    op string"
     , "    left ast"
     , "    right ast"
+    , "  string string"
     , "op (ast.op2 o) = o.op"
     , "left (ast.op2 o) = o.left"
     , "right (ast.op2 o) = o.right"
