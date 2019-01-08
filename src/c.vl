@@ -1,10 +1,19 @@
 main = eval parse("1 + 2")
 
-eval_op2 o l r = if (o == "+") (l + r) (l - r)
-eval (ast.int n) = n
-eval (ast.op2 o) = eval_op2(o.op eval(o.left) eval(o.right))
+parse src = ast.op2("+" ast.int(1) ast.int(2))
 
-parse _ = ast.op2("+" ast.int(1) ast.int(2))
+eval_op2 "+" l r = l + r
+eval_op2 "-" l r = l - r
+eval (ast.int n) = n
+eval (ast.op2 o) =
+  l = eval o.left
+  r = eval o.right
+  eval_op2 o.op l r
+
+type parser:
+  src string
+  pos int
+
 enum ast:
 # value
   char char
@@ -35,3 +44,13 @@ enum ast:
 # runtime only
   error string
   closure [(string, ast)] ast
+
+enum arg:
+  ref string
+  type:
+    name string
+    capture string
+  match ast
+  opt:
+    name string
+    default ast

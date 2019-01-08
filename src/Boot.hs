@@ -211,6 +211,9 @@ lex_op = (lex_string "==")
   `orElse` (lex_string "<=")
   `orElse` (lexeme $ (many1 $ oneOf "+-*/<>?|~&%."))
 
+lex_type :: Parser String
+lex_type = many $ noneOf "\r\n:"
+
 lex_between :: String -> String -> Parser a -> Parser a
 lex_between l r c = between ll lr lc
   where
@@ -271,10 +274,7 @@ parse s = case runState (runMaybeT parse_env) (s ++ "\n") of
   (Nothing, s)  -> []
 
 parse_env :: Parser Env
-parse_env = do
-    spaces
-    comments
-    parse_env_top []
+parse_env = parse_env_top []
   where
     parse_env_top :: Env -> Parser Env
     parse_env_top acc = MaybeT $ do
@@ -286,6 +286,8 @@ parse_env = do
          parse_env_top ((name, exp) : acc)
     parse_nested_env :: Parser (String, Exp)
     parse_nested_env = do
+      spaces
+      comments
       prefix <- lex_token
       case prefix of
         "enum" -> do
@@ -304,7 +306,7 @@ parse_env = do
           return (name, make_func args body)
         _ -> do
           declear <- parse_declear prefix
-          many1 ((many $ oneOf " \t") >> oneOf "\r\n")
+          white_spaces
           return (prefix, declear)
       where
         parse_enum_line prefix = parse_enum_nest
@@ -330,26 +332,43 @@ parse_env = do
         make_single_enum name arg = if arg == ""
             then Enum name Void
             else make_func [ArgRef arg] (Enum name $ Ref arg)
-        lex_type = many $ noneOf "\r\n:"
 
 parse_declear :: String -> Parser Exp
-parse_declear name = (parse_declear_func name)
-       `orElse` parse_declear_stmt
-
-parse_declear_func :: String -> Parser Exp
-parse_declear_func name = do
-  patterns <- sepBy relative_func $ do
+parse_declear name = do
+  patterns <- sepBy relative_declear $ do
     white_spaces
     lex_string name
   return $ case patterns of
     [([], x)] -> x
     _         -> Func patterns
  where
+  relative_declear = relative_func `orElse` relative_stmt
   relative_func = do
     args <- parse_args
     lex_char '='
     exp <- parse_top
     return (args, exp)
+  relative_stmt = do
+    args <- parse_args
+    lex_char '='
+    lines <- many1 (indent1 >> parse_line)
+    return $ (args, Stmt lines)
+  parse_line = parse_assign
+    `orElse` parse_def
+    `orElse` parse_call
+  parse_assign = do
+    name <- lex_token
+    lex_string "<="
+    exp <- parse_exp
+    return $ Assign name exp
+  parse_def = do
+    name <- lex_token
+    lex_char '='
+    exp <- parse_top
+    return $ Def name exp
+  parse_call = do
+    exp <- parse_top
+    return $ Call exp
 
 parse_args :: Parser [Arg]
 parse_args = many parse_arg
@@ -379,30 +398,6 @@ parse_arg = arg_opt
       char ':'
       value <- parse_bottom
       return $ ArgOpt name value
-
-parse_declear_stmt :: Parser Exp
-parse_declear_stmt = do
-  args <- parse_args
-  lex_char '='
-  lines <- many1 (indent >> parse_line)
-  return $ make_func args $ Stmt lines
-  where
-    parse_line = parse_assign
-        `orElse` parse_def
-        `orElse` parse_call
-    parse_assign = do
-      name <- lex_token
-      lex_string "<="
-      exp <- parse_exp
-      return $ Assign name exp
-    parse_def = do
-      name <- lex_token
-      lex_char '='
-      exp <- parse_exp
-      return $ Def name exp
-    parse_call = do
-      exp <- parse_exp
-      return $ Call exp
 
 parse_top :: Parser Exp
 parse_top = do
@@ -534,10 +529,10 @@ eval env (Stmt lines) = eval_line env lines (error "not fond line in statement")
   where
     eval_line :: Env -> [Line] -> Exp -> Exp
     eval_line _ [] v = v
-    eval_line env (line:lines) v = case line of
-      Call exp -> eval_line env lines $ eval env exp
-      Def name exp -> eval_line ((name, eval env exp) : env) lines (error "not found return in statement")
-      Assign name exp -> eval_line ((name, eval env exp) : env) lines (error "not found return in statement")
+    eval_line ev (line:lines) v = case line of
+      Call exp -> eval_line ev lines $ eval ev exp
+      Def name exp -> eval_line ((name, eval ev exp) : ev) lines (error $ "not found return in statement from def " ++ show_env env)
+      Assign name exp -> eval_line ((name, eval ev exp) : ev) lines (error "not found return in statement from assign")
 
 eval env (Ref name_with_dot) = find_nest (names name_with_dot [] []) env
   where
@@ -724,7 +719,7 @@ main = do
     ]
   test "false" "f a b = a || b\nmain = f(1 == 2 1 > 2)"
   -- statement
-  test "3" "main =\n  a = 1\n  b = 2\n  a + b"
+  test "6" "c = 3\nmain =\n  a = 1\n  b = 2\n  add (a + b) c\nadd x y = x + y"
   -- type
   scope "type counter:\n  count int" [
       ("(count: 1)", "counter 1")
