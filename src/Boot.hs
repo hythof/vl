@@ -43,7 +43,6 @@ data Exp =
 
 data Line =
     Call Exp
-  | Def String Exp
   | Assign String Exp
   deriving (Show, Eq, Ord)
 
@@ -354,18 +353,12 @@ parse_declear name = do
     lines <- many1 (indent1 >> parse_line)
     return $ (args, Stmt lines)
   parse_line = parse_assign
-    `orElse` parse_def
     `orElse` parse_call
   parse_assign = do
     name <- lex_token
-    lex_string "<="
+    lex_string "="
     exp <- parse_exp
     return $ Assign name exp
-  parse_def = do
-    name <- lex_token
-    lex_char '='
-    exp <- parse_top
-    return $ Def name exp
   parse_call = do
     exp <- parse_top
     return $ Call exp
@@ -531,7 +524,6 @@ eval env (Stmt lines) = eval_line env lines (error "not fond line in statement")
     eval_line _ [] v = v
     eval_line ev (line:lines) v = case line of
       Call exp -> eval_line ev lines $ eval ev exp
-      Def name exp -> eval_line ((name, eval ev exp) : ev) lines (error $ "not found return in statement from def " ++ show_env env)
       Assign name exp -> eval_line ((name, eval ev exp) : ev) lines (error "not found return in statement from assign")
 
 eval env (Ref name_with_dot) = find_nest (names name_with_dot [] []) env

@@ -6,9 +6,9 @@ eval_op2 "+" l r = l + r
 eval_op2 "-" l r = l - r
 eval (ast.int n) = n
 eval (ast.op2 o) =
-  l = eval o.left
-  r = eval o.right
-  eval_op2 o.op l r
+  l = eval(o.left)
+  r = eval(o.right)
+  eval_op2(o.op l r)
 
 enum ast:
 # value
@@ -51,31 +51,3 @@ enum arg:
     name string
     default ast
 
-type input:
-  src string
-  pos int
-
-type parser a:
-  parse : input => maybe(a, input)
-
-flow parser:
-  return a = parser input => just (a, input)
-  bind ma mf = parser input =>
-    ret <= ma.parse input
-    mf ret
-
-satisfy : (char => bool) parser.char
-satisfy f = parser (src: pos:) =>
-  guard src.size < pos
-  c = src pos
-  guard f c
-  just (c, input(src pos + 1))
-
-one_of xs = satisfy xs.have?
-many1 f =
-  x = f
-  xs = many f
-  x : xs
-many f = many_acc f []
-many_acc f acc = parser input =>
-  f(input).if (x => acc : x) acc
