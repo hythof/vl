@@ -21,7 +21,7 @@ data AST =
 -- enum
   | Enum String AST
 -- state
-  | Throw [AST]
+  | Throw String
   | State [(String, AST)]
 -- void
   | Void
@@ -34,7 +34,7 @@ data Line =
   | Assign String AST
   deriving (Show, Eq, Ord)
 
-type Table = [(String, AST)]
+type Env = [(String, AST)]
 
 
 
@@ -98,6 +98,17 @@ many_acc f acc = do
   x <- f
   many_r f (x : acc)
 
+sepBy1 f sep = do
+  x <- f
+  xs <- many (sep >> f)
+  return $ x : xs
+sepBy f sep = sepBy1 f sep <|> return []
+
+read_white_spaces = many1 $ satisfy (\x -> elem x" \t\r\n")
+read_brs = do
+  many $ satisfy (\x -> elem x " \t")
+  satisfy (\x -> elem x "\r\n")
+  many $ satisfy (\x -> elem x " \t\r\n")
 read_char x = lexeme (== x)
 read_op = many1 $ oneOf "+-*/"
 read_id = do
@@ -108,14 +119,14 @@ read_id = do
   remaining <- many $ oneOf (az ++ num ++ symbols)
   return $ prefix : remaining
 
-parse :: String -> Table
+parse :: String -> Env
 parse input = case runParser parse_root input of
-  Just (table, "") -> table
+  Just (env, "") -> env
   Just (_, left) -> [("err", String $ "left: " ++ left)]
   Nothing -> [("err", String "failed")]
 
-parse_root :: Parser Table
-parse_root = many parse_define
+parse_root :: Parser Env
+parse_root = sepBy parse_define read_brs
 
 parse_define :: Parser (String, AST)
 parse_define = do
@@ -140,30 +151,62 @@ parse_int = do
 
 
 --( Evaluator )-------------------------------------------------------
-eval :: Table -> AST -> AST
-eval table x@(Int _) = x
-eval table (Op2 op left right) = f el er
+eval :: Env -> AST -> AST
+eval env x@(Int _) = x
+eval env (Op2 op left right) = f el er
  where
   f (Int l) (Int r) = Int $ fi op l r
   fi "+" = (+)
   fi "-" = (-)
-  el = eval table left
-  er = eval table right
+  el = eval env left
+  er = eval env right
+eval env ast = String $ ("'" ++ (show ast) ++ "'")
 
 
 
 --( Main )------------------------------------------------------------
 main = do
-  let src = "main = 1 + 2 + 3"
-  let table = parse src
-  let ast = snd $ table !! 0
-  let ret = eval table ast
-  line "src: " src
-  line "ast: " $ show ast
-  line "ret: " $ show ret
+  src <- readFile "cc.vl"
+  let env = parse src
+  let ast = snd $ env !! 0
+  let ret = eval env ast
+  line "ast: " $ fmt ast
+  line "ret: " $ fmt ret
+  line "env: " $ join "\n  " (map (\(name, ast) -> name ++ " = " ++ (fmt ast)) env)
+  line "src: " $ src
  where
   line title body = do
     putStr title
     putStrLn body
 
+join :: String -> [String] -> String
+join glue xs = snd $ splitAt (length glue) splitted
+ where
+  splitted = foldl (\l r -> l ++ glue ++ r) "" xs
+
+fmt (Char c) = [c]
+fmt (String s) = escape s
+ where
+  escape [] = []
+  escape ('\r':cs) = "\\r" ++ (escape cs)
+  escape ('\n':cs) = "\\n" ++ (escape cs)
+  escape ('\t':cs) = "\\t" ++ (escape cs)
+  escape (c:cs) = c : (escape cs)
+fmt (Int n) = show n
+fmt (Real n) = show n
+fmt (Bool b) = show b
+fmt (List l) = join ", " (map fmt l)
+fmt (Func args ast) = (join " " args) ++ " => " ++ (fmt ast)
+fmt (Ref s) = s
+fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
+fmt (Apply b a) = "apply"
+fmt (Stmt ls) = "stmt"
+fmt (Enum t e) = t ++ " " ++ (fmt e)
+fmt (Throw s) = s
+fmt (State xs) = fmt_env xs
+fmt (Void) = "_"
+fmt (Closure env b) = (fmt_env env) ++ (fmt b)
+fmt_env xs = "[" ++ (join " " (map tie xs)) ++ "]"
+ where
+  tie (k, v) = k ++ ":" ++ (fmt v)
 debug x = trace (show x) (return 0)
