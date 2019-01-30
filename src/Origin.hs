@@ -34,7 +34,9 @@ data Line =
   | Assign String AST
   deriving (Show, Eq, Ord)
 
-type Env = [(String, AST)]
+type Table = [(String, AST)]
+
+
 
 --( Parser )---------------------------------------------------------
 data Parser a = Parser { runParser :: String -> Maybe (a, String) }
@@ -96,16 +98,31 @@ many_acc f acc = do
   x <- f
   many_r f (x : acc)
 
-parse :: String -> AST
-parse input = case runParser parse_root input of
-  Just (ast, "") -> ast
-  Just (_, left) -> String $ "left: " ++ left
-  Nothing -> String $ "failed: " ++ input
-
+read_char x = lexeme (== x)
 read_op = many1 $ oneOf "+-*/"
+read_id = do
+  let az = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+  let num = "0123456789"
+  let symbols = "_"
+  prefix <- oneOf az
+  remaining <- many $ oneOf (az ++ num ++ symbols)
+  return $ prefix : remaining
 
-parse_root = do
-  parse_op2
+parse :: String -> Table
+parse input = case runParser parse_root input of
+  Just (table, "") -> table
+  Just (_, left) -> [("err", String $ "left: " ++ left)]
+  Nothing -> [("err", String "failed")]
+
+parse_root :: Parser Table
+parse_root = many parse_define
+
+parse_define :: Parser (String, AST)
+parse_define = do
+  name <- read_id
+  read_char '='
+  exp <- parse_op2
+  return $ (name, exp)
 
 parse_op2 = do
   l <- parse_int
@@ -120,22 +137,27 @@ parse_int = do
   s <- many1 (oneOf "0123456789")
   return $ Int (read s :: Int)
 
---( Evaluator )-------------------------------------------------------
 
-eval x@(Int _) = x
-eval (Op2 op left right) = f el er
+
+--( Evaluator )-------------------------------------------------------
+eval :: Table -> AST -> AST
+eval table x@(Int _) = x
+eval table (Op2 op left right) = f el er
  where
   f (Int l) (Int r) = Int $ fi op l r
   fi "+" = (+)
   fi "-" = (-)
-  el = eval left
-  er = eval right
+  el = eval table left
+  er = eval table right
+
+
 
 --( Main )------------------------------------------------------------
 main = do
-  let src = "1 + 2 + 3"
-  let ast = parse src
-  let ret = eval ast
+  let src = "main = 1 + 2 + 3"
+  let table = parse src
+  let ast = snd $ table !! 0
+  let ret = eval table ast
   line "src: " src
   line "ast: " $ show ast
   line "ret: " $ show ret
