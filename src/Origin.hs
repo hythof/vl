@@ -39,7 +39,9 @@ type Env = [(String, AST)]
 
 
 --( Parser )---------------------------------------------------------
-data Parser a = Parser { runParser :: String -> Maybe (a, String) }
+data Parser a = Parser {
+                runParser :: String -> Maybe (a, String)
+                }
 
 instance Functor Parser where
     fmap f p = Parser $ \s ->
@@ -70,6 +72,8 @@ l <|> r = Parser $ \s -> case runParser l s of
 
 guard False = Nothing
 guard True = Just 0
+
+remaining_input = Parser $ \s -> Just (s, s)
 
 satisfy f = Parser $ \s -> do
   guard $ (length s) > 0
@@ -104,6 +108,8 @@ sepBy1 f sep = do
   return $ x : xs
 sepBy f sep = sepBy1 f sep <|> return []
 
+char x = satisfy (== x)
+
 read_white_spaces = many1 $ satisfy (\x -> elem x" \t\r\n")
 read_brs = do
   many $ satisfy (\x -> elem x " \t")
@@ -119,11 +125,16 @@ read_id = do
   remaining <- many $ oneOf (az ++ num ++ symbols)
   return $ prefix : remaining
 
+make_func [] ast = ast
+make_func args ast = Func args ast
+
 parse :: String -> Env
-parse input = case runParser parse_root input of
+parse input = case runParser parse_root (trim input) of
   Just (env, "") -> env
   Just (_, left) -> [("err", String $ "left: " ++ left)]
   Nothing -> [("err", String "failed")]
+ where
+  trim s = reverse $ dropWhile (\x -> elem x " \t\r\n") (reverse s)
 
 parse_root :: Parser Env
 parse_root = sepBy parse_define read_brs
@@ -131,12 +142,28 @@ parse_root = sepBy parse_define read_brs
 parse_define :: Parser (String, AST)
 parse_define = do
   name <- read_id
-  read_char '='
-  exp <- parse_op2
-  return $ (name, exp)
+  ast <- def_func
+  return $ (name, ast)
+ where
+  def_func = do
+    args <- many read_id
+    read_char '='
+    ast <- parse_top
+    return $ make_func args ast
+
+parse_top = parse_op2
+parse_bot = parse_call
+  <|> parse_int
+
+parse_call = do
+  name <- read_id
+  char '('
+  args <- many parse_bot
+  read_char ')'
+  return $ Apply (Ref name) args
 
 parse_op2 = do
-  l <- parse_int
+  l <- parse_bot
   o <- read_op <|> return ""
   case o of
     "" -> return l
@@ -209,4 +236,10 @@ fmt (Closure env b) = (fmt_env env) ++ (fmt b)
 fmt_env xs = "[" ++ (join " " (map tie xs)) ++ "]"
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
-debug x = trace (show x) (return 0)
+
+debug x = do
+  trace (show x) (return 0)
+  s <- remaining_input
+  trace ">>>" (return 0)
+  trace s (return 0)
+  trace "<<<" (return 0)
