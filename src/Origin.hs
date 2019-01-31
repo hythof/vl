@@ -48,7 +48,9 @@ pmap m f = Parser $ \s -> f $ runParser m s
 pmap2 m n f = Parser $ \s -> f (runParser m s) (runParser n s)
 
 instance Functor Parser where
-  fmap f m = pmap m $ \m -> m {val = f $ val m}
+  fmap f m = pmap m $ \m -> case m of
+    Miss m -> Miss m
+    Hit val src -> Hit (f val) src
 
 instance Applicative Parser where
   pure v = Parser $ \s -> Hit v s
@@ -64,6 +66,10 @@ instance Monad Parser where
 l <|> r = Parser $ \s -> case runParser l s of
   Hit val src -> Hit val src
   Miss _ -> runParser r s
+
+az = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+num = "0123456789"
+symbols = "_"
 
 remaining_input = Parser $ \s -> Hit s s
 
@@ -83,7 +89,10 @@ satisfy f = Parser $ \s -> case check s of
 spaces = many $ oneOf " \t"
 lexeme f = spaces >> f
 oneOf xs = satisfy $ \x -> elem x xs
-
+noneOf xs = satisfy $ \x -> not $ elem x xs
+char x = satisfy (== x)
+string [] = Parser $ \s -> Hit () s
+string (x:xs) = char x >> string xs
 many1 f = do
   x <- f
   xs <- many f
@@ -101,17 +110,17 @@ sepBy1 f sep = do
   return $ x : xs
 sepBy f sep = sepBy1 f sep <|> return []
 
-char x = satisfy (== x)
-
+read_between l r c = do
+  read_char l
+  hit <- lexeme c
+  read_char r
+  return hit
 read_brs = do
   many $ oneOf " \t"
   satisfy (\x -> elem x "\r\n")
 read_char x = lexeme $ satisfy (== x)
 read_op = lexeme $ many1 $ oneOf "+-*/"
 read_id = lexeme $ do
-  let az = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-  let num = "0123456789"
-  let symbols = "_"
   prefix <- oneOf az
   remaining <- many $ oneOf (az ++ num ++ symbols)
   return $ prefix : remaining
@@ -145,19 +154,6 @@ parse_define = do
     return $ make_func args ast
 
 parse_top = parse_op2
-parse_bot = parse_int
-  <|> parse_unit
-
-parse_unit = do
-  name <- read_id
-  branch [
-      (char '(', unit_call name)
-    ] (Ref name)
- where
-  unit_call name = do
-    args <- many parse_bot
-    read_char ')'
-    return $ Apply (Ref name) args
 
 parse_op2 = do
   l <- parse_bot
@@ -168,10 +164,41 @@ parse_op2 = do
       r <- parse_op2
       return $ Op2 o l r
 
-parse_int = do
+parse_bot = parse_value
+  <|> parse_call_or_ref
+
+parse_value = parse_bool
+  <|> parse_str
+  <|> parse_char
+  <|> parse_num
+
+parse_call_or_ref = do
+  name <- read_id
+  branch [
+      (char '(', unit_call name)
+    ] (Ref name)
+ where
+  unit_call name = do
+    args <- many parse_bot
+    read_char ')'
+    return $ Apply (Ref name) args
+
+parse_char = Char <$> read_between '\'' '\'' (satisfy (\_ -> True))
+parse_str = String <$> read_between '"' '"' (many $ noneOf "\"")
+parse_bool = Bool <$> do
+  name <- read_id
+  case name of
+    "true" -> return True
+    "false" -> return False
+    label -> fail $ "miss " ++ label
+parse_num = do
   spaces
-  s <- many1 (oneOf "0123456789")
-  return $ Int (read s :: Int)
+  n <- many1 (oneOf num)
+  branch [
+   (char '.', do
+      m <- many1 (oneOf num)
+      return $ Real (read (n ++ "." ++ m) :: Double)
+      )] (Int (read n :: Int))
 
 
 
