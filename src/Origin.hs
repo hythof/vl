@@ -26,6 +26,7 @@ data AST =
 -- void
   | Void
 -- runtime only
+  | Error Env String
   | Closure [(String, AST)] AST
   deriving (Show, Eq, Ord)
 
@@ -39,57 +40,49 @@ type Env = [(String, AST)]
 
 
 --( Parser )---------------------------------------------------------
-data Parser a = Parser {
-                runParser :: String -> Maybe (a, String)
-                }
+data Result a = Hit { val :: a, src :: String }
+              | Miss { src :: String }
+data Parser a = Parser { runParser :: String -> Result a }
+
+pmap m f = Parser $ \s -> f $ runParser m s
+pmap2 m n f = Parser $ \s -> f (runParser m s) (runParser n s)
 
 instance Functor Parser where
-    fmap f p = Parser $ \s ->
-                fmap (\(s, v) -> (f s, v)) $ runParser p s
+  fmap f m = pmap m $ \m -> m {val = f $ val m}
 
 instance Applicative Parser where
-    pure v = Parser $ \s -> Just (v, s)
-    --l <*> r = Parser $ \s -> case runParser r s of
-    --    Just (v, s') -> fmap (\(f, s'') -> (f v, s'')) $ runParser l s
-    --    Nothing -> Nothing
-    l <*> r = Parser $ \s -> do
-      (v, s') <- runParser r s
-      fmap (\(f, s'') -> (f v, s'')) $ runParser l s
+  pure v = Parser $ \s -> Hit v s
+  l <*> r = pmap2 l r $ \m n -> n {val = (val m) (val n)}
 
 instance Monad Parser where
     return = pure
-    --m >>= f = Parser $ \s -> case runParser m s of
-    --    Just (v, s') -> runParser (f v) s'
-    --    Nothing -> Nothing
-    m >>= f = Parser $ \s -> do
-      (v, s') <- runParser m s
-      runParser (f v) s'
-    fail _ = Parser $ \_ -> Nothing
+    m >>= f = pmap m $ \n -> case n of
+                Hit val src -> runParser (f val) src
+                Miss msg -> Miss msg
+    fail m = Parser $ \s -> Miss s
 
 l <|> r = Parser $ \s -> case runParser l s of
-  Just x -> return x
-  Nothing -> runParser r s
+  Hit val src -> Hit val src
+  Miss _ -> runParser r s
 
-guard False = Nothing
-guard True = Just 0
+remaining_input = Parser $ \s -> Hit s s
 
-remaining_input = Parser $ \s -> Just (s, s)
+satisfy f = Parser $ \s -> case check s of
+  Just h -> h
+  Nothing -> Miss "failed"
+ where
+  check :: String -> Maybe (Result Char)
+  check s = do
+    guard $ (length s) > 0
+    let c = s !! 0
+    guard $ f c
+    return $ Hit c (tail s)
+  guard False = Nothing
+  guard True = Just ()
 
-satisfy f = Parser $ \s -> do
-  guard $ (length s) > 0
-  let c = s !! 0
-  guard $ f c
-  Just (c, tail s)
-
-lexeme f = do
-  many $ ignore " \t\r\n"
-  satisfy f
-
-ignore [] = Parser $ \s -> Nothing
-ignore (x:xs) = satisfy (== x) <|> ignore xs
-
-oneOf [] = Parser $ \_ -> Nothing
-oneOf (x:xs) = lexeme (== x) <|> oneOf xs
+spaces = many $ oneOf " \t"
+lexeme f = spaces >> f
+oneOf xs = satisfy $ \x -> elem x xs
 
 many1 f = do
   x <- f
@@ -110,14 +103,12 @@ sepBy f sep = sepBy1 f sep <|> return []
 
 char x = satisfy (== x)
 
-read_white_spaces = many1 $ satisfy (\x -> elem x" \t\r\n")
 read_brs = do
-  many $ satisfy (\x -> elem x " \t")
+  many $ oneOf " \t"
   satisfy (\x -> elem x "\r\n")
-  many $ satisfy (\x -> elem x " \t\r\n")
-read_char x = lexeme (== x)
-read_op = many1 $ oneOf "+-*/"
-read_id = do
+read_char x = lexeme $ satisfy (== x)
+read_op = lexeme $ many1 $ oneOf "+-*/"
+read_id = lexeme $ do
   let az = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
   let num = "0123456789"
   let symbols = "_"
@@ -127,12 +118,14 @@ read_id = do
 
 make_func [] ast = ast
 make_func args ast = Func args ast
+branch [] other = return other
+branch ((cond, body):rest) other = (cond >> body) <|> branch rest other
 
 parse :: String -> Env
 parse input = case runParser parse_root (trim input) of
-  Just (env, "") -> env
-  Just (_, left) -> [("err", String $ "left: " ++ left)]
-  Nothing -> [("err", String "failed")]
+  Hit env "" -> env
+  Hit env left -> env ++ [("err", String $ "left: " ++ left)]
+  Miss m -> [("err", String m)]
  where
   trim s = reverse $ dropWhile (\x -> elem x " \t\r\n") (reverse s)
 
@@ -152,15 +145,19 @@ parse_define = do
     return $ make_func args ast
 
 parse_top = parse_op2
-parse_bot = parse_call
-  <|> parse_int
+parse_bot = parse_int
+  <|> parse_unit
 
-parse_call = do
+parse_unit = do
   name <- read_id
-  char '('
-  args <- many parse_bot
-  read_char ')'
-  return $ Apply (Ref name) args
+  branch [
+      (char '(', unit_call name)
+    ] (Ref name)
+ where
+  unit_call name = do
+    args <- many parse_bot
+    read_char ')'
+    return $ Apply (Ref name) args
 
 parse_op2 = do
   l <- parse_bot
@@ -172,6 +169,7 @@ parse_op2 = do
       return $ Op2 o l r
 
 parse_int = do
+  spaces
   s <- many1 (oneOf "0123456789")
   return $ Int (read s :: Int)
 
@@ -187,7 +185,15 @@ eval env (Op2 op left right) = f el er
   fi "-" = (-)
   el = eval env left
   er = eval env right
-eval env ast = String $ ("'" ++ (show ast) ++ "'")
+eval env (Apply target apply_args) = case eval env target of
+  Func capture_args body -> eval ((zip capture_args args) ++ env) body
+  other -> other
+ where
+  args = map (eval env) apply_args
+eval env (Ref name) = case lookup name env of
+  Just ast -> ast
+  Nothing -> Error env $ "not found " ++ name
+eval env ast = Error env $ "yet: '" ++ (show ast) ++ "'"
 
 
 
@@ -199,7 +205,7 @@ main = do
   let ret = eval env ast
   line "ast: " $ fmt ast
   line "ret: " $ fmt ret
-  line "env: " $ join "\n  " (map (\(name, ast) -> name ++ " = " ++ (fmt ast)) env)
+  line "env: " $ join "\n  " (map (\(name, ast) -> name ++ " = " ++ (fmt ast) ++ "\t# " ++ show ast) env)
   line "src: " $ src
  where
   line title body = do
@@ -226,14 +232,15 @@ fmt (List l) = join ", " (map fmt l)
 fmt (Func args ast) = (join " " args) ++ " => " ++ (fmt ast)
 fmt (Ref s) = s
 fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
-fmt (Apply b a) = "apply"
+fmt (Apply body args) = (fmt body) ++ "(" ++ (join " " (map fmt args)) ++ ")"
 fmt (Stmt ls) = "stmt"
 fmt (Enum t e) = t ++ " " ++ (fmt e)
 fmt (Throw s) = s
 fmt (State xs) = fmt_env xs
 fmt (Void) = "_"
+fmt (Error env msg) = msg ++ " " ++ (fmt_env env)
 fmt (Closure env b) = (fmt_env env) ++ (fmt b)
-fmt_env xs = "[" ++ (join " " (map tie xs)) ++ "]"
+fmt_env xs = "[" ++ (join "    " (map tie xs)) ++ "]"
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
 

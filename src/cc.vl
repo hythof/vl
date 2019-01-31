@@ -1,1 +1,2 @@
-main = 1 + 2 + 3
+main = add(1 2)
+add a b = a + b
