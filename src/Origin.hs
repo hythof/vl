@@ -27,7 +27,6 @@ data AST =
   | Void
 -- runtime only
   | Error Env String
-  | Closure [(String, AST)] AST
   deriving (Show, Eq, Ord)
 
 data Line =
@@ -278,7 +277,6 @@ fmt (Throw s) = s
 fmt (State xs) = fmt_env xs
 fmt (Void) = "_"
 fmt (Error env msg) = msg ++ " " ++ (fmt_env env)
-fmt (Closure env b) = (fmt_env env) ++ (fmt b)
 fmt_env xs = "[" ++ (join "    " (map tie xs)) ++ "]"
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
