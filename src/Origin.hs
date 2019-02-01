@@ -171,17 +171,7 @@ parse_value = parse_bool
   <|> parse_str
   <|> parse_char
   <|> parse_num
-
-parse_call_or_ref = do
-  name <- read_id
-  branch [
-      (char '(', unit_call name)
-    ] (Ref name)
- where
-  unit_call name = do
-    args <- many parse_bot
-    read_char ')'
-    return $ Apply (Ref name) args
+  <|> parse_list
 
 parse_char = Char <$> read_between '\'' '\'' (satisfy (\_ -> True))
 parse_str = String <$> read_between '"' '"' (many $ noneOf "\"")
@@ -199,17 +189,48 @@ parse_num = do
       m <- many1 (oneOf num)
       return $ Real (read (n ++ "." ++ m) :: Double)
       )] (Int (read n :: Int))
+parse_list = List <$> (read_between '[' ']' (many parse_bot))
+
+parse_call_or_ref = do
+  name <- read_id
+  branch [
+      (char '(', unit_call name)
+    ] (Ref name)
+ where
+  unit_call name = do
+    args <- many parse_bot
+    read_char ')'
+    return $ Apply (Ref name) args
 
 
 
 --( Evaluator )-------------------------------------------------------
 eval :: Env -> AST -> AST
 eval env x@(Int _) = x
+eval env x@(Real _) = x
+eval env x@(Char _) = x
+eval env x@(String _) = x
+eval env x@(List _) = x
 eval env (Op2 op left right) = f el er
  where
-  f (Int l) (Int r) = Int $ fi op l r
-  fi "+" = (+)
-  fi "-" = (-)
+  f (Int l) (Int r) = Int $ glue op l r
+    where
+      glue "+" = (+)
+      glue "-" = (-)
+      glue "*" = (*)
+      glue "/" = \a b -> truncate $ (fromIntegral a) / (fromIntegral b)
+  f (Real l) (Real r) = Real $ glue op l r
+    where
+      glue "+" = (+)
+      glue "-" = (-)
+      glue "*" = (*)
+      glue "/" = (/)
+  f (String l) (String r) = String $ glue op l r
+    where
+      glue "++" = (++)
+  f (List l) (List r) = List $ glue op l r
+    where
+      glue "++" = (++)
   el = eval env left
   er = eval env right
 eval env (Apply target apply_args) = case eval env target of
@@ -226,18 +247,9 @@ eval env ast = Error env $ "yet: '" ++ (show ast) ++ "'"
 
 --( Main )------------------------------------------------------------
 main = do
+  run_test
   src <- readFile "cc.vl"
-  let env = parse src
-  let ast = snd $ env !! 0
-  let ret = eval env ast
-  line "ast: " $ fmt ast
-  line "ret: " $ fmt ret
-  line "env: " $ join "\n  " (map (\(name, ast) -> name ++ " = " ++ (fmt ast) ++ "\t# " ++ show ast) env)
-  line "src: " $ src
- where
-  line title body = do
-    putStr title
-    putStrLn body
+  dump src
 
 join :: String -> [String] -> String
 join glue xs = snd $ splitAt (length glue) splitted
@@ -255,7 +267,7 @@ fmt (String s) = escape s
 fmt (Int n) = show n
 fmt (Real n) = show n
 fmt (Bool b) = show b
-fmt (List l) = join ", " (map fmt l)
+fmt (List l) = "[" ++ (join " " (map fmt l)) ++ "]"
 fmt (Func args ast) = (join " " args) ++ " => " ++ (fmt ast)
 fmt (Ref s) = s
 fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
@@ -271,9 +283,46 @@ fmt_env xs = "[" ++ (join "    " (map tie xs)) ++ "]"
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
 
+dump src = do
+  line "ast: " $ fmt ast
+  line "ret: " $ fmt ret
+  line "env: " $ join "\n  " (map (\(name, ast) -> name ++ " = " ++ (fmt ast) ++ "\t# " ++ show ast) env)
+  line "src: " $ src
+ where
+  env = parse src
+  ast = snd $ env !! 0
+  ret = eval env ast
+  line title body = do
+    putStr title
+    putStrLn body
+
 debug x = do
   trace (show x) (return 0)
   s <- remaining_input
   trace ">>>" (return 0)
   trace s (return 0)
   trace "<<<" (return 0)
+
+--( Test )------------------------------------------------------------
+test expect src = if expect == act
+  then putStr "."
+  else do
+    putStrLn ""
+    putStrLn $ "expect: " ++ expect
+    putStrLn $ "actual: " ++ act
+    putStrLn ""
+    putStrLn src
+    dump src
+    fail $ "failed"
+ where
+  env = parse src
+  ast = snd $ env !! 0
+  ret = eval env ast
+  act = fmt ret
+test_value expect src = test expect $ "main = " ++ src
+run_test = do
+  test_value "1" "1"
+  test_value "1.0" "1.0"
+  test_value "c" "'c'"
+  test_value "hi" "\"hi\""
+  putStrLn "ok"
