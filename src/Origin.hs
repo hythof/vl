@@ -32,7 +32,7 @@ data AST =
   deriving (Show, Eq, Ord)
 
 data Line =
-    Call AST
+    Call String [AST]
   | Assign String AST
   deriving (Show, Eq, Ord)
 
@@ -126,6 +126,8 @@ read_id = lexeme $ do
 read_br = do
   many $ oneOf " \t"
   many1 $ oneOf "\r\n"
+read_br1 = read_br >> string "  "
+read_br2 = read_br >> string "    "
 
 make_func [] ast = ast
 make_func args ast = Func args ast
@@ -149,16 +151,23 @@ parse_define = do
   top <- parse_top
   return $ (name, make_func args top)
 
-parse_top = (read_br >> parse_matches)
+parse_top = (read_br >> (parse_matches <|> parse_stmt))
   <|> parse_op2
 
 parse_matches = Match <$> sepBy1 parse_match read_br
 parse_match = do
-  char '|'
+  read_char '|'
   conds <- many parse_bot
   read_char '='
   body <- parse_bot
   return $ (conds, body)
+
+parse_stmt = Stmt <$> sepBy1 parse_line read_br1
+ where
+  parse_line :: Parser Line
+  parse_line = do
+    name <- read_id
+    (read_char '=' >> Assign name <$> parse_op2) <|> (Call name <$> many parse_bot)
 
 parse_op2 = do
   l <- parse_bot
@@ -255,10 +264,16 @@ eval env (Apply target apply_args) = case eval env target of
   equals _ _ = False
   equal (Void) _ = True
   equal x y = x == y
-
 eval env (Ref name) = case lookup name env of
   Just ast -> eval env ast
   Nothing -> Error env $ "not found " ++ name
+eval env (Stmt lines) = run env lines
+ where
+  run env [(Call name args)] = eval env (Apply (Ref name) args)
+  run env (line:lines) = case line of
+    Call name args -> run env lines -- TODO: system call
+    Assign name ast -> run ((name, eval env ast) : env) lines
+  run env lines = Error env $ "stmt: " ++ (show lines)
 eval env ast = Error env $ "yet: '" ++ (show ast) ++ "'"
 
 
@@ -291,8 +306,8 @@ fmt (Func args ast) = (join " " args) ++ " => " ++ (fmt ast)
 fmt (Ref s) = s
 fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
 fmt (Apply body args) = (fmt body) ++ "(" ++ (join " " (map fmt args)) ++ ")"
-fmt (Stmt ls) = "stmt"
-fmt (Match m) = "match"
+fmt (Stmt ls) = show ls
+fmt (Match m) = show m
 --fmt (Enum t e) = t ++ " " ++ (fmt e)
 --fmt (Throw s) = s
 --fmt (State xs) = fmt_env xs
@@ -345,6 +360,9 @@ run_test = do
     , ("many", "m(1.0)")
     , ("many", "m('c')")
     ]
+  test_values stmt_code [
+      ("6", "stmt(1 2)")
+    ]
   putStrLn "ok"
  where
   values_code = unlines [
@@ -360,13 +378,19 @@ run_test = do
     , "l7 = [c s i r bt bf add(i i)]"
     , "add x y = x + y"
     , "ref = add(1 2)"
-    -- TODO: state
     ]
   match_code = unlines [
       "m ="
     , "| 0 = \"zero\""
     , "| 1 = \"one\""
     , "| _ = \"many\""
+    ]
+  stmt_code = unlines [
+      "stmt a b ="
+    , "  x = a + b"
+    , "  z = add(add(a b) x)"
+    , "  z"
+    , "add x y = x + y"
     ]
   test_value expect src = test expect $ "main = " ++ src
   test_values _ [] = return ()
