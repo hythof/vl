@@ -17,10 +17,10 @@ data AST =
   | Ref String
   | Op2 String AST AST
   | Apply AST [AST]
-  | Stmt [Line]
 -- enum
   | Enum String AST
 -- state
+  | Stmt [Line]
   | Throw String
   | State [(String, AST)]
 -- void
@@ -209,8 +209,10 @@ eval :: Env -> AST -> AST
 eval env x@(Int _) = x
 eval env x@(Real _) = x
 eval env x@(Char _) = x
+eval env x@(Bool _) = x
 eval env x@(String _) = x
-eval env x@(List _) = x
+eval env x@(Func _ _) = x
+eval env (List xs) = List $ map (eval env) xs
 eval env (Op2 op left right) = f el er
  where
   f (Int l) (Int r) = Int $ glue op l r
@@ -239,7 +241,7 @@ eval env (Apply target apply_args) = case eval env target of
  where
   args = map (eval env) apply_args
 eval env (Ref name) = case lookup name env of
-  Just ast -> ast
+  Just ast -> eval env ast
   Nothing -> Error env $ "not found " ++ name
 eval env ast = Error env $ "yet: '" ++ (show ast) ++ "'"
 
@@ -266,7 +268,8 @@ fmt (String s) = escape s
   escape (c:cs) = c : (escape cs)
 fmt (Int n) = show n
 fmt (Real n) = show n
-fmt (Bool b) = show b
+fmt (Bool True) = "true"
+fmt (Bool False) = "false"
 fmt (List l) = "[" ++ (join " " (map fmt l)) ++ "]"
 fmt (Func args ast) = (join " " args) ++ " => " ++ (fmt ast)
 fmt (Ref s) = s
@@ -304,25 +307,50 @@ debug x = do
   trace "<<<" (return 0)
 
 --( Test )------------------------------------------------------------
-test expect src = if expect == act
-  then putStr "."
-  else do
-    putStrLn ""
-    putStrLn $ "expect: " ++ expect
-    putStrLn $ "actual: " ++ act
-    putStrLn ""
-    putStrLn src
-    dump src
-    fail $ "failed"
- where
-  env = parse src
-  ast = snd $ env !! 0
-  ret = eval env ast
-  act = fmt ret
-test_value expect src = test expect $ "main = " ++ src
 run_test = do
-  test_value "1" "1"
-  test_value "1.0" "1.0"
-  test_value "c" "'c'"
-  test_value "hi" "\"hi\""
+  test_values values_code [
+      ("c", "c")
+    , ("s", "s")
+    , ("1", "i")
+    , ("1.0", "r")
+    , ("true", "bt")
+    , ("false", "bf")
+    , ("[]", "l0")
+    , ("[c s 1 1.0 true false 2]", "l7")
+    , ("3", "ref")
+    ]
   putStrLn "ok"
+ where
+  values_code = unlines [
+      "c = 'c'"
+    , "s = \"s\""
+    , "i = 1"
+    , "r = 1.0"
+    , "bt = true"
+    , "bf = false"
+    , "l0 = []"
+    , "l7 = [c s i r bt bf add(i i)]"
+    , "add x y = x + y"
+    , "ref = add(1 2)"
+    -- TODO: state
+    ]
+  test_value expect src = test expect $ "main = " ++ src
+  test_values _ [] = return ()
+  test_values common ((expect, src):rest) = do
+    test_value expect $ src ++ "\n" ++ common
+    test_values common rest
+  test expect src = if expect == act
+    then putStr "."
+    else do
+      putStrLn ""
+      putStrLn $ "expect: " ++ expect
+      putStrLn $ "actual: " ++ act
+      putStrLn ""
+      putStrLn src
+      dump src
+      fail $ "failed"
+   where
+    env = parse src
+    ast = snd $ env !! 0
+    ret = eval env ast
+    act = fmt ret
