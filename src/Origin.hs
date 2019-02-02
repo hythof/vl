@@ -17,6 +17,7 @@ data AST =
   | Ref String
   | Op2 String AST AST
   | Apply AST [AST]
+  | Match [([AST], AST)]
   | Stmt [Line]
 -- enum
 --  | Enum String AST
@@ -119,7 +120,7 @@ read_between l r c = do
 read_char x = lexeme $ satisfy (== x)
 read_op = lexeme $ many1 $ oneOf "+-*/"
 read_id = lexeme $ do
-  prefix <- oneOf az
+  prefix <- oneOf $ az ++ symbols
   remaining <- many $ oneOf (az ++ num ++ symbols)
   return $ prefix : remaining
 read_br = do
@@ -148,7 +149,16 @@ parse_define = do
   top <- parse_top
   return $ (name, make_func args top)
 
-parse_top = parse_op2
+parse_top = (read_br >> parse_matches)
+  <|> parse_op2
+
+parse_matches = Match <$> sepBy1 parse_match read_br
+parse_match = do
+  char '|'
+  conds <- many parse_bot
+  read_char '='
+  body <- parse_bot
+  return $ (conds, body)
 
 parse_op2 = do
   l <- parse_bot
@@ -178,18 +188,20 @@ parse_bool = Bool <$> do
     label -> fail $ "miss " ++ label
 parse_num = do
   spaces
-  n <- many1 (oneOf num)
+  n <- many1 (oneOf $ '-' : num)
   (char '.' >> real n) <|> (int n)
  where
   int n = return $ Int (read n :: Int)
   real n = do
-    m <- many1 (oneOf num)
+    m <- many1 (oneOf $ '-' : num)
     return $ Real (read (n ++ "." ++ m) :: Double)
 parse_list = List <$> (read_between '[' ']' (many parse_bot))
 
 parse_call_or_ref = do
   name <- read_id
-  (char '(' >> unit_call name) <|> (return $ Ref name)
+  if name == "_"
+  then return Void
+  else (char '(' >> unit_call name) <|> (return $ Ref name)
  where
   unit_call name = do
     args <- many parse_bot
@@ -206,6 +218,7 @@ eval env x@(Char _) = x
 eval env x@(Bool _) = x
 eval env x@(String _) = x
 eval env x@(Func _ _) = x
+eval env x@(Match _) = x
 eval env (List xs) = List $ map (eval env) xs
 eval env (Op2 op left right) = f el er
  where
@@ -231,9 +244,18 @@ eval env (Op2 op left right) = f el er
   er = eval env right
 eval env (Apply target apply_args) = case eval env target of
   Func capture_args body -> eval ((zip capture_args args) ++ env) body
+  Match conds -> match conds
   other -> other
  where
   args = map (eval env) apply_args
+  match [] = Error env $ "can't match " ++ (show target) ++ "\n| " ++ (show $ eval env target) ++ "\n| " ++ (show args)
+  match ((conds, body):rest) = if conds `equals` args then body else match rest
+  equals [] [] = True
+  equals (x:xs) (y:ys) = equal x y && equals xs ys
+  equals _ _ = False
+  equal (Void) _ = True
+  equal x y = x == y
+
 eval env (Ref name) = case lookup name env of
   Just ast -> eval env ast
   Nothing -> Error env $ "not found " ++ name
@@ -270,6 +292,7 @@ fmt (Ref s) = s
 fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
 fmt (Apply body args) = (fmt body) ++ "(" ++ (join " " (map fmt args)) ++ ")"
 fmt (Stmt ls) = "stmt"
+fmt (Match m) = "match"
 --fmt (Enum t e) = t ++ " " ++ (fmt e)
 --fmt (Throw s) = s
 --fmt (State xs) = fmt_env xs
@@ -306,12 +329,21 @@ run_test = do
       ("c", "c")
     , ("s", "s")
     , ("1", "i")
+    , ("-1", "in")
     , ("1.0", "r")
+    , ("-1.0", "rn")
     , ("true", "bt")
     , ("false", "bf")
     , ("[]", "l0")
     , ("[c s 1 1.0 true false 2]", "l7")
     , ("3", "ref")
+    ]
+  test_values match_code [
+      ("zero", "m(0)")
+    , ("one", "m(1)")
+    , ("many", "m(2)")
+    , ("many", "m(1.0)")
+    , ("many", "m('c')")
     ]
   putStrLn "ok"
  where
@@ -319,7 +351,9 @@ run_test = do
       "c = 'c'"
     , "s = \"s\""
     , "i = 1"
+    , "in = -1"
     , "r = 1.0"
+    , "rn = -1.0"
     , "bt = true"
     , "bf = false"
     , "l0 = []"
@@ -327,6 +361,12 @@ run_test = do
     , "add x y = x + y"
     , "ref = add(1 2)"
     -- TODO: state
+    ]
+  match_code = unlines [
+      "m ="
+    , "| 0 = \"zero\""
+    , "| 1 = \"one\""
+    , "| _ = \"many\""
     ]
   test_value expect src = test expect $ "main = " ++ src
   test_values _ [] = return ()
