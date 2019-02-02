@@ -17,12 +17,12 @@ data AST =
   | Ref String
   | Op2 String AST AST
   | Apply AST [AST]
--- enum
-  | Enum String AST
--- state
   | Stmt [Line]
-  | Throw String
-  | State [(String, AST)]
+-- enum
+--  | Enum String AST
+-- state
+--  | Throw String
+--  | State [(String, AST)]
 -- void
   | Void
 -- runtime only
@@ -93,6 +93,7 @@ noneOf xs = satisfy $ \x -> not $ elem x xs
 char x = satisfy (== x)
 string [] = Parser $ \s -> Hit () s
 string (x:xs) = char x >> string xs
+
 many1 f = do
   x <- f
   xs <- many f
@@ -115,20 +116,18 @@ read_between l r c = do
   hit <- lexeme c
   read_char r
   return hit
-read_brs = do
-  many $ oneOf " \t"
-  satisfy (\x -> elem x "\r\n")
 read_char x = lexeme $ satisfy (== x)
 read_op = lexeme $ many1 $ oneOf "+-*/"
 read_id = lexeme $ do
   prefix <- oneOf az
   remaining <- many $ oneOf (az ++ num ++ symbols)
   return $ prefix : remaining
+read_br = do
+  many $ oneOf " \t"
+  many1 $ oneOf "\r\n"
 
 make_func [] ast = ast
 make_func args ast = Func args ast
-branch [] other = return other
-branch ((cond, body):rest) other = (cond >> body) <|> branch rest other
 
 parse :: String -> Env
 parse input = case runParser parse_root (trim input) of
@@ -139,19 +138,15 @@ parse input = case runParser parse_root (trim input) of
   trim s = reverse $ dropWhile (\x -> elem x " \t\r\n") (reverse s)
 
 parse_root :: Parser Env
-parse_root = sepBy parse_define read_brs
+parse_root = sepBy parse_define read_br
 
 parse_define :: Parser (String, AST)
 parse_define = do
   name <- read_id
-  ast <- def_func
-  return $ (name, ast)
- where
-  def_func = do
-    args <- many read_id
-    read_char '='
-    ast <- parse_top
-    return $ make_func args ast
+  args <- many read_id
+  read_char '='
+  top <- parse_top
+  return $ (name, make_func args top)
 
 parse_top = parse_op2
 
@@ -184,18 +179,17 @@ parse_bool = Bool <$> do
 parse_num = do
   spaces
   n <- many1 (oneOf num)
-  branch [
-   (char '.', do
-      m <- many1 (oneOf num)
-      return $ Real (read (n ++ "." ++ m) :: Double)
-      )] (Int (read n :: Int))
+  (char '.' >> real n) <|> (int n)
+ where
+  int n = return $ Int (read n :: Int)
+  real n = do
+    m <- many1 (oneOf num)
+    return $ Real (read (n ++ "." ++ m) :: Double)
 parse_list = List <$> (read_between '[' ']' (many parse_bot))
 
 parse_call_or_ref = do
   name <- read_id
-  branch [
-      (char '(', unit_call name)
-    ] (Ref name)
+  (char '(' >> unit_call name) <|> (return $ Ref name)
  where
   unit_call name = do
     args <- many parse_bot
@@ -276,9 +270,9 @@ fmt (Ref s) = s
 fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
 fmt (Apply body args) = (fmt body) ++ "(" ++ (join " " (map fmt args)) ++ ")"
 fmt (Stmt ls) = "stmt"
-fmt (Enum t e) = t ++ " " ++ (fmt e)
-fmt (Throw s) = s
-fmt (State xs) = fmt_env xs
+--fmt (Enum t e) = t ++ " " ++ (fmt e)
+--fmt (Throw s) = s
+--fmt (State xs) = fmt_env xs
 fmt (Void) = "_"
 fmt (Error env msg) = msg ++ " " ++ (fmt_env env)
 fmt (Closure env b) = (fmt_env env) ++ (fmt b)
