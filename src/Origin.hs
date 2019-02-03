@@ -5,13 +5,19 @@ import           Debug.Trace               (trace)
 --( Structure )------------------------------------------------------
 data AST =
 -- value
-    Char Char
+    Void
+  | Char Char
   | String String
   | Int Int
   | Real Double
   | Bool Bool
+-- type
+  | TypeStruct [String]
+  | TypeEnum String [String]
 -- container
   | List [AST]
+  | Struct [(String, AST)]
+  | Enum String AST
 -- expression
   | Func [String] AST
   | Ref String
@@ -19,16 +25,8 @@ data AST =
   | Apply AST [AST]
   | Match [([AST], AST)]
   | Stmt [Line]
--- enum
---  | Enum String AST
--- state
---  | Throw String
---  | State [(String, AST)]
--- void
-  | Void
 -- runtime only
   | Error Env String
-  | Closure [(String, AST)] AST
   deriving (Show, Eq, Ord)
 
 data Line =
@@ -71,6 +69,7 @@ l <|> r = Parser $ \s -> case runParser l s of
 az = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 num = "0123456789"
 symbols = "_"
+dot = "."
 
 remaining_input = Parser $ \s -> Hit s s
 
@@ -118,11 +117,12 @@ read_between l r c = do
   read_char r
   return hit
 read_char x = lexeme $ satisfy (== x)
-read_op = lexeme $ many1 $ oneOf "+-*/"
+read_op2 = lexeme $ many1 $ oneOf "+-*/."
 read_id = lexeme $ do
   prefix <- oneOf $ az ++ symbols
-  remaining <- many $ oneOf (az ++ num ++ symbols)
+  remaining <- many $ oneOf (az ++ num ++ symbols ++ dot)
   return $ prefix : remaining
+read_type = read_id
 read_br = do
   many $ oneOf " \t"
   many1 $ oneOf "\r\n"
@@ -146,10 +146,41 @@ parse_root = sepBy parse_define read_br
 parse_define :: Parser (String, AST)
 parse_define = do
   name <- read_id
-  args <- many read_id
-  read_char '='
-  top <- parse_top
-  return $ (name, make_func args top)
+  case name of
+    "struct" -> def_struct
+    "enum" ->  def_enum
+    _ -> def_func name
+ where
+  def_struct = do
+    name <- read_id
+    many read_type -- TODO: generics
+    read_char ':'
+    fields <- many1 (read_br1 >> def_line)
+    return (name, TypeStruct fields)
+  def_enum = do
+    name <- read_id
+    many read_type -- TODO: generics
+    read_char ':'
+    fields <- many1 (read_br1 >> enum_line name)
+    return (name, Struct fields)
+   where
+    enum_line prefix = do
+      name <- read_id
+      fields <- enum_fields <|> (return [])
+      let tag = prefix ++ "." ++ name
+      return (name, TypeEnum tag fields)
+    enum_fields = do
+      read_char ':'
+      many1 (read_br2 >> def_line)
+  def_func name = do
+    args <- many read_id
+    read_char '='
+    top <- parse_top
+    return (name, make_func args top)
+  def_line = do
+    name <- read_id
+    type_ <- read_type
+    return name
 
 parse_top = (read_br >> (parse_matches <|> parse_stmt))
   <|> parse_op2
@@ -171,7 +202,7 @@ parse_stmt = Stmt <$> sepBy1 parse_line read_br1
 
 parse_op2 = do
   l <- parse_bot
-  o <- read_op <|> return ""
+  o <- read_op2 <|> return ""
   case o of
     "" -> return l
     _ -> do
@@ -226,10 +257,20 @@ eval env x@(Real _) = x
 eval env x@(Char _) = x
 eval env x@(Bool _) = x
 eval env x@(String _) = x
+eval env (Func [] ast) = ast
 eval env x@(Func _ _) = x
 eval env x@(Match _) = x
+eval env x@(TypeStruct _) = x
+eval env (TypeEnum tag []) = Enum tag $ Struct []
+eval env x@(TypeEnum _ _) = x
+eval env x@(Struct _) = x
+eval env x@(Enum _ _) = x
 eval env (List xs) = List $ map (eval env) xs
-eval env (Op2 op left right) = f el er
+eval env (Op2 op left right) = case (el, right) of
+  (Struct fields, Ref name) -> case lookup name fields of
+    Just ast -> ast
+    Nothing -> Error env $ "no field: " ++ name ++ " in " ++ (show fields)
+  _ -> f el er
  where
   f (Int l) (Int r) = Int $ glue op l r
     where
@@ -249,32 +290,51 @@ eval env (Op2 op left right) = f el er
   f (List l) (List r) = List $ glue op l r
     where
       glue "++" = (++)
+  f l r = Error env $ "fail op: " ++ op ++ "  l=" ++ (show l) ++ "  r=" ++ (show r)
   el = eval env left
   er = eval env right
 eval env (Apply target apply_args) = case eval env target of
-  Func capture_args body -> eval ((zip capture_args args) ++ env) body
-  Match conds -> match conds
+  Func capture_args (Match conds) -> eval ((zip capture_args $ map (\(Enum _ v) -> v) evaled_args) ++ env) (match conds)
+  Func capture_args body -> eval ((zip capture_args evaled_args) ++ env) body
+  TypeStruct fields -> Struct $ zip fields evaled_args
+  TypeEnum tag fields -> Enum tag $ Struct $ zip fields evaled_args
+  Match conds -> eval env (match conds)
   other -> other
  where
-  args = map (eval env) apply_args
-  match [] = Error env $ "can't match " ++ (show target) ++ "\n| " ++ (show $ eval env target) ++ "\n| " ++ (show args)
-  match ((conds, body):rest) = if conds `equals` args then body else match rest
+  evaled_args = map (eval env) apply_args
+  match all_conds = _match all_conds
+   where
+    _match [] = Error env $ "can't match " ++ (show all_conds) ++ " == " ++ (show evaled_args) ++ " from " ++ (show target)
+    _match ((conds, body):rest) = if conds `equals` evaled_args
+      then body
+      else _match rest
   equals [] [] = True
   equals (x:xs) (y:ys) = equal x y && equals xs ys
   equals _ _ = False
   equal (Void) _ = True
+  equal (Ref x) (TypeEnum y _) = x == y
+  equal (Ref x) (Enum y _) = x == y
   equal x y = x == y
-eval env (Ref name) = case lookup name env of
-  Just ast -> eval env ast
-  Nothing -> Error env $ "not found " ++ name
+eval env (Ref full_name) = see (split full_name '.') env
+ where
+  see :: [String] -> [(String, AST)] -> AST
+  see [] env = Struct env
+  see (name:rest) env = case lookup name env of
+    Nothing -> Error env $ "not found " ++ name ++ " of " ++ full_name
+    Just (Struct fields) -> see rest fields
+    Just ast -> if (length rest) == 0
+      then eval env ast
+      else Error env $ "invalid dot refrence " ++ full_name  ++ " of " ++ (show ast)
+
 eval env (Stmt lines) = run env lines
  where
   run env [(Call name args)] = eval env (Apply (Ref name) args)
   run env (line:lines) = case line of
-    Call name args -> run env lines -- TODO: system call
+    Call name args -> run env lines -- TODO: mutable
     Assign name ast -> run ((name, eval env ast) : env) lines
   run env lines = Error env $ "stmt: " ++ (show lines)
-eval env ast = Error env $ "yet: '" ++ (show ast) ++ "'"
+eval env x@(Error _ _) = x
+eval env ast = error $ "yet: '" ++ (show ast) ++ "'"
 
 
 
@@ -283,11 +343,6 @@ main = do
   run_test
   src <- readFile "cc.vl"
   dump src
-
-join :: String -> [String] -> String
-join glue xs = snd $ splitAt (length glue) splitted
- where
-  splitted = foldl (\l r -> l ++ glue ++ r) "" xs
 
 fmt (Char c) = [c]
 fmt (String s) = escape s
@@ -306,15 +361,16 @@ fmt (Func args ast) = (join " " args) ++ " => " ++ (fmt ast)
 fmt (Ref s) = s
 fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
 fmt (Apply body args) = (fmt body) ++ "(" ++ (join " " (map fmt args)) ++ ")"
-fmt (Stmt ls) = show ls
-fmt (Match m) = show m
---fmt (Enum t e) = t ++ " " ++ (fmt e)
---fmt (Throw s) = s
---fmt (State xs) = fmt_env xs
+fmt (Stmt ls) = "stmt: " ++ (show ls)
+fmt (Match m) = "match: " ++ (show m)
+fmt (TypeStruct fields) = "type(" ++ (join ":" fields) ++ ")"
+fmt (TypeEnum tag fields) = "type." ++ tag ++ "(" ++ (join ":" fields) ++ ")"
+fmt (Struct fields) = "(" ++ (fmt_env fields) ++ ")"
+fmt (Enum tag (Struct [])) = tag
+fmt (Enum tag val) = tag ++ (fmt val)
 fmt (Void) = "_"
 fmt (Error env msg) = msg ++ " " ++ (fmt_env env)
-fmt (Closure env b) = (fmt_env env) ++ (fmt b)
-fmt_env xs = "[" ++ (join "    " (map tie xs)) ++ "]"
+fmt_env xs = (join "    " (map tie xs))
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
 
@@ -340,7 +396,7 @@ debug x = do
 
 --( Test )------------------------------------------------------------
 run_test = do
-  test_values values_code [
+  test values_code [
       ("c", "c")
     , ("s", "s")
     , ("1", "i")
@@ -353,14 +409,26 @@ run_test = do
     , ("[c s 1 1.0 true false 2]", "l7")
     , ("3", "ref")
     ]
-  test_values match_code [
+  test enum_code [
+      ("maybe.just(value:1)", "maybe.just(1)")
+    , ("maybe.none", "maybe.none")
+    ]
+  test struct_code [
+      ("age", "attribute(\"age\" 35).key")
+    , ("35", "attribute(\"age\" 35).val")
+    ]
+  test match_code [
       ("zero", "m(0)")
     , ("one", "m(1)")
     , ("many", "m(2)")
     , ("many", "m(1.0)")
     , ("many", "m('c')")
     ]
-  test_values stmt_code [
+  test enum_match_code [
+      ("1", "m(maybe.just(1))")
+    , ("none", "m(maybe.none)")
+    ]
+  test stmt_code [
       ("6", "stmt(1 2)")
     ]
   putStrLn "ok"
@@ -379,12 +447,28 @@ run_test = do
     , "add x y = x + y"
     , "ref = add(1 2)"
     ]
+  struct_code = unlines [
+      "struct attribute:"
+    , "  key str"
+    , "  val int"
+    ]
+  enum_code = unlines [
+      "enum maybe a:"
+    , "  just:"
+    , "    value a"
+    , "  none"
+    ]
   match_code = unlines [
       "m ="
     , "| 0 = \"zero\""
     , "| 1 = \"one\""
     , "| _ = \"many\""
     ]
+  enum_match_code = enum_code ++ (unlines [
+      "m e ="
+    , "| maybe.just = e.value"
+    , "| maybe.none = \"none\""
+    ])
   stmt_code = unlines [
       "stmt a b ="
     , "  x = a + b"
@@ -392,23 +476,35 @@ run_test = do
     , "  z"
     , "add x y = x + y"
     ]
-  test_value expect src = test expect $ "main = " ++ src
-  test_values _ [] = return ()
-  test_values common ((expect, src):rest) = do
-    test_value expect $ src ++ "\n" ++ common
-    test_values common rest
-  test expect src = if expect == act
+  test _ [] = return ()
+  test common ((expect, src):rest) = do
+    run_test expect $ "main = " ++ src ++ "\n" ++ common
+    test common rest
+  run_test expect src = if expect == act
     then putStr "."
     else do
-      putStrLn ""
       putStrLn $ "expect: " ++ expect
       putStrLn $ "actual: " ++ act
-      putStrLn ""
+      mapM_ (\(name, ast) -> putStrLn $ "- " ++ name ++ "\t= " ++ (fmt ast)) env
+      mapM_ (\(name, ast) -> putStrLn $ "- " ++ name ++ "\t: " ++ (show ast)) env
       putStrLn src
-      dump src
-      fail $ "failed"
+      fail $ "failed test"
    where
     env = parse src
     ast = snd $ env !! 0
     ret = eval env ast
     act = fmt ret
+--( Util )------------------------------------------------------------
+split :: String -> Char -> [String]
+split s c = go s [] []
+ where
+  go [] [] acc = reverse acc
+  go [] part acc = reverse ((reverse part : ) acc)
+  go (x:xs) part acc = if x == c
+    then go xs [] ((reverse part) : acc)
+    else go xs (x : part) acc
+join :: String -> [String] -> String
+join glue xs = snd $ splitAt (length glue) splitted
+ where
+  splitted = foldl (\l r -> l ++ glue ++ r) "" xs
+
