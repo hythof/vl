@@ -26,14 +26,10 @@ data AST =
   | Op2 String AST AST
   | Apply AST [AST]
   | Match [([AST], AST)]
-  | Stmt [Line]
+  | Stmt [(String, AST)]
+  | Update String String AST -- variable, op code, ast
 -- runtime only
   | Error String
-  deriving (Show, Eq, Ord)
-
-data Line =
-    Call AST
-  | Assign String AST
   deriving (Show, Eq, Ord)
 
 type Env = [(String, AST)]
@@ -120,6 +116,7 @@ read_between l r c = do
   return hit
 read_char x = lexeme $ satisfy (== x)
 read_op2 = lexeme $ many1 $ oneOf "+-*/.|&"
+read_update_op2 = lexeme $ many1 $ oneOf "+-*/.|&:="
 read_id = lexeme $ do
   prefix <- oneOf $ az ++ symbols
   remaining <- many $ oneOf (az ++ num ++ symbols ++ dot)
@@ -213,13 +210,20 @@ parse_match = do
 
 parse_stmt = Stmt <$> sepBy1 parse_line read_br1
  where
-  parse_line :: Parser Line
+  parse_line :: Parser (String, AST)
   parse_line = parse_assign <|> parse_call
   parse_assign = do
     name <- read_id
-    read_char '='
-    Assign name <$> parse_op2
-  parse_call = Call <$> parse_top
+    op <- read_update_op2
+    ast <- parse_op2
+    let short_op = take ((length op) - 1) op
+    case op of
+      "=" -> return (name, ast)
+      ":=" -> return (name, ast)
+      _ -> return (name, Op2 short_op (Ref name) ast)
+  parse_call = do
+    ast <- parse_op2
+    return ("", ast)
 
 parse_op2 = do
   l <- parse_bot
@@ -288,6 +292,7 @@ eval env x@(TypeState _ _) = x
 eval env x@(Struct _) = x
 eval env x@(Enum _ _) = x
 eval env x@(Return _) = x
+eval env x@(Update _ _ _) = x
 eval env (List xs) = List $ map (eval env) xs
 eval env (Op2 op left right) = case (op, el) of
   (".", Struct fields) -> get_or_error right fields
@@ -361,13 +366,18 @@ eval env (Ref full_name) = find (split full_name '.') env
 eval env (Stmt lines) = exec_lines env lines
  where
   exec_lines env (line:lines) = case exec_line env line of
-    (_, Return ast) -> eval env ast
-    (name, ast)     -> case eval env ast of
-      (Return ast) -> eval env ast
-      ast          -> exec_lines ((name, ast) : env) lines
+    (assign, Return ast) -> eval env ast
+    (assign, Update name op ast) -> case op of
+      ":=" -> exec_lines ((assign, ast) : env) lines
+      _ -> exec_lines ((assign, eval_op2) : env) lines
+     where
+      eval_op2 = eval env $ Op2 op2 left right
+      left = eval env $ Ref name
+      right = ast
+      op2 = take ((length op) - 1) op
+    (assign, ast) -> exec_lines ((assign, ast) : env) lines
   exec_lines env [] = snd $ head $ env
-  exec_line env (Call ast)        = ("_", ast)
-  exec_line env (Assign name ast) = (name, ast)
+  exec_line env (name, ast) = (name, eval env ast)
 eval env x@(Error _) = x
 eval env ast = error $ "yet: '" ++ (show ast) ++ "'"
 
@@ -397,6 +407,7 @@ fmt (Ref s) = s
 fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
 fmt (Apply body args) = (fmt body) ++ "(" ++ (join " " (map fmt args)) ++ ")"
 fmt (Stmt ls) = "stmt: " ++ (show ls)
+fmt (Update name op ast) = name ++ op ++ (fmt ast)
 fmt (Return ast) = "return: " ++ (fmt ast)
 fmt (Match m) = "match: " ++ (show m)
 fmt (TypeStruct fields) = "type(" ++ (join ":" fields) ++ ")"
@@ -467,6 +478,9 @@ run_test = do
     ]
   test stmt_code [
       ("6", "stmt(1 2)")
+    , ("3", "update(1)")
+    , ("9", "update(5)")
+    , ("99", "assign(0)")
     ]
   test state_code [
       ("val", "parser(\"val\").src")
@@ -519,6 +533,15 @@ run_test = do
     , "  z = add(add(a b) x)"
     , "  z"
     , "add x y = x + y"
+    , "update a ="
+    , "  a += 2"
+    , "  a -= 1"
+    , "  a *= 3"
+    , "  a /= 2"
+    , "  a"
+    , "assign a ="
+    , "  a := 99"
+    , "  a"
     ]
   state_code = unlines [
       "state parser a:"
