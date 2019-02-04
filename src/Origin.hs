@@ -1,6 +1,6 @@
 module Origin where
 
-import           Debug.Trace               (trace)
+import           Debug.Trace (trace)
 
 --( Structure )------------------------------------------------------
 data AST =
@@ -19,6 +19,7 @@ data AST =
   | List [AST]
   | Struct [(String, AST)]
   | Enum String AST
+  | Return AST
 -- expression
   | Func [String] AST
   | Ref String
@@ -27,11 +28,11 @@ data AST =
   | Match [([AST], AST)]
   | Stmt [Line]
 -- runtime only
-  | Error Env String
+  | Error String
   deriving (Show, Eq, Ord)
 
 data Line =
-    Call String [AST]
+    Call AST
   | Assign String AST
   deriving (Show, Eq, Ord)
 
@@ -49,7 +50,7 @@ pmap2 m n f = Parser $ \s -> f (runParser m s) (runParser n s)
 
 instance Functor Parser where
   fmap f m = pmap m $ \m -> case m of
-    Miss m -> Miss m
+    Miss m      -> Miss m
     Hit val src -> Hit (f val) src
 
 instance Applicative Parser where
@@ -60,12 +61,12 @@ instance Monad Parser where
     return = pure
     m >>= f = pmap m $ \n -> case n of
                 Hit val src -> runParser (f val) src
-                Miss msg -> Miss msg
+                Miss msg    -> Miss msg
     fail m = Parser $ \s -> Miss s
 
 l <|> r = Parser $ \s -> case runParser l s of
   Hit val src -> Hit val src
-  Miss _ -> runParser r s
+  Miss _      -> runParser r s
 
 az = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 num = "0123456789"
@@ -75,7 +76,7 @@ dot = "."
 remaining_input = Parser $ \s -> Hit s s
 
 satisfy f = Parser $ \s -> case check s of
-  Just h -> h
+  Just h  -> h
   Nothing -> Miss "failed"
  where
   check :: String -> Maybe (Result Char)
@@ -85,14 +86,14 @@ satisfy f = Parser $ \s -> case check s of
     guard $ f c
     return $ Hit c (tail s)
   guard False = Nothing
-  guard True = Just ()
+  guard True  = Just ()
 
 spaces = many $ oneOf " \t"
 lexeme f = spaces >> f
 oneOf xs = satisfy $ \x -> elem x xs
 noneOf xs = satisfy $ \x -> not $ elem x xs
 char x = satisfy (== x)
-string [] = Parser $ \s -> Hit () s
+string []     = Parser $ \s -> Hit () s
 string (x:xs) = char x >> string xs
 
 many1 f = do
@@ -129,15 +130,19 @@ read_br = do
   many1 $ oneOf "\r\n"
 read_br1 = read_br >> string "  "
 read_br2 = read_br >> string "    "
+see f = Parser $ \s ->
+  case runParser f s of
+    Hit v _ -> Hit v s
+    Miss m  -> Miss m
 
-make_func [] ast = ast
+make_func [] ast   = ast
 make_func args ast = Func args ast
 
 parse :: String -> Env
 parse input = case runParser parse_root (trim input) of
-  Hit env "" -> env
+  Hit env ""   -> env
   Hit env left -> env ++ [("err", String $ "left: " ++ left)]
-  Miss m -> [("err", String m)]
+  Miss m       -> [("err", String m)]
  where
   trim s = reverse $ dropWhile (\x -> elem x " \t\r\n") (reverse s)
 
@@ -149,9 +154,9 @@ parse_define = do
   name <- read_id
   case name of
     "struct" -> def_struct
-    "enum" ->  def_enum
-    "state" -> def_state
-    _ -> def_func name
+    "enum"   ->  def_enum
+    "state"  -> def_state
+    _        -> def_func name
  where
   def_struct = do
     name <- read_id
@@ -170,8 +175,8 @@ parse_define = do
     many read_type -- TODO: generics
     read_char ':'
     fields <- many1 (read_br1 >> def_line)
-    exception_names <- many (read_br1 >> read_id) -- TODO: parse fields
-    let exceptions = map (\x -> (x, Enum (name ++ "." ++ x) $ String "_error")) exception_names
+    exception_names <- many $ do { read_br1; name <- read_id; see read_br; return name }
+    let exceptions = map (\x -> (x, Return $ Enum (name ++ "." ++ x) $ String "_error")) exception_names
     funcs <- many $ do { read_br1; name <- read_id; def_func name }
     return (name, TypeState fields $ exceptions ++ funcs)
   def_func name = do
@@ -191,8 +196,8 @@ parse_define = do
   enum_fields = do
     read_char ':'
     many1 (read_br2 >> def_line)
-  to_value "str" = String ""
-  to_value "int" = Int 0
+  to_value "str"  = String ""
+  to_value "int"  = Int 0
   to_value "real" = Real 0.0
 
 parse_top = (read_br >> (parse_matches <|> parse_stmt))
@@ -209,9 +214,12 @@ parse_match = do
 parse_stmt = Stmt <$> sepBy1 parse_line read_br1
  where
   parse_line :: Parser Line
-  parse_line = do
+  parse_line = parse_assign <|> parse_call
+  parse_assign = do
     name <- read_id
-    (read_char '=' >> Assign name <$> parse_op2) <|> (Call name <$> many parse_bot)
+    read_char '='
+    Assign name <$> parse_op2
+  parse_call = Call <$> parse_top
 
 parse_op2 = do
   l <- parse_bot
@@ -236,9 +244,9 @@ parse_str = String <$> read_between '"' '"' (many $ noneOf "\"")
 parse_bool = Bool <$> do
   name <- read_id
   case name of
-    "true" -> return True
+    "true"  -> return True
     "false" -> return False
-    label -> fail $ "miss " ++ label
+    label   -> fail $ "miss " ++ label
 parse_num = do
   spaces
   n <- many1 (oneOf $ '-' : num)
@@ -279,13 +287,19 @@ eval env x@(TypeEnum _ _) = x
 eval env x@(TypeState _ _) = x
 eval env x@(Struct _) = x
 eval env x@(Enum _ _) = x
+eval env x@(Return _) = x
 eval env (List xs) = List $ map (eval env) xs
-eval env (Op2 op left right) = case (el, right) of
-  (Struct fields, Ref name) -> case lookup name fields of
-    Just ast -> ast
-    Nothing -> Error env $ "no field: " ++ name ++ " in " ++ (show fields)
-  _ -> f el er
+eval env (Op2 op left right) = case (op, el) of
+  (".", Struct fields) -> get_or_error right fields
+  ("||", Bool False)   -> eval env right
+  ("||", Bool True)    -> Bool True
+  _                    -> f el er
  where
+  get_or_error (Ref name) table = _get_or_error name table id
+  get_or_error (Apply (Ref name) args) table = _get_or_error name table (\ast -> Apply ast args)
+  _get_or_error name table f = case lookup name table of
+    Just ast -> eval (table ++ env) (f ast)
+    Nothing  -> Error $ "no field: " ++ name ++ " in " ++ (show table)
   f (Int l) (Int r) = Int $ glue op l r
     where
       glue "+" = (+)
@@ -304,7 +318,7 @@ eval env (Op2 op left right) = case (el, right) of
   f (List l) (List r) = List $ glue op l r
     where
       glue "++" = (++)
-  f l r = Error env $ "fail op: " ++ op ++ "  l=" ++ (show l) ++ "  r=" ++ (show r)
+  f l r = Error $ "fail op: " ++ op ++ "\n- left: " ++ (show l) ++ "\n- right: " ++ (show r)
   el = eval env left
   er = eval env right
 eval env (Apply target apply_args) = case eval env target of
@@ -319,36 +333,42 @@ eval env (Apply target apply_args) = case eval env target of
   evaled_args = map (eval env) apply_args
   match all_conds = _match all_conds
    where
-    _match [] = Error env $ "can't match " ++ (show all_conds) ++ " == " ++ (show evaled_args) ++ " from " ++ (show target)
+    _match [] = Error $ "can't match " ++ (show all_conds) ++ " == " ++ (show evaled_args) ++ " from " ++ (show target)
     _match ((conds, body):rest) = if conds `equals` evaled_args
       then body
       else _match rest
-  equals [] [] = True
+  equals [] []         = True
   equals (x:xs) (y:ys) = equal x y && equals xs ys
-  equals _ _ = False
-  equal (Void) _ = True
+  equals _ _           = False
+  equal (Void) _               = True
   equal (Ref x) (TypeEnum y _) = x == y
-  equal (Ref x) (Enum y _) = x == y
-  equal x y = x == y
-eval env (Ref full_name) = see (split full_name '.') env
+  equal (Ref x) (Enum y _)     = x == y
+  equal x y                    = x == y
+eval env (Ref full_name) = find (split full_name '.') env
  where
-  see :: [String] -> [(String, AST)] -> AST
-  see [] env = Struct env
-  see (name:rest) env = case lookup name env of
-    Nothing -> Error env $ "not found " ++ name ++ " of " ++ full_name
-    Just (Struct fields) -> see rest fields
-    Just ast -> if (length rest) == 0
-      then eval env ast
-      else Error env $ "invalid dot refrence " ++ full_name  ++ " of " ++ (show ast)
+  find :: [String] -> [(String, AST)] -> AST
+  find [] env = Struct env
+  find (name:rest) env = case lookup name env of
+    Nothing -> Error $ "not found " ++ name ++ (if name == full_name then "" else " of " ++ full_name) ++ " in " ++ (show $ map fst env)
+    Just (Struct fields) -> find rest fields
+    Just ast -> case (length rest, eval env ast, length rest == 1 && is_digit (head rest)) of
+      (0, ast, _) -> ast
+      (1, String s, True) -> String [s !! (read (head rest) :: Int)]
+      _ -> Error $ "invalid dot refrence " ++ full_name  ++ " of " ++ (show ast) ++ " rest: " ++ (show rest)
+  is_digit []     = True
+  is_digit (c:cs) = '0' <= c && c <= '9' && (is_digit cs)
 
-eval env (Stmt lines) = run env lines
+eval env (Stmt lines) = exec_lines env lines
  where
-  run env [(Call name args)] = eval env (Apply (Ref name) args)
-  run env (line:lines) = case line of
-    Call name args -> run env lines -- TODO: mutable
-    Assign name ast -> run ((name, eval env ast) : env) lines
-  run env lines = Error env $ "stmt: " ++ (show lines)
-eval env x@(Error _ _) = x
+  exec_lines env (line:lines) = case exec_line env line of
+    (_, Return ast) -> eval env ast
+    (name, ast)     -> case eval env ast of
+      (Return ast) -> eval env ast
+      ast          -> exec_lines ((name, ast) : env) lines
+  exec_lines env [] = snd $ head $ env
+  exec_line env (Call ast)        = ("_", ast)
+  exec_line env (Assign name ast) = (name, ast)
+eval env x@(Error _) = x
 eval env ast = error $ "yet: '" ++ (show ast) ++ "'"
 
 
@@ -362,11 +382,11 @@ main = do
 fmt (Char c) = [c]
 fmt (String s) = escape s
  where
-  escape [] = []
+  escape []        = []
   escape ('\r':cs) = "\\r" ++ (escape cs)
   escape ('\n':cs) = "\\n" ++ (escape cs)
   escape ('\t':cs) = "\\t" ++ (escape cs)
-  escape (c:cs) = c : (escape cs)
+  escape (c:cs)    = c : (escape cs)
 fmt (Int n) = show n
 fmt (Real n) = show n
 fmt (Bool True) = "true"
@@ -377,15 +397,16 @@ fmt (Ref s) = s
 fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
 fmt (Apply body args) = (fmt body) ++ "(" ++ (join " " (map fmt args)) ++ ")"
 fmt (Stmt ls) = "stmt: " ++ (show ls)
+fmt (Return ast) = "return: " ++ (fmt ast)
 fmt (Match m) = "match: " ++ (show m)
 fmt (TypeStruct fields) = "type(" ++ (join ":" fields) ++ ")"
 fmt (TypeEnum tag fields) = "enum." ++ tag ++ "(" ++ (join ":" fields) ++ ")"
-fmt (TypeState fields state) = "state(" ++ (join " " fields) ++ ";" ++ (fmt_env state) ++ ")"
+fmt (TypeState fields state) = "state(" ++ (join " " fields) ++ ";  " ++ (fmt_env state) ++ ")"
 fmt (Struct fields) = "(" ++ (fmt_env fields) ++ ")"
 fmt (Enum tag (Struct [])) = tag
 fmt (Enum tag val) = tag ++ (fmt val)
 fmt (Void) = "_"
-fmt (Error env msg) = msg ++ " " ++ (fmt_env env)
+fmt (Error msg) = "ERROR(" ++ msg ++ ")"
 fmt_env xs = (join "    " (map tie xs))
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
@@ -444,14 +465,15 @@ run_test = do
       ("1", "m(maybe.just(1))")
     , ("none", "m(maybe.none)")
     ]
-  --test state_code [
-  --    ("val", "parser(\"val\").src")
-  --  , ("parser.miss_error", "parser(\"val\").miss")
-  --  , ("v", "parser(\"val\").satisfy(t)")
-  --  , ("parser.miss_error", "parser(\"val\").satisfy(f)")
-  --  ]
   test stmt_code [
       ("6", "stmt(1 2)")
+    ]
+  test state_code [
+      ("val", "parser(\"val\").src")
+    , ("true", "t(1)")
+    , ("false", "f(1)")
+    , ("v", "parser(\"val\").satisfy(t)")
+    , ("parser.miss_error", "parser(\"val\").satisfy(f)")
     ]
   putStrLn "ok"
  where
@@ -504,10 +526,12 @@ run_test = do
     , "  miss"
     , "  satisfy f ="
     , "    c = src.0"
-    , "    f(c) | miss"
+    , "    f(c) || miss"
     , "    c"
-    , "t _ = true"
-    , "f _ = false"
+    , "t _ ="
+    , "| _ = true"
+    , "f _ ="
+    , "| _ = false"
     ]
   test _ [] = return ()
   test common ((expect, src):rest) = do
@@ -528,7 +552,7 @@ run_test = do
     ret = eval env ast
     act = (fmt ret) ++ err
     err = case lookup "err" env of
-      Just e -> fmt e
+      Just e  -> fmt e
       Nothing -> ""
 --( Util )------------------------------------------------------------
 split :: String -> Char -> [String]
