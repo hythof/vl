@@ -12,8 +12,9 @@ data AST =
   | Real Double
   | Bool Bool
 -- type
-  | TypeStruct [String]
-  | TypeEnum String [String]
+  | TypeStruct [String] -- field names
+  | TypeEnum String [String] -- tag, field names
+  | TypeState [String] [(String, AST)] -- field names, scope
 -- container
   | List [AST]
   | Struct [(String, AST)]
@@ -117,7 +118,7 @@ read_between l r c = do
   read_char r
   return hit
 read_char x = lexeme $ satisfy (== x)
-read_op2 = lexeme $ many1 $ oneOf "+-*/."
+read_op2 = lexeme $ many1 $ oneOf "+-*/.|&"
 read_id = lexeme $ do
   prefix <- oneOf $ az ++ symbols
   remaining <- many $ oneOf (az ++ num ++ symbols ++ dot)
@@ -149,6 +150,7 @@ parse_define = do
   case name of
     "struct" -> def_struct
     "enum" ->  def_enum
+    "state" -> def_state
     _ -> def_func name
  where
   def_struct = do
@@ -163,15 +165,15 @@ parse_define = do
     read_char ':'
     fields <- many1 (read_br1 >> enum_line name)
     return (name, Struct fields)
-   where
-    enum_line prefix = do
-      name <- read_id
-      fields <- enum_fields <|> (return [])
-      let tag = prefix ++ "." ++ name
-      return (name, TypeEnum tag fields)
-    enum_fields = do
-      read_char ':'
-      many1 (read_br2 >> def_line)
+  def_state = do
+    name <- read_id
+    many read_type -- TODO: generics
+    read_char ':'
+    fields <- many1 (read_br1 >> def_line)
+    exception_names <- many (read_br1 >> read_id) -- TODO: parse fields
+    let exceptions = map (\x -> (x, Enum (name ++ "." ++ x) $ String "_error")) exception_names
+    funcs <- many $ do { read_br1; name <- read_id; def_func name }
+    return (name, TypeState fields $ exceptions ++ funcs)
   def_func name = do
     args <- many read_id
     read_char '='
@@ -181,6 +183,17 @@ parse_define = do
     name <- read_id
     type_ <- read_type
     return name
+  enum_line prefix = do
+    name <- read_id
+    fields <- enum_fields <|> (return [])
+    let tag = prefix ++ "." ++ name
+    return (name, TypeEnum tag fields)
+  enum_fields = do
+    read_char ':'
+    many1 (read_br2 >> def_line)
+  to_value "str" = String ""
+  to_value "int" = Int 0
+  to_value "real" = Real 0.0
 
 parse_top = (read_br >> (parse_matches <|> parse_stmt))
   <|> parse_op2
@@ -263,6 +276,7 @@ eval env x@(Match _) = x
 eval env x@(TypeStruct _) = x
 eval env (TypeEnum tag []) = Enum tag $ Struct []
 eval env x@(TypeEnum _ _) = x
+eval env x@(TypeState _ _) = x
 eval env x@(Struct _) = x
 eval env x@(Enum _ _) = x
 eval env (List xs) = List $ map (eval env) xs
@@ -298,6 +312,7 @@ eval env (Apply target apply_args) = case eval env target of
   Func capture_args body -> eval ((zip capture_args evaled_args) ++ env) body
   TypeStruct fields -> Struct $ zip fields evaled_args
   TypeEnum tag fields -> Enum tag $ Struct $ zip fields evaled_args
+  TypeState fields state -> Struct $ (zip fields evaled_args) ++ state ++ env
   Match conds -> eval env (match conds)
   other -> other
  where
@@ -364,7 +379,8 @@ fmt (Apply body args) = (fmt body) ++ "(" ++ (join " " (map fmt args)) ++ ")"
 fmt (Stmt ls) = "stmt: " ++ (show ls)
 fmt (Match m) = "match: " ++ (show m)
 fmt (TypeStruct fields) = "type(" ++ (join ":" fields) ++ ")"
-fmt (TypeEnum tag fields) = "type." ++ tag ++ "(" ++ (join ":" fields) ++ ")"
+fmt (TypeEnum tag fields) = "enum." ++ tag ++ "(" ++ (join ":" fields) ++ ")"
+fmt (TypeState fields state) = "state(" ++ (join " " fields) ++ ";" ++ (fmt_env state) ++ ")"
 fmt (Struct fields) = "(" ++ (fmt_env fields) ++ ")"
 fmt (Enum tag (Struct [])) = tag
 fmt (Enum tag val) = tag ++ (fmt val)
@@ -428,6 +444,12 @@ run_test = do
       ("1", "m(maybe.just(1))")
     , ("none", "m(maybe.none)")
     ]
+  --test state_code [
+  --    ("val", "parser(\"val\").src")
+  --  , ("parser.miss_error", "parser(\"val\").miss")
+  --  , ("v", "parser(\"val\").satisfy(t)")
+  --  , ("parser.miss_error", "parser(\"val\").satisfy(f)")
+  --  ]
   test stmt_code [
       ("6", "stmt(1 2)")
     ]
@@ -476,6 +498,17 @@ run_test = do
     , "  z"
     , "add x y = x + y"
     ]
+  state_code = unlines [
+      "state parser a:"
+    , "  src str"
+    , "  miss"
+    , "  satisfy f ="
+    , "    c = src.0"
+    , "    f(c) | miss"
+    , "    c"
+    , "t _ = true"
+    , "f _ = false"
+    ]
   test _ [] = return ()
   test common ((expect, src):rest) = do
     run_test expect $ "main = " ++ src ++ "\n" ++ common
@@ -493,7 +526,10 @@ run_test = do
     env = parse src
     ast = snd $ env !! 0
     ret = eval env ast
-    act = fmt ret
+    act = (fmt ret) ++ err
+    err = case lookup "err" env of
+      Just e -> fmt e
+      Nothing -> ""
 --( Util )------------------------------------------------------------
 split :: String -> Char -> [String]
 split s c = go s [] []
@@ -507,4 +543,3 @@ join :: String -> [String] -> String
 join glue xs = snd $ splitAt (length glue) splitted
  where
   splitted = foldl (\l r -> l ++ glue ++ r) "" xs
-
