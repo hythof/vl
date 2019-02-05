@@ -1,10 +1,21 @@
-main = add(1 2)
-add a b = a + b
-c = 'c'
-s = "s"
-i = 0
-r = 0.1
-bt = true
-bf = false
-le = []
-ln = [1 "a " add(1 2) true]
+main = compile("1 + 1")
+compile s = layout
+
+layout s = `
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("vim-go")
+}
+`
+
+
+enum ast:
+  int:
+    value int
+  op2:
+    op str
+    left ast
+    right ast
