@@ -2,12 +2,8 @@ main = compile("1 + 1")
 compile s = layout
 
 layout = `
-package main
-
-import "fmt"
-
-func main() {
-    fmt.Println("go go go!")
+func vl_main() string {
+  return "hello go"
 }
 `
 
