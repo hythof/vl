@@ -1,16 +1,15 @@
 main = compile("1 + 1")
 compile s = layout
 
-layout s = `
+layout = `
 package main
 
 import "fmt"
 
 func main() {
-    fmt.Println("vim-go")
+    fmt.Println("go go go!")
 }
 `
-
 
 enum ast:
   int:

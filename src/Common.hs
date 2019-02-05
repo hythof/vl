@@ -1,4 +1,4 @@
-module Origin where
+module Common where
 
 import           Debug.Trace (trace)
 
@@ -96,7 +96,6 @@ many1 f = do
   x <- f
   xs <- many f
   return $ x : xs
-
 many f = many_r f []
 many_r f acc = (many_acc f acc) <|> (return $ reverse acc)
 many_acc f acc = do
@@ -244,7 +243,11 @@ parse_value = parse_bool
   <|> parse_list
 
 parse_char = Char <$> read_between '\'' '\'' (satisfy (\_ -> True))
-parse_str = String <$> read_between '"' '"' (many $ noneOf "\"")
+parse_str = (String <$> (fmap trim1 $ read_between '`' '`' (many $ noneOf "`")))
+  <|> (String <$> read_between '"' '"' (many $ noneOf "\""))
+ where
+  trim1 s = reverse $ _trim1 $ reverse $ _trim1 s
+  _trim1 ('\n':s) = s
 parse_bool = Bool <$> do
   name <- read_id
   case name of
@@ -383,12 +386,7 @@ eval env ast = error $ "yet: '" ++ (show ast) ++ "'"
 
 
 
---( Main )------------------------------------------------------------
-main = do
-  run_test
-  src <- readFile "cc.vl"
-  dump src
-
+--( Utility )------------------------------------------------------------
 fmt (Char c) = [c]
 fmt (String s) = escape s
  where
@@ -425,7 +423,7 @@ fmt_env xs = (join "    " (map tie xs))
 dump src = do
   line "ast: " $ fmt ast
   line "ret: " $ fmt ret
-  line "env: " $ join "\n  " (map (\(name, ast) -> name ++ " = " ++ (fmt ast) ++ "\t# " ++ show ast) env)
+  dump_env env
   line "src: " $ src
  where
   env = parse src
@@ -435,6 +433,9 @@ dump src = do
     putStr title
     putStrLn body
 
+dump_env env = do
+  mapM_ (\(name, ast) -> putStrLn $ "env: " ++ name ++ "\t| " ++ (show ast)) env
+
 debug x = do
   trace (show x) (return 0)
   s <- remaining_input
@@ -442,142 +443,6 @@ debug x = do
   trace s (return 0)
   trace "<<<" (return 0)
 
---( Test )------------------------------------------------------------
-run_test = do
-  test values_code [
-      ("c", "c")
-    , ("s", "s")
-    , ("1", "i")
-    , ("-1", "in")
-    , ("1.0", "r")
-    , ("-1.0", "rn")
-    , ("true", "bt")
-    , ("false", "bf")
-    , ("[]", "l0")
-    , ("[c s 1 1.0 true false 2]", "l7")
-    , ("3", "ref")
-    ]
-  test enum_code [
-      ("maybe.just(value:1)", "maybe.just(1)")
-    , ("maybe.none", "maybe.none")
-    ]
-  test struct_code [
-      ("age", "attribute(\"age\" 35).key")
-    , ("35", "attribute(\"age\" 35).val")
-    ]
-  test match_code [
-      ("zero", "m(0)")
-    , ("one", "m(1)")
-    , ("many", "m(2)")
-    , ("many", "m(1.0)")
-    , ("many", "m('c')")
-    ]
-  test enum_match_code [
-      ("1", "m(maybe.just(1))")
-    , ("none", "m(maybe.none)")
-    ]
-  test stmt_code [
-      ("6", "stmt(1 2)")
-    , ("3", "update(1)")
-    , ("9", "update(5)")
-    , ("99", "assign(0)")
-    ]
-  test state_code [
-      ("val", "parser(\"val\").src")
-    , ("true", "t(1)")
-    , ("false", "f(1)")
-    , ("v", "parser(\"val\").satisfy(t)")
-    , ("parser.miss_error", "parser(\"val\").satisfy(f)")
-    ]
-  putStrLn "ok"
- where
-  values_code = unlines [
-      "c = 'c'"
-    , "s = \"s\""
-    , "i = 1"
-    , "in = -1"
-    , "r = 1.0"
-    , "rn = -1.0"
-    , "bt = true"
-    , "bf = false"
-    , "l0 = []"
-    , "l7 = [c s i r bt bf add(i i)]"
-    , "add x y = x + y"
-    , "ref = add(1 2)"
-    ]
-  struct_code = unlines [
-      "struct attribute:"
-    , "  key str"
-    , "  val int"
-    ]
-  enum_code = unlines [
-      "enum maybe a:"
-    , "  just:"
-    , "    value a"
-    , "  none"
-    ]
-  match_code = unlines [
-      "m ="
-    , "| 0 = \"zero\""
-    , "| 1 = \"one\""
-    , "| _ = \"many\""
-    ]
-  enum_match_code = enum_code ++ (unlines [
-      "m e ="
-    , "| maybe.just = e.value"
-    , "| maybe.none = \"none\""
-    ])
-  stmt_code = unlines [
-      "stmt a b ="
-    , "  x = a + b"
-    , "  z = add(add(a b) x)"
-    , "  z"
-    , "add x y = x + y"
-    , "update a ="
-    , "  a += 2"
-    , "  a -= 1"
-    , "  a *= 3"
-    , "  a /= 2"
-    , "  a"
-    , "assign a ="
-    , "  a := 99"
-    , "  a"
-    ]
-  state_code = unlines [
-      "state parser a:"
-    , "  src str"
-    , "  miss"
-    , "  satisfy f ="
-    , "    c = src.0"
-    , "    f(c) || miss"
-    , "    c"
-    , "t _ ="
-    , "| _ = true"
-    , "f _ ="
-    , "| _ = false"
-    ]
-  test _ [] = return ()
-  test common ((expect, src):rest) = do
-    run_test expect $ "main = " ++ src ++ "\n" ++ common
-    test common rest
-  run_test expect src = if expect == act
-    then putStr "."
-    else do
-      putStrLn $ "expect: " ++ expect
-      putStrLn $ "actual: " ++ act
-      mapM_ (\(name, ast) -> putStrLn $ "- " ++ name ++ "\t= " ++ (fmt ast)) env
-      mapM_ (\(name, ast) -> putStrLn $ "- " ++ name ++ "\t: " ++ (show ast)) env
-      putStrLn src
-      fail $ "failed test"
-   where
-    env = parse src
-    ast = snd $ env !! 0
-    ret = eval env ast
-    act = (fmt ret) ++ err
-    err = case lookup "err" env of
-      Just e  -> fmt e
-      Nothing -> ""
---( Util )------------------------------------------------------------
 split :: String -> Char -> [String]
 split s c = go s [] []
  where
@@ -586,6 +451,7 @@ split s c = go s [] []
   go (x:xs) part acc = if x == c
     then go xs [] ((reverse part) : acc)
     else go xs (x : part) acc
+
 join :: String -> [String] -> String
 join glue xs = snd $ splitAt (length glue) splitted
  where
