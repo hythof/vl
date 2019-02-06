@@ -40,13 +40,13 @@ data Result a = Hit { val :: a, src :: String }
               | Miss { src :: String }
 data Parser a = Parser { runParser :: String -> Result a }
 
-pmap m f = Parser $ \s -> f $ runParser m s
+pmap m f = Parser $ \s -> case runParser m s of
+  Hit val src -> f val src
+  Miss msg    -> Miss msg
 pmap2 m n f = Parser $ \s -> f (runParser m s) (runParser n s)
 
 instance Functor Parser where
-  fmap f m = pmap m $ \m -> case m of
-    Miss m      -> Miss m
-    Hit val src -> Hit (f val) src
+  fmap f m = pmap m $ \val src -> Hit (f val) src
 
 instance Applicative Parser where
   pure v = Parser $ \s -> Hit v s
@@ -54,15 +54,14 @@ instance Applicative Parser where
 
 instance Monad Parser where
     return = pure
-    m >>= f = pmap m $ \n -> case n of
-                Hit val src -> runParser (f val) src
-                Miss msg    -> Miss msg
+    m >>= f = pmap m $ \val src -> runParser (f val) src
     fail m = Parser $ \s -> Miss s
 
 l <|> r = Parser $ \s -> case runParser l s of
   Hit val src -> Hit val src
   Miss _      -> runParser r s
 
+-- core
 az = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 num = "0123456789"
 symbols = "_"
@@ -70,27 +69,27 @@ dot = "."
 
 remaining_input = Parser $ \s -> Hit s s
 
-satisfy f = Parser $ \s -> case check s of
-  Just h  -> h
-  Nothing -> Miss "failed"
- where
-  check :: String -> Maybe (Result Char)
-  check s = do
-    guard $ (length s) > 0
-    let c = s !! 0
-    guard $ f c
-    return $ Hit c (tail s)
-  guard False = Nothing
-  guard True  = Just ()
+satisfy f = Parser $ \s -> go s
+  where
+    go "" = Miss "eof"
+    go s  = if f (s !! 0)
+      then Hit (s !! 0) (tail s)
+      else Miss "miss"
 
-spaces = many $ oneOf " \t"
-lexeme f = spaces >> f
-oneOf xs = satisfy $ \x -> elem x xs
-noneOf xs = satisfy $ \x -> not $ elem x xs
+some xs = satisfy $ \x -> elem x xs
+none xs = satisfy $ \x -> not $ elem x xs
+
+-- primitive
 char x = satisfy (== x)
 string []     = Parser $ \s -> Hit () s
 string (x:xs) = char x >> string xs
+look_ahead f = Parser $ \s ->
+  case runParser f s of
+    Hit v _ -> Hit v s
+    Miss m  -> Miss m
 
+-- combination
+lexeme f = spaces >> f
 many1 f = do
   x <- f
   xs <- many f
@@ -107,34 +106,34 @@ sepBy1 f sep = do
   return $ x : xs
 sepBy f sep = sepBy1 f sep <|> return []
 
-read_between l r c = do
-  read_char l
+-- helper
+spaces = many $ some " \t"
+next_between l r c = do
+  next_char l
   hit <- lexeme c
-  read_char r
+  next_char r
   return hit
-read_char x = lexeme $ satisfy (== x)
-read_op2 = lexeme $ many1 $ oneOf "+-*/.|&"
-read_update_op2 = lexeme $ many1 $ oneOf "+-*/.|&:="
-read_id = lexeme $ do
-  prefix <- oneOf $ az ++ symbols
-  remaining <- many $ oneOf (az ++ num ++ symbols ++ dot)
+next_char x = lexeme $ satisfy (== x)
+next_op2 = lexeme $ many1 $ some "+-*/.|&"
+next_update_op2 = lexeme $ many1 $ some "+-*/.|&:="
+next_id = lexeme $ do
+  prefix <- some $ az ++ symbols
+  remaining <- many $ some (az ++ num ++ symbols ++ dot)
   return $ prefix : remaining
-read_type = (read_between '[' ']' read_type)
-            <|> (read_between '(' ')' read_type)
-            <|> read_id
-read_br = do
-  many $ oneOf " \t"
-  many1 $ oneOf "\r\n"
-read_br1 = read_br >> string "  "
-read_br2 = read_br >> string "    "
-see f = Parser $ \s ->
-  case runParser f s of
-    Hit v _ -> Hit v s
-    Miss m  -> Miss m
+next_type = (next_between '[' ']' next_type)
+            <|> (next_between '(' ')' next_type)
+            <|> next_id
+next_br = do
+  many $ some " \t"
+  many1 $ some "\r\n"
+next_br1 = next_br >> string "  "
+next_br2 = next_br >> string "    "
 
+-- make AST
 make_func [] ast   = ast
 make_func args ast = Func args ast
 
+-- parser
 parse :: String -> Env
 parse input = case runParser parse_root (trim input) of
   Hit env ""   -> env
@@ -144,11 +143,11 @@ parse input = case runParser parse_root (trim input) of
   trim s = reverse $ dropWhile (\x -> elem x " \t\r\n") (reverse s)
 
 parse_root :: Parser Env
-parse_root = sepBy parse_define read_br
+parse_root = sepBy parse_define next_br
 
 parse_define :: Parser (String, AST)
 parse_define = do
-  name <- read_id
+  name <- next_id
   case name of
     "struct" -> def_struct
     "enum"   ->  def_enum
@@ -156,124 +155,120 @@ parse_define = do
     _        -> def_func name
  where
   def_struct = do
-    name <- read_id
-    many read_type -- TODO: generics
-    read_char ':'
-    fields <- many1 (read_br1 >> def_line)
+    name <- next_id
+    many next_type -- TODO: generics
+    next_char ':'
+    fields <- many1 (next_br1 >> def_line)
     return (name, TypeStruct fields)
   def_enum = do
-    name <- read_id
-    many read_type -- TODO: generics
-    read_char ':'
-    fields <- many1 (read_br1 >> enum_line name)
+    name <- next_id
+    many next_type -- TODO: generics
+    next_char ':'
+    fields <- many1 (next_br1 >> enum_line name)
     return (name, Struct fields)
   def_state = do
-    name <- read_id
-    many read_type -- TODO: generics
-    read_char ':'
-    fields <- many1 (read_br1 >> def_line)
-    exception_names <- many $ do { read_br1; name <- read_id; see read_br; return name }
+    name <- next_id
+    many next_type -- TODO: generics
+    next_char ':'
+    fields <- many1 (next_br1 >> def_line)
+    exception_names <- many $ do { next_br1; name <- next_id; look_ahead next_br; return name }
     let exceptions = map (\x -> (x, Return $ Enum (name ++ "." ++ x) $ String "_error")) exception_names
-    funcs <- many $ do { read_br1; name <- read_id; def_func name }
+    funcs <- many $ do { next_br1; name <- next_id; def_func name }
     return (name, TypeState fields $ exceptions ++ funcs)
   def_func name = do
-    args <- many read_id
-    read_char '='
+    args <- many next_id
+    next_char '='
     top <- parse_top
     return (name, make_func args top)
   def_line = do
-    name <- read_id
-    type_ <- read_type
+    name <- next_id
+    type_ <- next_type
     return name
   enum_line prefix = do
-    name <- read_id
+    name <- next_id
     fields <- enum_fields <|> (return [])
     let tag = prefix ++ "." ++ name
     return (name, TypeEnum tag fields)
   enum_fields = do
-    read_char ':'
-    many1 (read_br2 >> def_line)
-  to_value "str"  = String ""
-  to_value "int"  = Int 0
-  to_value "real" = Real 0.0
+    next_char ':'
+    many1 (next_br2 >> def_line)
 
-parse_top = (read_br >> (parse_matches <|> parse_stmt))
-  <|> parse_op2
+parse_top = (next_br >> (parse_matches <|> parse_stmt))
+  <|> parse_exp
 
-parse_matches = Match <$> sepBy1 parse_match read_br
+parse_matches = Match <$> sepBy1 parse_match next_br
 parse_match = do
-  read_char '|'
-  conds <- many parse_bot
-  read_char '='
-  body <- parse_op2
+  next_char '|'
+  conds <- many parse_bottom
+  next_char '='
+  body <- parse_exp
   return $ (conds, body)
 
-parse_stmt = Stmt <$> sepBy1 parse_line read_br1
+parse_stmt = Stmt <$> sepBy1 parse_line next_br1
  where
   parse_line :: Parser (String, AST)
   parse_line = parse_assign <|> parse_call
   parse_assign = do
-    name <- read_id
-    op <- read_update_op2
-    ast <- parse_op2
+    name <- next_id
+    op <- next_update_op2
+    ast <- parse_exp
     let short_op = take ((length op) - 1) op
     case op of
-      "=" -> return (name, ast)
+      "="  -> return (name, ast)
       ":=" -> return (name, ast)
-      _ -> return (name, Op2 short_op (Ref name) ast)
+      _    -> return (name, Op2 short_op (Ref name) ast)
   parse_call = do
-    ast <- parse_op2
+    ast <- parse_exp
     return ("", ast)
 
+parse_exp = parse_op2
 parse_op2 = do
-  l <- parse_bot
-  o <- read_op2 <|> return ""
+  l <- parse_bottom
+  o <- next_op2 <|> return ""
   case o of
     "" -> return l
     _ -> do
-      r <- parse_op2
+      r <- parse_exp
       return $ Op2 o l r
 
-parse_bot = parse_value
-  <|> parse_call_or_ref
-
-parse_value = parse_bool
+parse_bottom = parse_bool
   <|> parse_str
   <|> parse_num
   <|> parse_list
+  <|> parse_call_or_ref
 
-parse_str = (String <$> (fmap trim1 $ read_between '`' '`' (many $ noneOf "`")))
-  <|> (String <$> read_between '"' '"' (many $ noneOf "\""))
- where
-  trim1 s = reverse $ _trim1 $ reverse $ _trim1 s
-  _trim1 ('\n':s) = s
-  _trim1 s = s
 parse_bool = Bool <$> do
-  name <- read_id
+  name <- next_id
   case name of
     "true"  -> return True
     "false" -> return False
     label   -> fail $ "miss " ++ label
+parse_str = (String <$> (fmap trim1 $ next_between '`' '`' (many $ none "`")))
+  <|> (String <$> next_between '"' '"' (many $ none "\""))
+ where
+  trim1 s = reverse $ _trim1 $ reverse $ _trim1 s
+  _trim1 ('\n':s) = s
+  _trim1 s        = s
 parse_num = do
   spaces
-  n <- many1 (oneOf $ '-' : num)
+  n <- many1 (some $ '-' : num)
   (char '.' >> real n) <|> (int n)
  where
   int n = return $ Int (read n :: Int)
   real n = do
-    m <- many1 (oneOf $ '-' : num)
+    m <- many1 (some $ '-' : num)
     return $ Real (read (n ++ "." ++ m) :: Double)
-parse_list = List <$> (read_between '[' ']' (many parse_bot))
+parse_list = List <$> (next_between '[' ']' (many parse_bottom))
 
 parse_call_or_ref = do
-  name <- read_id
+  name <- next_id
   if name == "_"
   then return Void
   else (char '(' >> unit_call name) <|> (return $ Ref name)
  where
   unit_call name = do
-    args <- many parse_bot
-    read_char ')'
+    args <- many parse_bottom
+    next_char ')'
     return $ Apply (Ref name) args
 
 
@@ -300,32 +295,24 @@ eval env (Op2 op left right) = case (op, el) of
   (".", Struct fields) -> get_or_error right fields
   ("||", Bool False)   -> eval env right
   ("||", Bool True)    -> Bool True
-  _                    -> f el er
+  _                    -> f op el er
  where
   get_or_error (Ref name) table = _get_or_error name table id
   get_or_error (Apply (Ref name) args) table = _get_or_error name table (\ast -> Apply ast args)
   _get_or_error name table f = case lookup name table of
     Just ast -> eval (table ++ env) (f ast)
     Nothing  -> Error $ "no field: " ++ name ++ " in " ++ (show table)
-  f (Int l) (Int r) = Int $ glue op l r
-    where
-      glue "+" = (+)
-      glue "-" = (-)
-      glue "*" = (*)
-      glue "/" = \a b -> truncate $ (fromIntegral a) / (fromIntegral b)
-  f (Real l) (Real r) = Real $ glue op l r
-    where
-      glue "+" = (+)
-      glue "-" = (-)
-      glue "*" = (*)
-      glue "/" = (/)
-  f (String l) (String r) = String $ glue op l r
-    where
-      glue "." = (++)
-  f (List l) (List r) = List $ glue op l r
-    where
-      glue "++" = (++)
-  f l r = Error $ "fail op: " ++ op ++ "\n- left: " ++ (show l) ++ "\n- right: " ++ (show r)
+  f "+" (Int l) (Int r) = Int $ l + r
+  f "-" (Int l) (Int r) = Int $ l - r
+  f "*" (Int l) (Int r) = Int $ l * r
+  f "/" (Int l) (Int r) = Int $ truncate $ (fromIntegral l) / (fromIntegral r)
+  f "+" (Real l) (Real r) = Real $ l + r
+  f "-" (Real l) (Real r) = Real $ l - r
+  f "*" (Real l) (Real r) = Real $ l * r
+  f "/" (Real l) (Real r) = Real $ l / r
+  f "." (String l) (String r) = String $ l ++ r
+  f "++" (List l) (List r) = List $ l ++ r
+  f op l r = Error $ "fail op: " ++ op ++ "\n- left: " ++ (show l) ++ "\n- right: " ++ (show r)
   el = eval env left
   er = eval env right
 eval env (Apply target apply_args) = case eval env target of
@@ -371,7 +358,7 @@ eval env (Stmt lines) = exec_lines env lines
     (assign, Return ast) -> eval env ast
     (assign, Update name op ast) -> case op of
       ":=" -> exec_lines ((assign, ast) : env) lines
-      _ -> exec_lines ((assign, eval_op2) : env) lines
+      _    -> exec_lines ((assign, eval_op2) : env) lines
      where
       eval_op2 = eval env $ Op2 op2 left right
       left = eval env $ Ref name
