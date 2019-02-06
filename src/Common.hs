@@ -54,9 +54,9 @@ instance Applicative Parser where
   l <*> r = pmap2 l r $ \m n -> n {val = (val m) (val n)}
 
 instance Monad Parser where
-    return = pure
-    m >>= f = pmap m $ \val src -> runParser (f val) src
-    fail m = Parser $ \s -> Miss s
+  return = pure
+  m >>= f = pmap m $ \val src -> runParser (f val) src
+  fail m = Parser $ \s -> Miss s
 
 l <|> r = Parser $ \s -> case runParser l s of
   Hit val src -> Hit val src
@@ -96,7 +96,7 @@ many1 f = do
   xs <- many f
   return $ x : xs
 many f = many_r f []
-many_r f acc = (many_acc f acc) <|> (return $ reverse acc)
+many_r f acc = option (reverse acc) (many_acc f acc)
 many_acc f acc = do
   x <- f
   many_r f (x : acc)
@@ -104,12 +104,13 @@ sepBy1 f sep = do
   x <- f
   xs <- many (sep >> f)
   return $ x : xs
-sepBy f sep = sepBy1 f sep <|> return []
+sepBy f sep = option [] $ sepBy1 f sep
 between l r c = do
   l
   hit <- c
   r
   return hit
+option fallback f = f <|> (return fallback)
 
 -- helper
 spaces = many $ some " \t"
@@ -162,7 +163,7 @@ parse_define = do
   name <- next_id
   case name of
     "struct" -> def_struct
-    "enum"   ->  def_enum
+    "enum"   -> def_enum
     "state"  -> def_state
     _        -> def_func name
  where
@@ -198,7 +199,7 @@ parse_define = do
     return name
   enum_line prefix = do
     name <- next_id
-    fields <- enum_fields <|> (return [])
+    fields <- option [] enum_fields
     let tag = prefix ++ "." ++ name
     return (name, TypeEnum tag fields)
   enum_fields = do
@@ -236,7 +237,7 @@ parse_stmt = Stmt <$> sepBy1 parse_line next_br1
 parse_exp = parse_op2
 parse_op2 = do
   l <- parse_bottom
-  o <- next_op2 <|> return ""
+  o <- option "" next_op2
   case o of
     "" -> return l
     _ -> do
@@ -246,25 +247,23 @@ parse_op2 = do
 parse_bottom :: Parser AST
 parse_bottom = do
   part <- parse_bool
-          <|> parse_str
-          <|> parse_num
-          <|> parse_list
-          <|> parse_ref
+    <|> parse_str
+    <|> parse_num
+    <|> parse_list
+    <|> parse_ref
   follow part
  where
   follow :: AST -> Parser AST
   follow part = do
-    mark <- (some "(.") <|> (return ' ')
+    mark <- option ' ' $ some "(."
     case mark of
       ' ' -> return part
       '(' -> do { args <- many parse_bottom; next_char ')'; follow $ Apply part args }
       '.' -> do
         name <- many1 $ some $ az ++ num
-        args <- (between (char '(') (next_char ')') $ many parse_bottom) <|> (return [])
+        args <- option [] $ between (char '(') (next_char ')') $ many parse_bottom
         follow $ Dot part name args
-
 parse_ref = make_ref <$> next_id
-
 parse_bool = Bool <$> do
   name <- next_id
   case name of
@@ -291,34 +290,81 @@ parse_list = List <$> (next_between '[' ']' (many parse_bottom))
 
 
 --( Evaluator )-------------------------------------------------------
-eval :: Env -> AST -> AST
-eval env x@(Int _) = x
-eval env x@(Real _) = x
-eval env x@(Bool _) = x
-eval env x@(String _) = x
-eval env (Func [] ast) = ast
-eval env x@(Func _ _) = x
-eval env x@(Match _) = x
-eval env x@(TypeStruct _) = x
-eval env (TypeEnum tag []) = Enum tag $ Struct []
-eval env x@(TypeEnum _ _) = x
-eval env x@(TypeState _ _) = x
-eval env x@(Struct _) = x
-eval env x@(Enum _ _) = x
-eval env x@(Return _) = x
-eval env x@(Update _ _ _) = x
-eval env (List xs) = List $ map (eval env) xs
-eval env (Op2 op left right) = case (op, el) of
-  (".", Struct fields) -> get_or_error right fields
-  ("||", Bool False)   -> eval env right
-  ("||", Bool True)    -> Bool True
-  _                    -> f op el er
+data Ret a = Ok { ret :: a, env :: Env }
+           | Fail { messgage :: String, env :: Env }
+data Eval a = Eval { runEval :: Env -> Ret a }
+
+emap m f = Eval $ \e -> case runEval m e of
+  Ok a e -> f a e
+  Fail m e -> Fail m e
+emap2 l r f = Eval $ \e -> f (runEval l e) (runEval r e)
+
+instance Functor Eval where
+  fmap f m = emap m $ \a e -> Ok (f a) e
+
+instance Applicative Eval where
+  pure a = Eval $ \e -> Ok a e
+  l <*> r = emap2 l r $ \m n -> n {ret = (ret m) (ret n)}
+
+instance Monad Eval where
+  return = pure
+  m >>= f = emap m $ \r e -> runEval (f r) e
+  fail m = Eval $ \e -> Fail m e
+
+
+eve :: [(String, AST)] -> Eval AST -> Eval AST
+eve e1 f = Eval $ \e2 -> runEval f $ e1 ++ e2
+
+eva :: [AST] -> Eval [AST]
+eva [] = return []
+eva (x:xs) = do
+  y <- ev x
+  ys <- eva xs
+  return $ y : ys
+
+ev_add :: String -> AST -> Eval AST -> Eval AST
+ev_add k v a = Eval $ \e -> runEval a $ (k, v) : e
+
+get_env :: Eval Env
+get_env = Eval $ \e -> Ok e e
+
+look name table = do
+  env <- get_env
+  case lookup name (table ++ env) of
+    Just x -> return x
+    Nothing -> fail $ "not found" ++ name ++ " in " ++ (show table)
+
+ev :: AST -> Eval AST
+ev x@(Int _) = return x
+ev x@(Real _) = return x
+ev x@(Bool _) = return x
+ev x@(String _) = return x
+ev (Func [] ast) = return ast
+ev x@(Func _ _) = return x
+ev x@(Match _) = return x
+ev x@(TypeStruct _) = return x
+ev (TypeEnum tag []) = return $ Enum tag $ Struct []
+ev x@(TypeEnum _ _) = return x
+ev x@(TypeState _ _) = return x
+ev x@(Struct _) = return x
+ev x@(Enum _ _) = return x
+ev x@(Return _) = return x
+ev x@(Update _ _ _) = return x
+ev (List xs) = List <$> eva xs
+ev (Op2 op left right) = do
+  el <- ev left
+  er <- ev right
+  case (op, el) of
+    (".", Struct fields) -> get_or_error right fields
+    ("||", Bool False)   -> ev right
+    ("||", Bool True)    -> return $ Bool True
+    _                    -> return $ f op el er
  where
   get_or_error (Ref name) table = _get_or_error name table id
   get_or_error (Apply (Ref name) args) table = _get_or_error name table (\ast -> Apply ast args)
   _get_or_error name table f = case lookup name table of
-    Just ast -> eval (table ++ env) (f ast)
-    Nothing  -> Error $ "no field: " ++ name ++ " in " ++ (show table)
+    Just ast -> eve table (ev $ f ast)
+    Nothing  -> fail $ "no field: " ++ name ++ " in " ++ (show table)
   f "+" (Int l) (Int r) = Int $ l + r
   f "-" (Int l) (Int r) = Int $ l - r
   f "*" (Int l) (Int r) = Int $ l * r
@@ -330,68 +376,208 @@ eval env (Op2 op left right) = case (op, el) of
   f "." (String l) (String r) = String $ l ++ r
   f "++" (List l) (List r) = List $ l ++ r
   f op l r = Error $ "fail op: " ++ op ++ "\n- left: " ++ (show l) ++ "\n- right: " ++ (show r)
-  el = eval env left
-  er = eval env right
-eval env (Dot target name apply_args) = case eval env target of
-  (Struct fields) -> eval (fields ++ env) $ Apply (look fields) args
-  (String s) -> case name of
-    "length" -> Int $ length s
-    _ -> String [s !! (read name :: Int)]
-  ast -> Error $ "not found1 " ++ name ++ " in " ++ (show ast)
+ev (Dot target name apply_args) = do
+  ret <- ev target
+  case ret of
+    (Struct fields) -> eve fields $ do
+      body <- look name fields
+      args_ <- args
+      r <- ev body
+      ev $ Apply r args_
+    (String s) -> case name of
+      "length" -> return $ Int $ length s
+      _ -> return $ String [s !! (read name :: Int)]
+    ast -> fail $ "not found1 " ++ name ++ " in " ++ (show ast)
  where
-  args = map (eval env) apply_args
-  look table = case lookup name (table ++ env) of
-    Just x -> x
-    Nothing -> Error $ "not found2 " ++ name ++ " in " ++ (show table)
-eval env (Apply target apply_args) = case eval env target of
-  Func capture_args (Match conds) -> eval ((zip capture_args $ map (\(Enum _ v) -> v) evaled_args) ++ env) (match conds)
-  Func capture_args body -> eval ((zip capture_args evaled_args) ++ env) body
-  TypeStruct fields -> Struct $ zip fields evaled_args
-  TypeEnum tag fields -> Enum tag $ Struct $ zip fields evaled_args
-  TypeState fields state -> Struct $ (zip fields evaled_args) ++ state ++ env
-  Match conds -> eval env (match conds)
-  other -> other
+  args = eva apply_args
+ev (Apply target apply_args) = do
+  v <- ev target
+  case v of
+    Func capture_args (Match conds) -> do
+      args_ <- evaled_args
+      eve (zip capture_args $ map (\(Enum _ v) -> v) args_) (match conds)
+    Func capture_args body -> do
+      args_ <- evaled_args
+      eve (zip capture_args args_) (ev body)
+    TypeStruct fields -> do
+      args_ <- evaled_args
+      return $ Struct $ zip fields args_
+    TypeEnum tag fields -> do
+      args_ <- evaled_args
+      return $ Enum tag $ Struct $ zip fields args_
+    TypeState fields state -> do
+      args_ <- evaled_args
+      env <- get_env
+      return $ Struct $ (zip fields args_) ++ state
+    Match conds -> match conds
+    other -> ev other
  where
-  evaled_args = map (eval env) apply_args
+  evaled_args = eva apply_args
+  match :: [([AST], AST)] -> Eval AST
   match all_conds = _match all_conds
    where
-    _match [] = Error $ "can't match " ++ (show all_conds) ++ " == " ++ (show evaled_args) ++ " from " ++ (show target)
-    _match ((conds, body):rest) = if conds `equals` evaled_args
-      then body
-      else _match rest
+    _match :: [([AST], AST)] -> Eval AST
+    _match [] = fail $ "can't match " ++ (show all_conds) ++ " == " ++ (show apply_args) ++ " from " ++ (show target)
+    _match ((conds, body):rest) = do
+      args_ <- evaled_args
+      if conds `equals` args_
+        then ev body
+        else _match rest
   equals [] []         = True
   equals (x:xs) (y:ys) = equal x y && equals xs ys
   equals _ _           = False
-  equal (Void) _               = True
+  equal (Void) _                         = True
   equal (Dot (Ref x) y _) (TypeEnum z _) = x ++ "." ++ y == z
   equal (Dot (Ref x) y _) (Enum z _)     = x ++ "." ++ y == z
-  equal x y                    = x == y
+  equal x y                              = x == y
 
-eval env (Ref name) = case lookup name env of
-  Just (Struct fields) -> eval (fields ++ env) (Struct fields)
-  Just ast -> eval env ast
-  Nothing -> Error $ "not found " ++ name ++ " in " ++ (show $ map fst env)
+ev (Ref name) = do
+  v <- look name []
+  case v of
+    Struct fields -> eve fields (return $ Struct fields)
+    ast -> ev ast
  where
   is_digit []     = True
   is_digit (c:cs) = '0' <= c && c <= '9' && (is_digit cs)
 
-eval env (Stmt lines) = exec_lines env lines
+ev (Stmt lines) = exec lines
  where
-  exec_lines env (line:lines) = case exec_line env line of
-    (assign, Return ast) -> eval env ast
-    (assign, Update name op ast) -> case op of
-      ":=" -> exec_lines ((assign, ast) : env) lines
-      _    -> exec_lines ((assign, eval_op2) : env) lines
-     where
-      eval_op2 = eval env $ Op2 op2 left right
-      left = eval env $ Ref name
-      right = ast
-      op2 = take ((length op) - 1) op
-    (assign, ast) -> exec_lines ((assign, ast) : env) lines
-  exec_lines env [] = snd $ head $ env
-  exec_line env (name, ast) = (name, eval env ast)
-eval env x@(Error _) = x
-eval env ast = error $ "yet: '" ++ (show ast) ++ "'"
+  exec :: [(String, AST)] -> Eval AST
+  exec [("", ast)] = ev ast
+  exec ((assign, ast):lines) = do
+    env <- get_env
+
+    v1 <- if length lines == 1 then ev (Apply (Ref "add") [Ref "a", Ref "b"]) else return $ Void
+    v2 <- if length lines == 1 then ev (Apply (Ref "add") [Apply (Ref "add") [Ref "a", Ref "b"], Ref "x"]) else return $ Void
+    trace (assign ++ " " ++ (show v1) ++ " " ++ (show v2) ++ " " ++ (show ast)) $ return 0
+
+    case ast of
+      Return ast -> ev ast
+      Update name op ast -> case op of
+        ":=" -> do
+          v <- ev ast
+          ev_add assign v $ exec lines
+        _  -> do
+          left <- ev $ Ref name
+          let right = ast
+          let op2 = take ((length op) - 1) op
+          v <- ev $ Op2 op2 left right
+          ev_add assign v $ exec lines
+       where
+      ast -> do
+        v <- ev ast
+        ev_add assign v $ exec lines
+ev x@(Error _) = return x
+ev ast = error $ "yet: '" ++ (show ast) ++ "'"
+
+
+
+eval env ast = case runEval (ev ast) env of
+  Ok a e -> a
+  Fail m e -> Error m
+
+
+--eval :: Env -> AST -> AST
+--eval env x@(Int _) = x
+--eval env x@(Real _) = x
+--eval env x@(Bool _) = x
+--eval env x@(String _) = x
+--eval env (Func [] ast) = ast
+--eval env x@(Func _ _) = x
+--eval env x@(Match _) = x
+--eval env x@(TypeStruct _) = x
+--eval env (TypeEnum tag []) = Enum tag $ Struct []
+--eval env x@(TypeEnum _ _) = x
+--eval env x@(TypeState _ _) = x
+--eval env x@(Struct _) = x
+--eval env x@(Enum _ _) = x
+--eval env x@(Return _) = x
+--eval env x@(Update _ _ _) = x
+--eval env (List xs) = List $ map (eval env) xs
+--eval env (Op2 op left right) = case (op, el) of
+--  (".", Struct fields) -> get_or_error right fields
+--  ("||", Bool False)   -> eval env right
+--  ("||", Bool True)    -> Bool True
+--  _                    -> f op el er
+-- where
+--  get_or_error (Ref name) table = _get_or_error name table id
+--  get_or_error (Apply (Ref name) args) table = _get_or_error name table (\ast -> Apply ast args)
+--  _get_or_error name table f = case lookup name table of
+--    Just ast -> eval (table ++ env) (f ast)
+--    Nothing  -> Error $ "no field: " ++ name ++ " in " ++ (show table)
+--  f "+" (Int l) (Int r) = Int $ l + r
+--  f "-" (Int l) (Int r) = Int $ l - r
+--  f "*" (Int l) (Int r) = Int $ l * r
+--  f "/" (Int l) (Int r) = Int $ truncate $ (fromIntegral l) / (fromIntegral r)
+--  f "+" (Real l) (Real r) = Real $ l + r
+--  f "-" (Real l) (Real r) = Real $ l - r
+--  f "*" (Real l) (Real r) = Real $ l * r
+--  f "/" (Real l) (Real r) = Real $ l / r
+--  f "." (String l) (String r) = String $ l ++ r
+--  f "++" (List l) (List r) = List $ l ++ r
+--  f op l r = Error $ "fail op: " ++ op ++ "\n- left: " ++ (show l) ++ "\n- right: " ++ (show r)
+--  el = eval env left
+--  er = eval env right
+--eval env (Dot target name apply_args) = case eval env target of
+--  (Struct fields) -> eval (fields ++ env) $ Apply (look fields) args
+--  (String s) -> case name of
+--    "length" -> Int $ length s
+--    _ -> String [s !! (read name :: Int)]
+--  ast -> Error $ "not found1 " ++ name ++ " in " ++ (show ast)
+-- where
+--  args = map (eval env) apply_args
+--  look table = case lookup name (table ++ env) of
+--    Just x -> x
+--    Nothing -> Error $ "not found2 " ++ name ++ " in " ++ (show table)
+--eval env (Apply target apply_args) = case eval env target of
+--  Func capture_args (Match conds) -> eval ((zip capture_args $ map (\(Enum _ v) -> v) evaled_args) ++ env) (match conds)
+--  Func capture_args body -> eval ((zip capture_args evaled_args) ++ env) body
+--  TypeStruct fields -> Struct $ zip fields evaled_args
+--  TypeEnum tag fields -> Enum tag $ Struct $ zip fields evaled_args
+--  TypeState fields state -> Struct $ (zip fields evaled_args) ++ state ++ env
+--  Match conds -> eval env (match conds)
+--  other -> other
+-- where
+--  evaled_args = map (eval env) apply_args
+--  match all_conds = _match all_conds
+--   where
+--    _match [] = Error $ "can't match " ++ (show all_conds) ++ " == " ++ (show evaled_args) ++ " from " ++ (show target)
+--    _match ((conds, body):rest) = if conds `equals` evaled_args
+--      then body
+--      else _match rest
+--  equals [] []         = True
+--  equals (x:xs) (y:ys) = equal x y && equals xs ys
+--  equals _ _           = False
+--  equal (Void) _                         = True
+--  equal (Dot (Ref x) y _) (TypeEnum z _) = x ++ "." ++ y == z
+--  equal (Dot (Ref x) y _) (Enum z _)     = x ++ "." ++ y == z
+--  equal x y                              = x == y
+--
+--eval env (Ref name) = case lookup name env of
+--  Just (Struct fields) -> eval (fields ++ env) (Struct fields)
+--  Just ast -> eval env ast
+--  Nothing -> Error $ "not found " ++ name ++ " in " ++ (show $ map fst env)
+-- where
+--  is_digit []     = True
+--  is_digit (c:cs) = '0' <= c && c <= '9' && (is_digit cs)
+--
+--eval env (Stmt lines) = exec_lines env lines
+-- where
+--  exec_lines env (line:lines) = case exec_line env line of
+--    (assign, Return ast) -> eval env ast
+--    (assign, Update name op ast) -> case op of
+--      ":=" -> exec_lines ((assign, ast) : env) lines
+--      _    -> exec_lines ((assign, eval_op2) : env) lines
+--     where
+--      eval_op2 = eval env $ Op2 op2 left right
+--      left = eval env $ Ref name
+--      right = ast
+--      op2 = take ((length op) - 1) op
+--    (assign, ast) -> exec_lines ((assign, ast) : env) lines
+--  exec_lines env [] = snd $ head $ env
+--  exec_line env (name, ast) = (name, eval env ast)
+--eval env x@(Error _) = x
+--eval env ast = error $ "yet: '" ++ (show ast) ++ "'"
 
 
 
