@@ -1,6 +1,6 @@
 module Test where
 
-import           Debug.Trace (trace)
+import Debug.Trace (trace)
 import Common
 
 main = do
@@ -16,6 +16,7 @@ main = do
     , ("[s 1 1.0 true false 2]", "l7")
     , ("3", "ref")
     , ("multiple\\nlines", "sq")
+    , ("5", "\"hello\".length")
     ]
   test enum_code [
       ("ast.int(value:1)", "ast.int(1)")
@@ -136,6 +137,7 @@ main = do
       putStrLn ""
       putStrLn $ "expect: " ++ expect
       putStrLn $ "actual: " ++ act
+      putStrLn $ "   ast: " ++ show ret
       dump src
       fail $ "failed test"
    where

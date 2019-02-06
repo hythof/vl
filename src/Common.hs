@@ -24,6 +24,7 @@ data AST =
   | Ref String
   | Op2 String AST AST
   | Apply AST [AST]
+  | Dot AST String [AST]
   | Match [([AST], AST)]
   | Stmt [(String, AST)]
   | Update String String AST -- variable, op code, ast
@@ -99,26 +100,35 @@ many_r f acc = (many_acc f acc) <|> (return $ reverse acc)
 many_acc f acc = do
   x <- f
   many_r f (x : acc)
-
 sepBy1 f sep = do
   x <- f
   xs <- many (sep >> f)
   return $ x : xs
 sepBy f sep = sepBy1 f sep <|> return []
+between l r c = do
+  l
+  hit <- c
+  r
+  return hit
 
 -- helper
 spaces = many $ some " \t"
+spaces1 = many1 $ some " \t"
 next_between l r c = do
   next_char l
   hit <- lexeme c
   next_char r
   return hit
 next_char x = lexeme $ satisfy (== x)
-next_op2 = lexeme $ many1 $ some "+-*/.|&"
-next_update_op2 = lexeme $ many1 $ some "+-*/.|&:="
+next_op2 = do
+  spaces1
+  op <- (many1 $ some "+-*/|&") <|> (char '.' >> return ".")
+  spaces1
+  return op
+next_update_op2 = lexeme $ many1 $ some "+-*/|&:="
 next_id = lexeme $ do
   prefix <- some $ az ++ symbols
-  remaining <- many $ some (az ++ num ++ symbols ++ dot)
+  remaining <- many $ some (az ++ num ++ symbols)
   return $ prefix : remaining
 next_type = (next_between '[' ']' next_type)
             <|> (next_between '(' ')' next_type)
@@ -132,6 +142,8 @@ next_br2 = next_br >> string "    "
 -- make AST
 make_func [] ast   = ast
 make_func args ast = Func args ast
+make_ref "_" = Void
+make_ref s = Ref s
 
 -- parser
 parse :: String -> Env
@@ -216,7 +228,7 @@ parse_stmt = Stmt <$> sepBy1 parse_line next_br1
     case op of
       "="  -> return (name, ast)
       ":=" -> return (name, ast)
-      _    -> return (name, Op2 short_op (Ref name) ast)
+      _    -> return (name, Op2 short_op (make_ref name) ast)
   parse_call = do
     ast <- parse_exp
     return ("", ast)
@@ -231,11 +243,27 @@ parse_op2 = do
       r <- parse_exp
       return $ Op2 o l r
 
-parse_bottom = parse_bool
-  <|> parse_str
-  <|> parse_num
-  <|> parse_list
-  <|> parse_call_or_ref
+parse_bottom :: Parser AST
+parse_bottom = do
+  part <- parse_bool
+          <|> parse_str
+          <|> parse_num
+          <|> parse_list
+          <|> parse_ref
+  follow part
+ where
+  follow :: AST -> Parser AST
+  follow part = do
+    mark <- (some "(.") <|> (return ' ')
+    case mark of
+      ' ' -> return part
+      '(' -> do { args <- many parse_bottom; next_char ')'; follow $ Apply part args }
+      '.' -> do
+        name <- many1 $ some $ az ++ num
+        args <- (between (char '(') (next_char ')') $ many parse_bottom) <|> (return [])
+        follow $ Dot part name args
+
+parse_ref = make_ref <$> next_id
 
 parse_bool = Bool <$> do
   name <- next_id
@@ -259,17 +287,6 @@ parse_num = do
     m <- many1 (some $ '-' : num)
     return $ Real (read (n ++ "." ++ m) :: Double)
 parse_list = List <$> (next_between '[' ']' (many parse_bottom))
-
-parse_call_or_ref = do
-  name <- next_id
-  if name == "_"
-  then return Void
-  else (char '(' >> unit_call name) <|> (return $ Ref name)
- where
-  unit_call name = do
-    args <- many parse_bottom
-    next_char ')'
-    return $ Apply (Ref name) args
 
 
 
@@ -315,6 +332,17 @@ eval env (Op2 op left right) = case (op, el) of
   f op l r = Error $ "fail op: " ++ op ++ "\n- left: " ++ (show l) ++ "\n- right: " ++ (show r)
   el = eval env left
   er = eval env right
+eval env (Dot target name apply_args) = case eval env target of
+  (Struct fields) -> eval (fields ++ env) $ Apply (look fields) args
+  (String s) -> case name of
+    "length" -> Int $ length s
+    _ -> String [s !! (read name :: Int)]
+  ast -> Error $ "not found1 " ++ name ++ " in " ++ (show ast)
+ where
+  args = map (eval env) apply_args
+  look table = case lookup name (table ++ env) of
+    Just x -> x
+    Nothing -> Error $ "not found2 " ++ name ++ " in " ++ (show table)
 eval env (Apply target apply_args) = case eval env target of
   Func capture_args (Match conds) -> eval ((zip capture_args $ map (\(Enum _ v) -> v) evaled_args) ++ env) (match conds)
   Func capture_args body -> eval ((zip capture_args evaled_args) ++ env) body
@@ -335,20 +363,15 @@ eval env (Apply target apply_args) = case eval env target of
   equals (x:xs) (y:ys) = equal x y && equals xs ys
   equals _ _           = False
   equal (Void) _               = True
-  equal (Ref x) (TypeEnum y _) = x == y
-  equal (Ref x) (Enum y _)     = x == y
+  equal (Dot (Ref x) y _) (TypeEnum z _) = x ++ "." ++ y == z
+  equal (Dot (Ref x) y _) (Enum z _)     = x ++ "." ++ y == z
   equal x y                    = x == y
-eval env (Ref full_name) = find (split full_name '.') env
+
+eval env (Ref name) = case lookup name env of
+  Just (Struct fields) -> eval (fields ++ env) (Struct fields)
+  Just ast -> eval env ast
+  Nothing -> Error $ "not found " ++ name ++ " in " ++ (show $ map fst env)
  where
-  find :: [String] -> [(String, AST)] -> AST
-  find [] env = Struct env
-  find (name:rest) env = case lookup name env of
-    Nothing -> Error $ "not found " ++ name ++ (if name == full_name then "" else " of " ++ full_name) ++ " in " ++ (show $ map fst env)
-    Just (Struct fields) -> find rest fields
-    Just ast -> case (length rest, eval env ast, length rest == 1 && is_digit (head rest)) of
-      (0, ast, _) -> ast
-      (1, String s, True) -> String [s !! (read (head rest) :: Int)]
-      _ -> Error $ "invalid dot refrence " ++ full_name  ++ " of " ++ (show ast) ++ " rest: " ++ (show rest)
   is_digit []     = True
   is_digit (c:cs) = '0' <= c && c <= '9' && (is_digit cs)
 
@@ -388,6 +411,7 @@ fmt (List l) = "[" ++ (join " " (map fmt l)) ++ "]"
 fmt (Func args ast) = (join " " args) ++ " => " ++ (fmt ast)
 fmt (Ref s) = s
 fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
+fmt (Dot ast name args) = (fmt ast) ++ "." ++ name ++ (show args)
 fmt (Apply body args) = (fmt body) ++ "(" ++ (join " " (map fmt args)) ++ ")"
 fmt (Stmt ls) = "stmt: " ++ (show ls)
 fmt (Update name op ast) = name ++ op ++ (fmt ast)
