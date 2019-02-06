@@ -100,8 +100,8 @@ main = do
     ])
   stmt_code = unlines [
       "stmt a b ="
-    , "  x = a + b"
-    , "  z = add(add(a b) x)"
+    , "  v = a + b"
+    , "  z = add(add(a b) v)"
     , "  z"
     , "add x y = x + y"
     , "update a ="
