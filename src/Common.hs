@@ -6,7 +6,6 @@ import           Debug.Trace (trace)
 data AST =
 -- value
     Void
-  | Char Char
   | String String
   | Int Int
   | Real Double
@@ -120,7 +119,9 @@ read_id = lexeme $ do
   prefix <- oneOf $ az ++ symbols
   remaining <- many $ oneOf (az ++ num ++ symbols ++ dot)
   return $ prefix : remaining
-read_type = read_id
+read_type = (read_between '[' ']' read_type)
+            <|> (read_between '(' ')' read_type)
+            <|> read_id
 read_br = do
   many $ oneOf " \t"
   many1 $ oneOf "\r\n"
@@ -204,7 +205,7 @@ parse_match = do
   read_char '|'
   conds <- many parse_bot
   read_char '='
-  body <- parse_bot
+  body <- parse_op2
   return $ (conds, body)
 
 parse_stmt = Stmt <$> sepBy1 parse_line read_br1
@@ -238,16 +239,15 @@ parse_bot = parse_value
 
 parse_value = parse_bool
   <|> parse_str
-  <|> parse_char
   <|> parse_num
   <|> parse_list
 
-parse_char = Char <$> read_between '\'' '\'' (satisfy (\_ -> True))
 parse_str = (String <$> (fmap trim1 $ read_between '`' '`' (many $ noneOf "`")))
   <|> (String <$> read_between '"' '"' (many $ noneOf "\""))
  where
   trim1 s = reverse $ _trim1 $ reverse $ _trim1 s
   _trim1 ('\n':s) = s
+  _trim1 s = s
 parse_bool = Bool <$> do
   name <- read_id
   case name of
@@ -282,7 +282,6 @@ parse_call_or_ref = do
 eval :: Env -> AST -> AST
 eval env x@(Int _) = x
 eval env x@(Real _) = x
-eval env x@(Char _) = x
 eval env x@(Bool _) = x
 eval env x@(String _) = x
 eval env (Func [] ast) = ast
@@ -322,7 +321,7 @@ eval env (Op2 op left right) = case (op, el) of
       glue "/" = (/)
   f (String l) (String r) = String $ glue op l r
     where
-      glue "++" = (++)
+      glue "." = (++)
   f (List l) (List r) = List $ glue op l r
     where
       glue "++" = (++)
@@ -387,7 +386,6 @@ eval env ast = error $ "yet: '" ++ (show ast) ++ "'"
 
 
 --( Utility )------------------------------------------------------------
-fmt (Char c) = [c]
 fmt (String s) = escape s
  where
   escape []        = []
@@ -416,7 +414,7 @@ fmt (Enum tag (Struct [])) = tag
 fmt (Enum tag val) = tag ++ (fmt val)
 fmt (Void) = "_"
 fmt (Error msg) = "ERROR(" ++ msg ++ ")"
-fmt_env xs = (join "    " (map tie xs))
+fmt_env xs = (join "  " (map tie xs))
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
 

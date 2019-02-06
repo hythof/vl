@@ -5,8 +5,7 @@ import Common
 
 main = do
   test values_code [
-      ("c", "c")
-    , ("s", "s")
+      ("s", "s")
     , ("1", "i")
     , ("-1", "in")
     , ("1.0", "r")
@@ -14,13 +13,14 @@ main = do
     , ("true", "bt")
     , ("false", "bf")
     , ("[]", "l0")
-    , ("[c s 1 1.0 true false 2]", "l7")
+    , ("[s 1 1.0 true false 2]", "l7")
     , ("3", "ref")
     , ("multiple\\nlines", "sq")
     ]
   test enum_code [
-      ("maybe.just(value:1)", "maybe.just(1)")
-    , ("maybe.none", "maybe.none")
+      ("ast.int(value:1)", "ast.int(1)")
+    , ("ast.none", "ast.none")
+    , ("ast.func(args:[]  body:ast.str(value:hello))", "ast.func([] ast.str(\"hello\"))")
     ]
   test struct_code [
       ("age", "attribute(\"age\" 35).key")
@@ -31,11 +31,12 @@ main = do
     , ("one", "m(1)")
     , ("many", "m(2)")
     , ("many", "m(1.0)")
-    , ("many", "m('c')")
+    , ("many", "m(true)")
+    , ("many", "m(\"s\")")
     ]
   test enum_match_code [
-      ("1", "m(maybe.just(1))")
-    , ("none", "m(maybe.none)")
+      ("1", "m(ast.int(1))")
+    , ("none", "m(ast.none)")
     ]
   test stmt_code [
       ("6", "stmt(1 2)")
@@ -53,8 +54,7 @@ main = do
   putStrLn "ok"
  where
   values_code = unlines [
-      "c = 'c'"
-    , "s = \"s\""
+      "s = \"s\""
     , "i = 1"
     , "in = -1"
     , "r = 1.0"
@@ -62,7 +62,7 @@ main = do
     , "bt = true"
     , "bf = false"
     , "l0 = []"
-    , "l7 = [c s i r bt bf add(i i)]"
+    , "l7 = [s i r bt bf add(i i)]"
     , "add x y = x + y"
     , "ref = add(1 2)"
     , "sq = `"
@@ -76,9 +76,14 @@ main = do
     , "  val int"
     ]
   enum_code = unlines [
-      "enum maybe a:"
-    , "  just:"
+      "enum ast a:"
+    , "  int:"
     , "    value a"
+    , "  str:"
+    , "    value str"
+    , "  func:"
+    , "    args [str]"
+    , "    body ast"
     , "  none"
     ]
   match_code = unlines [
@@ -89,8 +94,8 @@ main = do
     ]
   enum_match_code = enum_code ++ (unlines [
       "m e ="
-    , "| maybe.just = e.value"
-    , "| maybe.none = \"none\""
+    , "| ast.int = e.value"
+    , "| ast.none = \"none\""
     ])
   stmt_code = unlines [
       "stmt a b ="
@@ -128,6 +133,7 @@ main = do
   run_test expect src = if expect == act
     then putStr "."
     else do
+      putStrLn ""
       putStrLn $ "expect: " ++ expect
       putStrLn $ "actual: " ++ act
       dump src

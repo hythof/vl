@@ -1,16 +1,13 @@
-main = compile("1 + 1")
-compile s = layout
-
-layout = `
-func vl_main() string {
-  return "hello go"
-}
-`
+compile s = to_go(parse(s))
 
 enum ast:
-  int:
-    value int
-  op2:
-    op str
-    left ast
-    right ast
+  str:
+    value str
+  func:
+    args [str]
+    body ast
+
+parse s = ast.func([] ast.str("hello go world"))
+to_go s =
+| ast.str = `"` . s.value . `"`
+| ast.func = "func vl_main() string { return " . to_go(s.body) . "}"
