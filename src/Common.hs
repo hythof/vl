@@ -292,8 +292,8 @@ parse_list = List <$> (next_between '[' ']' (many parse_bottom))
 --( Evaluator )-------------------------------------------------------
 data Scope = Scope {
     local :: Env
-  , global :: Env
   , near :: Env
+  , global :: Env
   } deriving (Show)
 data Ret a = Ok { ret :: a, scope :: Scope }
            | Fail { messgage :: String, scope :: Scope }
@@ -453,9 +453,7 @@ ev (Stmt lines) = exec lines
 ev x@(Error _) = return x
 ev ast = error $ "yet: '" ++ (show ast) ++ "'"
 
-eval env ast = case runEval (ev ast) Scope { global = env, local = [], near = [] } of
-  Ok a e -> a
-  Fail m e -> Error m
+eval env ast = runEval (ev ast) Scope { global = env, local = [], near = [] }
 
 
 
@@ -492,22 +490,6 @@ fmt (Error msg) = "ERROR(" ++ msg ++ ")"
 fmt_env xs = (join "  " (map tie xs))
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
-
-dump src = do
-  line "ast: " $ fmt ast
-  line "ret: " $ fmt ret
-  dump_env env
-  line "src: " $ src
- where
-  env = parse src
-  ast = snd $ env !! 0
-  ret = eval env ast
-  line title body = do
-    putStr title
-    putStrLn body
-
-dump_env env = do
-  mapM_ (\(name, ast) -> putStrLn $ "env: " ++ name ++ "\t| " ++ (show ast)) env
 
 debug x = do
   trace (show x) (return 0)

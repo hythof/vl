@@ -100,8 +100,8 @@ main = do
     ])
   stmt_code = unlines [
       "stmt a b ="
-    , "  v = a + b"
-    , "  z = add(add(a b) v)"
+    , "  x = a + b"
+    , "  z = add(add(a b) x)"
     , "  z"
     , "add x y = x + y"
     , "update a ="
@@ -131,20 +131,31 @@ main = do
   test common ((expect, src):rest) = do
     run_test expect $ "main = " ++ src ++ "\n" ++ common
     test common rest
-  run_test expect src = if expect == act
-    then putStr "."
-    else do
-      putStrLn ""
-      putStrLn $ "expect: " ++ expect
-      putStrLn $ "actual: " ++ act
-      putStrLn $ "   ast: " ++ show ret
-      dump src
-      fail $ "failed test"
+  run_test expect src = case eval env ast of
+    Ok a scope -> if expect == fmt a
+      then putStr "."
+      else test_failed a scope
+    Fail m scope -> run_failed m scope
    where
     env = parse src
     ast = snd $ env !! 0
-    ret = eval env ast
-    act = (fmt ret) ++ err
-    err = case lookup "err" env of
-      Just e  -> fmt e
-      Nothing -> ""
+    test_failed actual scope = do
+      putStrLn ""
+      putStrLn $ "expect: " ++ expect
+      putStrLn $ "actual: " ++ fmt actual
+      putStrLn $ "   ast: " ++ show actual
+      putStrLn $ dump_scope scope
+      fail $ "failed test"
+    run_failed reason scope = do
+      putStrLn ""
+      putStrLn $ "reason: " ++ reason
+      putStrLn $ "  main: " ++ show ast
+      putStrLn $ dump_scope scope
+      fail $ "failed execution"
+    dump_env title [] = title ++ ": (empty)\n"
+    dump_env title xs = title ++ ":\n  " ++ (join "\n  " (map tie xs)) ++ "\n"
+     where
+      tie (k, v) = k ++ "\t= " ++ (fmt v)
+    dump_scope (Scope local near global) = dump_env "local" local ++
+      dump_env "near" near ++
+      dump_env "global" global
