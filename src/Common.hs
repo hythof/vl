@@ -28,8 +28,6 @@ data AST =
   | Match [([AST], AST)]
   | Stmt [(String, AST)] [(String, AST)] -- variables, statements
   | Update String String AST -- variable, op code, ast
--- runtime only
-  | Error String
   deriving (Show, Eq, Ord)
 
 type Env = [(String, AST)]
@@ -355,21 +353,21 @@ ev (List xs) = List <$> mapM ev xs
 ev (Op2 op left right) = do
   el <- ev left
   er <- ev right
-  return $ f op el er
+  f op el er
  where
-  f "||" (Bool False) er  = er
-  f "||" (Bool True) _   = Bool True
-  f "+" (Int l) (Int r) = Int $ l + r
-  f "-" (Int l) (Int r) = Int $ l - r
-  f "*" (Int l) (Int r) = Int $ l * r
-  f "/" (Int l) (Int r) = Int $ truncate $ (fromIntegral l) / (fromIntegral r)
-  f "+" (Real l) (Real r) = Real $ l + r
-  f "-" (Real l) (Real r) = Real $ l - r
-  f "*" (Real l) (Real r) = Real $ l * r
-  f "/" (Real l) (Real r) = Real $ l / r
-  f "." (String l) (String r) = String $ l ++ r
-  f "++" (List l) (List r) = List $ l ++ r
-  f op l r = Error $ "fail op: " ++ op ++ "\n- left: " ++ (show l) ++ "\n- right: " ++ (show r)
+  f "||" (Bool False) er  = return er
+  f "||" (Bool True) _   = return $ Bool True
+  f "+" (Int l) (Int r) = return $ Int $ l + r
+  f "-" (Int l) (Int r) = return $ Int $ l - r
+  f "*" (Int l) (Int r) = return $ Int $ l * r
+  f "/" (Int l) (Int r) = return $ Int $ truncate $ (fromIntegral l) / (fromIntegral r)
+  f "+" (Real l) (Real r) = return $ Real $ l + r
+  f "-" (Real l) (Real r) = return $ Real $ l - r
+  f "*" (Real l) (Real r) = return $ Real $ l * r
+  f "/" (Real l) (Real r) = return $ Real $ l / r
+  f "." (String l) (String r) = return $ String $ l ++ r
+  f "++" (List l) (List r) = return $ List $ l ++ r
+  f op l r = fail $ "fail op: " ++ op ++ "\n- left: " ++ (show l) ++ "\n- right: " ++ (show r)
 ev (Dot target name apply_args) = do
   args <- mapM ev apply_args
   ret <- ev target
@@ -441,7 +439,6 @@ ev (Stmt env lines) = with_local (exec lines) env
       ast -> do
         v <- ev ast
         with_local (exec lines) [(assign, v)]
-ev x@(Error _) = return x
 ev ast = error $ "yet: '" ++ (show ast) ++ "'"
 
 eval env ast = runEval (ev ast) Scope { global = env, local = [] }
@@ -477,7 +474,6 @@ fmt (Struct fields) = "(" ++ (fmt_env fields) ++ ")"
 fmt (Enum tag (Struct [])) = tag
 fmt (Enum tag val) = tag ++ (fmt val)
 fmt (Void) = "_"
-fmt (Error msg) = "ERROR(" ++ msg ++ ")"
 fmt_env xs = (join "  " (map tie xs))
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
