@@ -34,6 +34,7 @@ main = do
     , ("many", "m(1.0)")
     , ("many", "m(true)")
     , ("many", "m(\"s\")")
+    , ("1", "m(\"s\").length")
     ]
   test enum_match_code [
       ("1", "m(ast.int(1))")
@@ -46,9 +47,9 @@ main = do
     , ("99", "assign(0)")
     ]
   test state_code [
-      ("val", "parser(\"val\").src")
-    , ("true", "t(1)")
+      ("true", "t(1)")
     , ("false", "f(1)")
+    , ("val", "parser(\"val\").src")
     , ("v", "parser(\"val\").satisfy(t)")
     , ("parser.miss_error", "parser(\"val\").satisfy(f)")
     ]
@@ -144,18 +145,11 @@ main = do
       putStrLn $ "expect: " ++ expect
       putStrLn $ "actual: " ++ fmt actual
       putStrLn $ "   ast: " ++ show actual
-      putStrLn $ dump_scope scope
+      putStrLn $ fmt_scope scope
       fail $ "failed test"
     run_failed reason scope = do
       putStrLn ""
       putStrLn $ "reason: " ++ reason
       putStrLn $ "  main: " ++ show ast
-      putStrLn $ dump_scope scope
+      putStrLn $ fmt_scope scope
       fail $ "failed execution"
-    dump_env title [] = title ++ ": (empty)\n"
-    dump_env title xs = title ++ ":\n  " ++ (join "\n  " (map tie xs)) ++ "\n"
-     where
-      tie (k, v) = k ++ "\t= " ++ (fmt v)
-    dump_scope (Scope local near global) = dump_env "local" local ++
-      dump_env "near" near ++
-      dump_env "global" global

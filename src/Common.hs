@@ -26,7 +26,7 @@ data AST =
   | Apply AST [AST]
   | Dot AST String [AST]
   | Match [([AST], AST)]
-  | Stmt [(String, AST)]
+  | Stmt [(String, AST)] [(String, AST)] -- variables, statements
   | Update String String AST -- variable, op code, ast
 -- runtime only
   | Error String
@@ -217,7 +217,7 @@ parse_match = do
   body <- parse_exp
   return $ (conds, body)
 
-parse_stmt = Stmt <$> sepBy1 parse_line next_br1
+parse_stmt = Stmt [] <$> sepBy1 parse_line next_br1
  where
   parse_line :: Parser (String, AST)
   parse_line = parse_assign <|> parse_call
@@ -292,7 +292,6 @@ parse_list = List <$> (next_between '[' ']' (many parse_bottom))
 --( Evaluator )-------------------------------------------------------
 data Scope = Scope {
     local :: Env
-  , near :: Env
   , global :: Env
   } deriving (Show)
 data Ret a = Ok { ret :: a, scope :: Scope }
@@ -302,14 +301,16 @@ data Eval a = Eval { runEval :: Scope -> Ret a }
 emap m f = Eval $ \e -> case runEval m e of
   Ok a e -> f a e
   Fail m e -> Fail m e
-emap2 l r f = Eval $ \e -> f (runEval l e) (runEval r e)
 
 instance Functor Eval where
   fmap f m = emap m $ \a e -> Ok (f a) e
 
 instance Applicative Eval where
-  pure a = Eval $ \e -> Ok a e
-  l <*> r = emap2 l r $ \m n -> n {ret = (ret m) (ret n)}
+  pure a = Eval $ \s -> Ok a s
+  l <*> r = do
+    f <- l
+    a <- r
+    return $ f a
 
 instance Monad Eval where
   return = pure
@@ -322,16 +323,17 @@ get_scope = Eval $ \s -> Ok s s
 
 find name = do
   s <- get_scope
-  look name $ local s ++ near s ++ global s
+  look name $ local s ++ global s
 
 look name table = do
   case lookup name table of
     Just x -> ev x
-    Nothing -> fail $ "not found" ++ name ++ " in " ++ (show table)
+    Nothing -> fail $ "not found " ++ name ++ " in " ++ (show table)
 
-puts_local kvs = Eval $ \s -> Ok Void $ s {local = kvs ++ local s}
-puts_global kvs = Eval $ \s -> Ok Void $ s {global = kvs ++ global s}
-puts_near kvs = Eval $ \s -> Ok Void $ s {near = kvs ++ near s}
+with_tmp e f = Eval $ \s -> case runEval e $ f s of
+  Ok a _ -> Ok a s
+  Fail m _ -> Fail m s
+with_local e env = with_tmp e $ \s -> s {local = env ++ local s}
 
 ev :: AST -> Eval AST
 ev x@(Int _) = return x
@@ -372,9 +374,12 @@ ev (Dot target name apply_args) = do
   args <- mapM ev apply_args
   ret <- ev target
   case ret of
-    (Struct fields) -> do
-      body <- look name fields
+    (Struct env) -> do
+      body <- look name env
       ev $ Apply body args
+    (Stmt env stmt) -> do
+      body <- look name env
+      ev $ Stmt env $ ("", Apply body args) : stmt
     (String s) -> case name of
       "length" -> return $ Int $ length s
       _ -> return $ String [s !! (read name :: Int)]
@@ -383,25 +388,11 @@ ev (Apply target apply_args) = do
   args <- mapM ev apply_args
   v <- ev target
   case v of
-    Func fargs (Match conds) -> do
-      puts_local (zip fargs $ map (\(Enum _ v) -> v) args)
-      match conds
-    Func fargs body -> do
-      mapM_ ev apply_args
-      puts_local (zip fargs args)
-      ev body
-    TypeStruct fields -> do
-      let env = zip fields args
-      puts_near env
-      return $ Struct env
-    TypeEnum tag fields -> do
-      let env = zip fields args
-      puts_near env
-      return $ Enum tag $ Struct env
-    TypeState fields state -> do
-      let env = (zip fields args) ++ state
-      puts_near env
-      return $ Struct env
+    Func fargs (Match conds) -> with_local (match conds) $ zip fargs $ map (\(Enum _ v) -> v) args
+    Func fargs body -> with_local (ev body) $ zip fargs args
+    TypeStruct fields -> return $ Struct $ zip fields args
+    TypeEnum tag fields -> return $ Enum tag $ Struct (zip fields args)
+    TypeState fields state -> return $ Stmt ((zip fields args) ++ state) []
     Match conds -> match conds
     other -> return other
  where
@@ -425,7 +416,7 @@ ev (Apply target apply_args) = do
 
 ev (Ref name) = find name
 
-ev (Stmt lines) = exec lines
+ev (Stmt env lines) = with_local (exec lines) env
  where
   exec :: [(String, AST)] -> Eval AST
   exec [("", ast)] = ev ast
@@ -436,24 +427,21 @@ ev (Stmt lines) = exec lines
       Update name op ast -> case op of
         ":=" -> do
           v <- ev ast
-          puts_local [(assign, v)]
-          exec lines
+          with_local (exec lines) [(assign, v)]
         _  -> do
           left <- ev $ Ref name
           let right = ast
           let op2 = take ((length op) - 1) op
           v <- ev $ Op2 op2 left right
-          puts_local [(assign, v)]
-          exec lines
+          with_local (exec lines) [(assign, v)]
        where
       ast -> do
         v <- ev ast
-        puts_local [(assign, v)]
-        exec lines
+        with_local (exec lines) [(assign, v)]
 ev x@(Error _) = return x
 ev ast = error $ "yet: '" ++ (show ast) ++ "'"
 
-eval env ast = runEval (ev ast) Scope { global = env, local = [], near = [] }
+eval env ast = runEval (ev ast) Scope { global = env, local = [] }
 
 
 
@@ -475,7 +463,7 @@ fmt (Ref s) = s
 fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
 fmt (Dot ast name args) = (fmt ast) ++ "." ++ name ++ (show args)
 fmt (Apply body args) = (fmt body) ++ "(" ++ (join " " (map fmt args)) ++ ")"
-fmt (Stmt ls) = "stmt: " ++ (show ls)
+fmt (Stmt env stmt) = "stmt: " ++ (show env) ++ "  " ++ (show stmt) 
 fmt (Update name op ast) = name ++ op ++ (fmt ast)
 fmt (Return ast) = "return: " ++ (fmt ast)
 fmt (Match m) = "match: " ++ (show m)
@@ -490,6 +478,12 @@ fmt (Error msg) = "ERROR(" ++ msg ++ ")"
 fmt_env xs = (join "  " (map tie xs))
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
+fmt_scope (Scope local global) = fmt_env "local" local ++
+  fmt_env "global" global
+ where
+  fmt_env title [] = title ++ ": (empty)\n"
+  fmt_env title xs = title ++ ":\n  " ++ (join "\n  " (map tie xs)) ++ "\n"
+  tie (k, v) = k ++ "\t= " ++ (fmt v)
 
 debug x = do
   trace (show x) (return 0)

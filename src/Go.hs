@@ -9,13 +9,13 @@ main = do
   let env = parse src
   let ret = eval env $ (Apply (Ref "compile") [String sample])
   case ret of
-    String go_src -> do
+    Ok (String go_src) _ -> do
       let path = "/tmp/tmp.go"
       writeFile path $ go_layout ++ go_src
       runCommand $ "go run " ++ path
-    ret -> do
-      dump_env env
-      print $ show ret
+    Fail m scope -> do
+      putStrLn m
+      putStrLn $ fmt_scope scope
       fail "Compile Error"
 
  where
