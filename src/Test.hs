@@ -52,7 +52,7 @@ main = do
     , ("false", "f(1)")
     , ("val", "parser(\"val\").src")
     , ("v", "parser(\"val\").satisfy(t)")
-    , ("parser.miss_error", "parser(\"val\").satisfy(f)")
+    , ("parser.miss", "parser(\"val\").satisfy(f)")
     ]
   putStrLn "ok"
  where
@@ -134,7 +134,7 @@ main = do
     run_test expect $ "main = " ++ src ++ "\n" ++ common
     test common rest
   run_test expect src = case eval env ast of
-    Ok a scope -> if expect == fmt a
+    Success a scope -> if expect == fmt a
       then putStr "."
       else test_failed a scope
     Fail m scope -> run_failed m scope

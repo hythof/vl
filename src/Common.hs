@@ -146,7 +146,7 @@ make_ref s = Ref s
 
 -- parser
 parse :: String -> Env
-parse input = case runParser parse_root (trim input) of
+parse input = case runParser parse_root (trim input ++ "\n") of
   Hit env ""   -> env
   Hit env left -> env ++ [("err", String $ "left: " ++ left)]
   Miss m       -> [("err", String m)]
@@ -160,32 +160,23 @@ parse_define :: Parser (String, AST)
 parse_define = do
   name <- next_id
   case name of
-    "struct" -> def_struct
-    "enum"   -> def_enum
-    "state"  -> def_state
+    "struct" -> parse_def def_struct
+    "enum"   -> parse_def def_enum
+    "state"  -> parse_def def_state
     _        -> def_func name
  where
-  def_struct = do
+  parse_def f = do
     name <- next_id
-    many next_type -- TODO: generics
+    many next_type
     next_char ':'
-    fields <- many1 (next_br1 >> def_line)
-    return (name, TypeStruct fields)
-  def_enum = do
-    name <- next_id
-    many next_type -- TODO: generics
-    next_char ':'
-    fields <- many1 (next_br1 >> enum_line name)
-    return (name, Struct fields)
-  def_state = do
-    name <- next_id
-    many next_type -- TODO: generics
-    next_char ':'
-    fields <- many1 (next_br1 >> def_line)
-    exception_names <- many $ do { next_br1; name <- next_id; look_ahead next_br; return name }
-    let exceptions = map (\x -> (x, Return $ Enum (name ++ "." ++ x) $ String "_error")) exception_names
+    fields <- many (next_br1 >> def_line)
+    enums <- many (next_br1 >> enum_line name)
     funcs <- many $ do { next_br1; name <- next_id; def_func name }
-    return (name, TypeState fields $ exceptions ++ funcs)
+    return (name, f name fields enums funcs)
+  def_struct _ fields _ _ = TypeStruct fields
+  def_enum _ _ enums _ = Struct enums
+  def_state name fields enums funcs = TypeState fields $ funcs ++ (
+    map (\(x, _) -> (x, Return $ Enum (name ++ "." ++ x) Void)) enums)
   def_func name = do
     args <- many next_id
     next_char '='
@@ -198,6 +189,7 @@ parse_define = do
   enum_line prefix = do
     name <- next_id
     fields <- option [] enum_fields
+    look_ahead (next_char '\n')
     let tag = prefix ++ "." ++ name
     return (name, TypeEnum tag fields)
   enum_fields = do
@@ -238,9 +230,7 @@ parse_op2 = do
   o <- option "" next_op2
   case o of
     "" -> return l
-    _ -> do
-      r <- parse_exp
-      return $ Op2 o l r
+    _ -> Op2 o l <$> parse_exp
 
 parse_bottom :: Parser AST
 parse_bottom = do
@@ -292,19 +282,19 @@ data Scope = Scope {
     local :: Env
   , global :: Env
   } deriving (Show)
-data Ret a = Ok { ret :: a, scope :: Scope }
+data Ret a = Success { ret :: a, scope :: Scope }
            | Fail { messgage :: String, scope :: Scope }
 data Eval a = Eval { runEval :: Scope -> Ret a }
 
 emap m f = Eval $ \e -> case runEval m e of
-  Ok a e -> f a e
+  Success a e -> f a e
   Fail m e -> Fail m e
 
 instance Functor Eval where
-  fmap f m = emap m $ \a e -> Ok (f a) e
+  fmap f m = emap m $ \a e -> Success (f a) e
 
 instance Applicative Eval where
-  pure a = Eval $ \s -> Ok a s
+  pure a = Eval $ \s -> Success a s
   l <*> r = do
     f <- l
     a <- r
@@ -315,9 +305,8 @@ instance Monad Eval where
   m >>= f = emap m $ \r e -> runEval (f r) e
   fail m = Eval $ \e -> Fail m e
 
-
 get_scope :: Eval Scope
-get_scope = Eval $ \s -> Ok s s
+get_scope = Eval $ \s -> Success s s
 
 find name = do
   s <- get_scope
@@ -328,10 +317,9 @@ look name table = do
     Just x -> ev x
     Nothing -> fail $ "not found " ++ name ++ " in " ++ (show table)
 
-with_tmp e f = Eval $ \s -> case runEval e $ f s of
-  Ok a _ -> Ok a s
+with_local e env = Eval $ \s -> case runEval e $ s { local = env ++ local s } of
+  Success a _ -> Success a s
   Fail m _ -> Fail m s
-with_local e env = with_tmp e $ \s -> s {local = env ++ local s}
 
 ev :: AST -> Eval AST
 ev x@(Int _) = return x
@@ -372,12 +360,8 @@ ev (Dot target name apply_args) = do
   args <- mapM ev apply_args
   ret <- ev target
   case ret of
-    (Struct env) -> do
-      body <- look name env
-      ev $ Apply body args
-    (Stmt env stmt) -> do
-      body <- look name env
-      ev $ Stmt env $ ("", Apply body args) : stmt
+    (Struct env) -> look name env >>= \body -> ev $ Apply body args
+    (Stmt env stmt) -> look name env >>= \body -> ev $ Stmt env $ ("", Apply body args) : stmt
     (String s) -> case name of
       "length" -> return $ Int $ length s
       _ -> return $ String [s !! (read name :: Int)]
@@ -422,23 +406,14 @@ ev (Stmt env lines) = with_local (exec lines) env
   exec :: [(String, AST)] -> Eval AST
   exec [("", ast)] = ev ast
   exec ((assign, ast):lines) = do
+    let local a = do { v <- ev a; with_local (exec lines) [(assign, v)] }
     v <- ev ast
     case v of
       Return ast -> ev ast
-      Update name op ast -> case op of
-        ":=" -> do
-          v <- ev ast
-          with_local (exec lines) [(assign, v)]
-        _  -> do
-          left <- ev $ Ref name
-          let right = ast
-          let op2 = take ((length op) - 1) op
-          v <- ev $ Op2 op2 left right
-          with_local (exec lines) [(assign, v)]
-       where
-      ast -> do
-        v <- ev ast
-        with_local (exec lines) [(assign, v)]
+      Update name op ast -> local $ case op of
+        ":=" -> ast
+        _  -> Op2 (tail op) (Ref name) ast
+      ast -> local ast
 ev ast = error $ "yet: '" ++ (show ast) ++ "'"
 
 eval env ast = runEval (ev ast) Scope { global = env, local = [] }
@@ -472,11 +447,14 @@ fmt (TypeEnum tag fields) = "enum." ++ tag ++ "(" ++ (join ":" fields) ++ ")"
 fmt (TypeState fields state) = "state(" ++ (join " " fields) ++ ";  " ++ (fmt_env state) ++ ")"
 fmt (Struct fields) = "(" ++ (fmt_env fields) ++ ")"
 fmt (Enum tag (Struct [])) = tag
+fmt (Enum tag Void) = tag
 fmt (Enum tag val) = tag ++ (fmt val)
 fmt (Void) = "_"
+
 fmt_env xs = (join "  " (map tie xs))
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
+
 fmt_scope (Scope local global) = fmt_env "local" local ++
   fmt_env "global" global
  where
