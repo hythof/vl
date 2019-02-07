@@ -34,7 +34,8 @@ main = do
     , ("many", "m(1.0)")
     , ("many", "m(true)")
     , ("many", "m(\"s\")")
-    , ("1", "m(\"s\").length")
+    , ("3", "m(1).length")
+    , ("4", "m(0).length")
     ]
   test enum_match_code [
       ("1", "m(ast.int(1))")

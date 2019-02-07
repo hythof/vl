@@ -383,26 +383,27 @@ ev (Dot target name apply_args) = do
     (String s) -> case name of
       "length" -> return $ Int $ length s
       _ -> return $ String [s !! (read name :: Int)]
+    (Enum tag _) -> fail $ "can't touch tagged value: " ++ tag ++ "." ++ name
     ast -> fail $ "not found1 " ++ name ++ " in " ++ (show ast)
+ev (Apply target []) = ev target
 ev (Apply target apply_args) = do
   args <- mapM ev apply_args
   v <- ev target
   case v of
-    Func fargs (Match conds) -> with_local (match conds) $ zip fargs $ map (\(Enum _ v) -> v) args
+    Func fargs (Match conds) -> with_local (match conds args) $ zip fargs $ map untag args
     Func fargs body -> with_local (ev body) $ zip fargs args
     TypeStruct fields -> return $ Struct $ zip fields args
     TypeEnum tag fields -> return $ Enum tag $ Struct (zip fields args)
     TypeState fields state -> return $ Stmt ((zip fields args) ++ state) []
-    Match conds -> match conds
-    other -> return other
+    Match conds -> match conds args
+    other -> fail $ "invalid apply: " ++ show other ++ " with " ++ show args
  where
-  match :: [([AST], AST)] -> Eval AST
-  match all_conds = _match all_conds
+  match :: [([AST], AST)] -> [AST] -> Eval AST
+  match all_conds args = _match all_conds
    where
     _match :: [([AST], AST)] -> Eval AST
     _match [] = fail $ "can't match " ++ (show all_conds) ++ " == " ++ (show apply_args) ++ " from " ++ (show target)
     _match ((conds, body):rest) = do
-      args <- mapM ev apply_args
       if conds `equals` args
         then ev body
         else _match rest
@@ -413,6 +414,8 @@ ev (Apply target apply_args) = do
   equal (Dot (Ref x) y _) (TypeEnum z _) = x ++ "." ++ y == z
   equal (Dot (Ref x) y _) (Enum z _)     = x ++ "." ++ y == z
   equal x y                              = x == y
+  untag (Enum _ ast) = ast
+  untag ast = ast
 
 ev (Ref name) = find name
 
