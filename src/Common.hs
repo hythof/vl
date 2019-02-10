@@ -121,7 +121,9 @@ next_between l r c = do
 next_char x = lexeme $ satisfy (== x)
 next_op2 = do
   spaces1
-  op <- (many1 $ some "+-*/|&") <|> (char '.' >> return ".")
+  op <- (many1 $ some "+-*/|&")
+    <|> (char '.' >> return ".")
+    <|> (string "==" >> return "==")
   spaces1
   return op
 next_update_op2 = lexeme $ many1 $ some "+-*/|&:="
@@ -355,6 +357,7 @@ ev (Op2 op left right) = do
   f "/" (Real l) (Real r) = return $ Real $ l / r
   f "." (String l) (String r) = return $ String $ l ++ r
   f "++" (List l) (List r) = return $ List $ l ++ r
+  f "==" l r = return $ Bool $ l == r
   f op l r = fail $ "fail op: " ++ op ++ "\n- left: " ++ (show l) ++ "\n- right: " ++ (show r)
 ev (Dot target name apply_args) = do
   args <- mapM ev apply_args
@@ -365,6 +368,29 @@ ev (Dot target name apply_args) = do
     (String s) -> case name of
       "length" -> return $ Int $ length s
       _ -> return $ String [s !! (read name :: Int)]
+    (List xs) -> case name of
+      "map" -> List <$> (mapM ev $ map (\x -> Apply (args !! 0) [x]) xs)
+      "fold" -> fold_monad (args !! 1) (args !! 0) xs
+      "join" -> return $ String (p_join (args !! 0) xs)
+      "filter" -> List <$> (p_filter (args !! 0) xs [])
+      where
+        fold_monad :: AST -> AST -> [AST] -> Eval AST
+        fold_monad _ ast [] = return ast
+        fold_monad func left (right:rest) = do
+          ast <- ev $ Apply func [left, right]
+          fold_monad func ast rest
+        p_filter :: AST -> [AST] -> [AST] -> Eval [AST]
+        p_filter _ [] acc = return $ reverse acc
+        p_filter f@(Func _ _) (x:xs) acc = do
+          ast <- ev $ Apply f [x]
+          case ast of
+            (Bool True) -> p_filter f xs (x : acc)
+            (Bool False) -> p_filter f xs acc
+            _ -> fail $ "not bool: " ++ (show ast)
+        p_join :: AST -> [AST] -> String
+        p_join _ [] = ""
+        p_join _ [(String s)] = s
+        p_join (String glue) ((String l):rest) = l ++ glue ++ (p_join (String glue) rest)
     (Enum tag _) -> fail $ "can't touch tagged value: " ++ tag ++ "." ++ name
     ast -> fail $ "not found1 " ++ name ++ " in " ++ (show ast)
 ev (Apply target []) = ev target
@@ -419,8 +445,7 @@ ev ast = error $ "yet: '" ++ (show ast) ++ "'"
 eval env ast = runEval (ev ast) Scope { global = env, local = [] }
 
 
-
---( Utility )------------------------------------------------------------
+--( Utility )---------------------------------------------------------
 fmt (String s) = escape s
  where
   escape []        = []

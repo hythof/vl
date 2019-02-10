@@ -54,6 +54,13 @@ main = do
     , ("v", "parser(\"val\").satisfy(t)")
     , ("parser.miss", "parser(\"val\").satisfy(f)")
     ]
+  test primitive_code [
+      ("true", "is_l(\"l\")")
+    , ("[2 3 4]", "ai3.map(inc)")
+    , ("6", "ai3.fold(0 add)")
+    , ("h,e,l,l,o", "as3.join(\",\")")
+    , ("[l l]", "as3.filter(is_l)")
+    ]
   putStrLn "ok"
  where
   values_code = unlines [
@@ -128,6 +135,14 @@ main = do
     , "| _ = true"
     , "f _ ="
     , "| _ = false"
+    ]
+  primitive_code = unlines [
+      "a0 = []"
+    , "ai3 = [1 2 3]"
+    , "as3 = [\"h\" \"e\" \"l\" \"l\" \"o\"]"
+    , "inc x = x + 1"
+    , "add x y = x + y"
+    , "is_l s = s == \"l\""
     ]
   test _ [] = return ()
   test common ((expect, src):rest) = do
