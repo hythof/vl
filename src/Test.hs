@@ -148,14 +148,14 @@ main = do
   test common ((expect, src):rest) = do
     run_test expect $ "main = " ++ src ++ "\n" ++ common
     test common rest
-  run_test expect src = case eval env ast of
-    Success a scope -> if expect == fmt a
-      then putStr "."
-      else test_failed a scope
-    Fail m scope -> run_failed m scope
+  run_test expect src = case parse src of
+    Left (msg, env) -> failed_env msg env
+    Right scope -> case evaluate scope (snd $ scope !! 0) of
+      Success a scope -> if expect == fmt a
+        then putStr "."
+        else test_failed a scope
+      Fail msg scope -> failed_eval msg scope
    where
-    env = parse src
-    ast = snd $ env !! 0
     test_failed actual scope = do
       putStrLn ""
       putStrLn $ "expect: " ++ expect
@@ -163,9 +163,13 @@ main = do
       putStrLn $ "   ast: " ++ show actual
       putStrLn $ fmt_scope scope
       fail $ "failed test"
-    run_failed reason scope = do
+    failed_env reason env = do
       putStrLn ""
       putStrLn $ "reason: " ++ reason
-      putStrLn $ "  main: " ++ show ast
+      putStrLn $ fmt_env env
+      fail $ "failed execution"
+    failed_eval reason scope = do
+      putStrLn ""
+      putStrLn $ "reason: " ++ reason
       putStrLn $ fmt_scope scope
       fail $ "failed execution"

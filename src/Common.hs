@@ -139,6 +139,12 @@ next_br = do
   many1 $ some "\r\n"
 next_br1 = next_br >> string "  "
 next_br2 = next_br >> string "    "
+eof = do
+  many $ some " \t\r\n"
+  Parser $ \s -> if s == ""
+    then Hit () s
+    else Miss $ "rest: " ++ s
+
 
 -- make AST
 make_func [] ast   = ast
@@ -147,16 +153,19 @@ make_ref "_" = Void
 make_ref s = Ref s
 
 -- parser
-parse :: String -> Env
+parse :: String -> Either (String, Env) Env
 parse input = case runParser parse_root (trim input ++ "\n") of
-  Hit env ""   -> env
-  Hit env left -> env ++ [("err", String $ "left: " ++ left)]
-  Miss m       -> [("err", String m)]
+  Hit env ""   -> Right env
+  Hit env left -> Left ("left: " ++ (show left), env)
+  Miss m       -> Left (m, [])
  where
   trim s = reverse $ dropWhile (\x -> elem x " \t\r\n") (reverse s)
 
 parse_root :: Parser Env
-parse_root = sepBy parse_define next_br
+parse_root = do
+  ret <- sepBy parse_define next_br
+  eof
+  return ret
 
 parse_define :: Parser (String, AST)
 parse_define = do
@@ -316,33 +325,33 @@ find name = do
 
 look name table = do
   case lookup name table of
-    Just x -> ev x
+    Just x -> eval x
     Nothing -> fail $ "not found " ++ name ++ " in " ++ (show table)
 
 with_local e env = Eval $ \s -> case runEval e $ s { local = env ++ local s } of
   Success a _ -> Success a s
   Fail m _ -> Fail m s
 
-ev :: AST -> Eval AST
-ev x@(Int _) = return x
-ev x@(Real _) = return x
-ev x@(Bool _) = return x
-ev x@(String _) = return x
-ev (Func [] ast) = return ast
-ev x@(Func _ _) = return x
-ev x@(Match _) = return x
-ev x@(TypeStruct _) = return x
-ev (TypeEnum tag []) = return $ Enum tag $ Struct []
-ev x@(TypeEnum _ _) = return x
-ev x@(TypeState _ _) = return x
-ev x@(Struct _) = return x
-ev x@(Enum _ _) = return x
-ev x@(Return _) = return x
-ev x@(Update _ _ _) = return x
-ev (List xs) = List <$> mapM ev xs
-ev (Op2 op left right) = do
-  el <- ev left
-  er <- ev right
+eval :: AST -> Eval AST
+eval x@(Int _) = return x
+eval x@(Real _) = return x
+eval x@(Bool _) = return x
+eval x@(String _) = return x
+eval (Func [] ast) = return ast
+eval x@(Func _ _) = return x
+eval x@(Match _) = return x
+eval x@(TypeStruct _) = return x
+eval (TypeEnum tag []) = return $ Enum tag $ Struct []
+eval x@(TypeEnum _ _) = return x
+eval x@(TypeState _ _) = return x
+eval x@(Struct _) = return x
+eval x@(Enum _ _) = return x
+eval x@(Return _) = return x
+eval x@(Update _ _ _) = return x
+eval (List xs) = List <$> mapM eval xs
+eval (Op2 op left right) = do
+  el <- eval left
+  er <- eval right
   f op el er
  where
   f "||" (Bool False) er  = return er
@@ -359,47 +368,45 @@ ev (Op2 op left right) = do
   f "++" (List l) (List r) = return $ List $ l ++ r
   f "==" l r = return $ Bool $ l == r
   f op l r = fail $ "fail op: " ++ op ++ "\n- left: " ++ (show l) ++ "\n- right: " ++ (show r)
-ev (Dot target name apply_args) = do
-  args <- mapM ev apply_args
-  ret <- ev target
-  case ret of
-    (Struct env) -> look name env >>= \body -> ev $ Apply body args
-    (Stmt env stmt) -> look name env >>= \body -> ev $ Stmt env $ ("", Apply body args) : stmt
-    (String s) -> case name of
-      "length" -> return $ Int $ length s
-      _ -> return $ String [s !! (read name :: Int)]
-    (List xs) -> case name of
-      "map" -> List <$> (mapM ev $ map (\x -> Apply (args !! 0) [x]) xs)
-      "fold" -> fold_monad (args !! 1) (args !! 0) xs
-      "join" -> return $ String (p_join (args !! 0) xs)
-      "filter" -> List <$> (p_filter (args !! 0) xs [])
-      where
-        fold_monad :: AST -> AST -> [AST] -> Eval AST
-        fold_monad _ ast [] = return ast
-        fold_monad func left (right:rest) = do
-          ast <- ev $ Apply func [left, right]
-          fold_monad func ast rest
-        p_filter :: AST -> [AST] -> [AST] -> Eval [AST]
-        p_filter _ [] acc = return $ reverse acc
-        p_filter f@(Func _ _) (x:xs) acc = do
-          ast <- ev $ Apply f [x]
-          case ast of
-            (Bool True) -> p_filter f xs (x : acc)
-            (Bool False) -> p_filter f xs acc
-            _ -> fail $ "not bool: " ++ (show ast)
-        p_join :: AST -> [AST] -> String
-        p_join _ [] = ""
-        p_join _ [(String s)] = s
-        p_join (String glue) ((String l):rest) = l ++ glue ++ (p_join (String glue) rest)
-    (Enum tag _) -> fail $ "can't touch tagged value: " ++ tag ++ "." ++ name
-    ast -> fail $ "not found1 " ++ name ++ " in " ++ (show ast)
-ev (Apply target []) = ev target
-ev (Apply target apply_args) = do
-  args <- mapM ev apply_args
-  v <- ev target
+eval (Dot target name apply_args) = do
+  args <- mapM eval apply_args
+  ret <- eval target
+  case (ret, name, args) of
+    ((Struct env), _, _) -> look name env >>= \body -> eval $ Apply body args
+    ((Stmt env stmt), _, _) -> look name env >>= \body -> eval $ Stmt env $ ("", Apply body args) : stmt
+    ((String s), "length", _) -> return $ Int $ length s
+    ((String s), _, _) -> return $ String [s !! (read name :: Int)]
+    ((List xs), "map", [func]) -> List <$> (mapM eval $ map (\x -> Apply func [x]) xs)
+    ((List xs), "fold", [init, func]) -> fold_monad func init xs
+    ((List xs), "join", [glue]) -> return $ String (p_join glue xs)
+    ((List xs), "filter", [func]) -> List <$> (p_filter func xs [])
+    ((Enum tag _), _, _) -> fail $ "can't touch tagged value: " ++ tag ++ "." ++ name
+    _ -> fail $ "not found1 " ++ name ++ " in " ++ (show ret)
+ where
+   fold_monad :: AST -> AST -> [AST] -> Eval AST
+   fold_monad _ ast [] = return ast
+   fold_monad func left (right:rest) = do
+     ast <- eval $ Apply func [left, right]
+     fold_monad func ast rest
+   p_filter :: AST -> [AST] -> [AST] -> Eval [AST]
+   p_filter _ [] acc = return $ reverse acc
+   p_filter f@(Func _ _) (x:xs) acc = do
+     ast <- eval $ Apply f [x]
+     case ast of
+       (Bool True) -> p_filter f xs (x : acc)
+       (Bool False) -> p_filter f xs acc
+       _ -> fail $ "not bool: " ++ (show ast)
+   p_join :: AST -> [AST] -> String
+   p_join _ [] = ""
+   p_join _ [(String s)] = s
+   p_join (String glue) ((String l):rest) = l ++ glue ++ (p_join (String glue) rest)
+eval (Apply target []) = eval target
+eval (Apply target apply_args) = do
+  args <- mapM eval apply_args
+  v <- eval target
   case v of
     Func fargs (Match conds) -> with_local (match conds args) $ zip fargs $ map untag args
-    Func fargs body -> with_local (ev body) $ zip fargs args
+    Func fargs body -> with_local (eval body) $ zip fargs args
     TypeStruct fields -> return $ Struct $ zip fields args
     TypeEnum tag fields -> return $ Enum tag $ Struct (zip fields args)
     TypeState fields state -> return $ Stmt ((zip fields args) ++ state) []
@@ -413,7 +420,7 @@ ev (Apply target apply_args) = do
     _match [] = fail $ "can't match " ++ (show all_conds) ++ " == " ++ (show apply_args) ++ " from " ++ (show target)
     _match ((conds, body):rest) = do
       if conds `equals` args
-        then ev body
+        then eval body
         else _match rest
   equals [] []         = True
   equals (x:xs) (y:ys) = equal x y && equals xs ys
@@ -425,24 +432,24 @@ ev (Apply target apply_args) = do
   untag (Enum _ ast) = ast
   untag ast = ast
 
-ev (Ref name) = find name
+eval (Ref name) = find name
 
-ev (Stmt env lines) = with_local (exec lines) env
+eval (Stmt env lines) = with_local (exec lines) env
  where
   exec :: [(String, AST)] -> Eval AST
-  exec [("", ast)] = ev ast
+  exec [("", ast)] = eval ast
   exec ((assign, ast):lines) = do
-    let local a = do { v <- ev a; with_local (exec lines) [(assign, v)] }
-    v <- ev ast
+    let local a = do { v <- eval a; with_local (exec lines) [(assign, v)] }
+    v <- eval ast
     case v of
-      Return ast -> ev ast
+      Return ast -> eval ast
       Update name op ast -> local $ case op of
         ":=" -> ast
         _  -> Op2 (tail op) (Ref name) ast
       ast -> local ast
-ev ast = error $ "yet: '" ++ (show ast) ++ "'"
+eval ast = error $ "yet: '" ++ (show ast) ++ "'"
 
-eval env ast = runEval (ev ast) Scope { global = env, local = [] }
+evaluate env ast = runEval (eval ast) Scope { global = env, local = [] }
 
 
 --( Utility )---------------------------------------------------------
