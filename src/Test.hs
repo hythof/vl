@@ -4,6 +4,9 @@ import Debug.Trace (trace)
 import Common
 
 main = do
+  test "" [
+      ("2", "(\"h\" . \"i\").length")
+    ]
   test values_code [
       ("s", "s")
     , ("1", "i")

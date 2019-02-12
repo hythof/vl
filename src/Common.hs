@@ -141,6 +141,7 @@ next_br1 = next_br >> string "  "
 next_br2 = next_br >> string "    "
 eof = do
   many $ some " \t\r\n"
+  (string "__comment__\n" >> (many $ satisfy (const True))) <|> (return "")
   Parser $ \s -> if s == ""
     then Hit () s
     else Miss $ "rest: " ++ s
@@ -250,6 +251,7 @@ parse_bottom = do
     <|> parse_num
     <|> parse_list
     <|> parse_ref
+    <|> next_between '(' ')' parse_exp
   follow part
  where
   follow :: AST -> Parser AST
@@ -330,7 +332,7 @@ look name table = do
 
 with_local e env = Eval $ \s -> case runEval e $ s { local = env ++ local s } of
   Success a _ -> Success a s
-  Fail m _ -> Fail m s
+  Fail m s -> Fail m s
 
 eval :: AST -> Eval AST
 eval x@(Int _) = return x
@@ -378,7 +380,7 @@ eval (Dot target name apply_args) = do
     ((String s), _, _) -> return $ String [s !! (read name :: Int)]
     ((List xs), "map", [func]) -> List <$> (mapM eval $ map (\x -> Apply func [x]) xs)
     ((List xs), "fold", [init, func]) -> fold_monad func init xs
-    ((List xs), "join", [glue]) -> return $ String (p_join glue xs)
+    ((List xs), "join", [String glue]) -> return $ String (p_join glue xs)
     ((List xs), "filter", [func]) -> List <$> (p_filter func xs [])
     ((Enum tag _), _, _) -> fail $ "can't touch tagged value: " ++ tag ++ "." ++ name
     _ -> fail $ "not found1 " ++ name ++ " in " ++ (show ret)
@@ -396,10 +398,11 @@ eval (Dot target name apply_args) = do
        (Bool True) -> p_filter f xs (x : acc)
        (Bool False) -> p_filter f xs acc
        _ -> fail $ "not bool: " ++ (show ast)
-   p_join :: AST -> [AST] -> String
+   p_join :: String -> [AST] -> String
    p_join _ [] = ""
    p_join _ [(String s)] = s
-   p_join (String glue) ((String l):rest) = l ++ glue ++ (p_join (String glue) rest)
+   p_join glue ((String l):rest) = l ++ glue ++ (p_join glue rest)
+   p_join glue (x:rest) = (show x) ++ glue ++ (p_join glue rest)
 eval (Apply target []) = eval target
 eval (Apply target apply_args) = do
   args <- mapM eval apply_args

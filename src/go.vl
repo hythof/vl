@@ -7,7 +7,14 @@ enum ast:
     args [str]
     body ast
 
-parse s = ast.func([] ast.str("hello go world"))
-to_go s =
-| ast.str = `"` . s.value . `"`
-| ast.func = "func vl_main() string { return " . to_go(s.body) . "}"
+struct stmt:
+  name str
+  lines [ast]
+
+parse s = [stmt("main" [ast.func([] ast.str("hello go world"))])]
+to_go funcs = funcs.map(from_func).join("\n")
+from_func func = "func vl_" . func.name . "() string { return " . from_lines(func.lines) . "}"
+from_lines lines = lines.map(from_line).join("\n")
+from_line line =
+| ast.str = `"` . line.value . `"`
+| ast.func = from_line(line.body)
