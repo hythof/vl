@@ -28,6 +28,7 @@ data AST =
   | Match [([AST], AST)]
   | Stmt [(String, AST)] [(String, AST)] -- variables, statements
   | Update String String AST -- variable, op code, ast
+  | Closure [AST] AST
   deriving (Show, Eq, Ord)
 
 type Env = [(String, AST)]
@@ -344,6 +345,7 @@ eval x@(Bool _) = return x
 eval x@(String _) = return x
 eval (Func [] ast) = return ast
 eval x@(Func _ _) = return x
+eval x@(Closure _ _) = return x
 eval x@(Match _) = return x
 eval x@(TypeStruct _) = return x
 eval (TypeEnum tag []) = return $ Enum tag $ Struct []
@@ -386,6 +388,7 @@ eval (Dot target name apply_args) = do
     ((List xs), "join", [String glue]) -> return $ String (p_join glue xs)
     ((List xs), "filter", [func]) -> List <$> (p_filter func xs [])
     ((Enum tag _), _, _) -> fail $ "can't touch tagged value: " ++ tag ++ "." ++ name
+    ((Func _ _), "bind", _) -> return $ Closure args $ ret
     _ -> fail $ "not found1 " ++ name ++ " in " ++ (show ret)
  where
    fold_monad :: AST -> AST -> [AST] -> Eval AST
@@ -413,6 +416,7 @@ eval (Apply target apply_args) = do
   case v of
     Func fargs (Match conds) -> with_local (match conds args) $ zip fargs $ map untag args
     Func fargs body -> with_local (eval body) $ zip fargs args
+    Closure binds ast -> eval $ Apply ast $ binds ++ args
     TypeStruct fields -> return $ Struct $ zip fields args
     TypeEnum tag fields -> return $ Enum tag $ Struct (zip fields args)
     TypeState fields state -> return $ Stmt ((zip fields args) ++ state) []
@@ -423,7 +427,7 @@ eval (Apply target apply_args) = do
   match all_conds args = _match all_conds
    where
     _match :: [([AST], AST)] -> Eval AST
-    _match [] = fail $ "can't match " ++ (show all_conds) ++ " == " ++ (show apply_args) ++ " from " ++ (show target)
+    _match [] = fail $ "can't match " ++ (show all_conds) ++ " == \n" ++ (show apply_args) ++ " from \n" ++ (show target)
     _match ((conds, body):rest) = do
       if conds `equals` args
         then eval body
@@ -493,12 +497,13 @@ fmt_env xs = (join "  " (map tie xs))
  where
   tie (k, v) = k ++ ":" ++ (fmt v)
 
-fmt_scope (Scope local global) = fmt_env "local" local ++
-  fmt_env "global" global
+fmt_scope (Scope local global) = fmt_env "local" local
+  ++ fmt_env "global" global
+  -- "global(detail):\n  " ++ (join "\n  " $ map (tie show) global)
  where
   fmt_env title [] = title ++ ": (empty)\n"
-  fmt_env title xs = title ++ ":\n  " ++ (join "\n  " (map tie xs)) ++ "\n"
-  tie (k, v) = k ++ "\t= " ++ (fmt v)
+  fmt_env title xs = title ++ ":\n  " ++ (join "\n  " (map (tie fmt) xs)) ++ "\n"
+  tie f (k, v) = k ++ "\t= " ++ (f v)
 
 debug x = do
   trace (show x) (return 0)

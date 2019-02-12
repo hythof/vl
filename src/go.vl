@@ -5,16 +5,23 @@ enum ast:
     value str
   func:
     args [str]
+    ret str
     body ast
 
-struct stmt:
+struct define:
   name str
   lines [ast]
 
-parse s = [stmt("main" [ast.func([] ast.str("hello go world"))])]
-to_go funcs = funcs.map(from_func).join("\n")
-from_func func = "func vl_" . func.name . "() string { return " . from_lines(func.lines) . "}"
-from_lines lines = lines.map(from_line).join("\n")
-from_line line =
-| ast.str = `"` . line.value . `"`
-| ast.func = from_line(line.body)
+
+parse s = [define("main" [ast.func([] "str" ast.str("hello go world"))])]
+to_go defines = defines.map(from_define).join("\n")
+from_define define = define.lines.map(from_line.bind(define.name)).join("\n")
+from_line name x =
+| _ ast.str = `"` . x.value . `"`
+| _ ast.func = "func vl_" . name . "() " . to_type(x.ret) . " { return " . from_line(name x.body) . "}"
+
+to_type t =
+| "str" = "string"
+| "int" = "int"
+| "void" = ""
+

@@ -65,6 +65,7 @@ main = do
     , ("6", "ai3.fold(0 add)")
     , ("h,e,l,l,o", "as3.join(\",\")")
     , ("[l l]", "as3.filter(is_l)")
+    , ("3", "add.bind(1)(2)")
     ]
   putStrLn "ok"
  where
