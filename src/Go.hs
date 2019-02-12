@@ -13,7 +13,7 @@ main = do
     Right env -> case evaluate env $ (Apply (Ref "compile") [String sample]) of
       Success (String go_src) _ -> do
         let path = "/tmp/tmp.go"
-        writeFile path $ go_layout ++ go_src
+        writeFile path $ go_layout ++ go_src ++ "\n"
         runCommand $ "go run " ++ path
         return ()
       Fail msg scope -> do

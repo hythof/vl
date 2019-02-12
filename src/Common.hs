@@ -272,11 +272,14 @@ parse_bool = Bool <$> do
     "false" -> return False
     label   -> fail $ "miss " ++ label
 parse_str = (String <$> (fmap trim1 $ next_between '`' '`' (many $ none "`")))
-  <|> (String <$> next_between '"' '"' (many $ none "\""))
+  <|> (String <$> (fmap unescape $ next_between '"' '"' (many $ none "\"")))
  where
   trim1 s = reverse $ _trim1 $ reverse $ _trim1 s
   _trim1 ('\n':s) = s
   _trim1 s        = s
+  unescape [] = []
+  unescape ('\\':('n':xs)) = '\n' : unescape xs
+  unescape (x:xs) = x : unescape xs
 parse_num = do
   spaces
   n <- many1 (some $ '-' : num)
