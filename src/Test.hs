@@ -6,8 +6,11 @@ import Common
 main = do
   test "" [
       ("2", "(\"h\" . \"i\").length")
+    , (" ", "\" \"")
     , ("1\\n", "\"1\n\"")
     , ("2\\n", "\"2\\n\"")
+    , ("3", "1 + \n2")
+    , ("hi", "\"h\" . \n  \"i\"")
     ]
   test values_code [
       ("s", "s")
@@ -65,7 +68,9 @@ main = do
     , ("6", "ai3.fold(0 add)")
     , ("h,e,l,l,o", "as3.join(\",\")")
     , ("[l l]", "as3.filter(is_l)")
+    , ("[l l]", "as3.filter(\nis_l\n)")
     , ("3", "add.bind(1)(2)")
+    , ("3", "add(\n1\n  2\n)")
     ]
   putStrLn "ok"
  where
@@ -78,7 +83,7 @@ main = do
     , "bt = true"
     , "bf = false"
     , "l0 = []"
-    , "l7 = [s i r bt bf add(i i)]"
+    , "l7 = [s i\nr bt bf add(i i)]"
     , "add x y = x + y"
     , "ref = add(1 2)"
     , "sq = `"
@@ -106,7 +111,7 @@ main = do
       "m ="
     , "| 0 = \"zero\""
     , "| 1 = \"one\""
-    , "| _ = \"many\""
+    , "| _ = \"ma\" .\n  \"ny\""
     ]
   enum_match_code = enum_code ++ (unlines [
       "m e ="

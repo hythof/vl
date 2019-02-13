@@ -78,6 +78,7 @@ satisfy f = Parser $ \s -> go s
 
 some xs = satisfy $ \x -> elem x xs
 none xs = satisfy $ \x -> not $ elem x xs
+noop = Parser $ \s -> Hit () s
 
 -- primitive
 char x = satisfy (== x)
@@ -114,18 +115,23 @@ option fallback f = f <|> (return fallback)
 -- helper
 spaces = many $ some " \t"
 spaces1 = many1 $ some " \t"
+parenthesis l r c = do
+  l
+  matches <- many $ (skip_white_spaces >> c)
+  skip_white_spaces
+  r
+  return matches
 next_between l r c = do
   next_char l
-  hit <- lexeme c
+  mathced <- lexeme c
   next_char r
-  return hit
+  return mathced
 next_char x = lexeme $ satisfy (== x)
 next_op2 = do
   spaces1
   op <- (many1 $ some "+-*/|&")
     <|> (char '.' >> return ".")
     <|> (string "==" >> return "==")
-  spaces1
   return op
 next_update_op2 = lexeme $ many1 $ some "+-*/|&:="
 next_id = lexeme $ do
@@ -140,12 +146,13 @@ next_br = do
   many1 $ some "\r\n"
 next_br1 = next_br >> string "  "
 next_br2 = next_br >> string "    "
+skip_white_spaces = many $ some " \t\r\n"
 eof = do
   many $ some " \t\r\n"
   (string "__comment__\n" >> (many $ satisfy (const True))) <|> (return "")
   Parser $ \s -> if s == ""
     then Hit () s
-    else Miss $ "rest: " ++ s
+    else Miss $ "rest: " ++ (show s)
 
 
 -- make AST
@@ -243,7 +250,7 @@ parse_op2 = do
   o <- option "" next_op2
   case o of
     "" -> return l
-    _ -> Op2 o l <$> parse_exp
+    _ -> Op2 o l <$> (skip_white_spaces >> parse_exp)
 
 parse_bottom :: Parser AST
 parse_bottom = do
@@ -260,10 +267,12 @@ parse_bottom = do
     mark <- option ' ' $ some "(."
     case mark of
       ' ' -> return part
-      '(' -> do { args <- many parse_bottom; next_char ')'; follow $ Apply part args }
+      '(' -> do
+        args <- parenthesis noop (char ')') parse_bottom
+        follow $ Apply part args
       '.' -> do
         name <- many1 $ some $ az ++ num
-        args <- option [] $ between (char '(') (next_char ')') $ many parse_bottom
+        args <- option [] $ parenthesis (char '(') (char ')') parse_bottom
         follow $ Dot part name args
 parse_ref = make_ref <$> next_id
 parse_bool = Bool <$> do
@@ -273,7 +282,7 @@ parse_bool = Bool <$> do
     "false" -> return False
     label   -> fail $ "miss " ++ label
 parse_str = (String <$> (fmap trim1 $ next_between '`' '`' (many $ none "`")))
-  <|> (String <$> (fmap unescape $ next_between '"' '"' (many $ none "\"")))
+  <|> (String <$> (fmap unescape $ between (next_char '"') (char '"') (many $ none "\"")))
  where
   trim1 s = reverse $ _trim1 $ reverse $ _trim1 s
   _trim1 ('\n':s) = s
@@ -290,7 +299,7 @@ parse_num = do
   real n = do
     m <- many1 (some $ '-' : num)
     return $ Real (read (n ++ "." ++ m) :: Double)
-parse_list = List <$> (next_between '[' ']' (many parse_bottom))
+parse_list = List <$> parenthesis (next_char '[') (char ']') parse_bottom
 
 
 
@@ -389,6 +398,7 @@ eval (Dot target name apply_args) = do
     ((List xs), "filter", [func]) -> List <$> (p_filter func xs [])
     ((Enum tag _), _, _) -> fail $ "can't touch tagged value: " ++ tag ++ "." ++ name
     ((Func _ _), "bind", _) -> return $ Closure args $ ret
+    ((Int v), "str", _) -> return $ String $ show v
     _ -> fail $ "not found1 " ++ name ++ " in " ++ (show ret)
  where
    fold_monad :: AST -> AST -> [AST] -> Eval AST
@@ -424,7 +434,9 @@ eval (Apply target apply_args) = do
     other -> fail $ "invalid apply: " ++ show other ++ " with " ++ show args
  where
   match :: [([AST], AST)] -> [AST] -> Eval AST
-  match all_conds args = _match all_conds
+  match all_conds args = if all (\x -> (length $ fst x) == (length args)) all_conds
+    then _match all_conds
+    else fail $ "does not match the number of matching" ++ (show all_conds) ++ "\n" ++ (show args)
    where
     _match :: [([AST], AST)] -> Eval AST
     _match [] = fail $ "can't match " ++ (show all_conds) ++ " == \n" ++ (show apply_args) ++ " from \n" ++ (show target)
@@ -498,7 +510,7 @@ fmt_env xs = (join "  " (map tie xs))
   tie (k, v) = k ++ ":" ++ (fmt v)
 
 fmt_scope (Scope local global) = fmt_env "local" local
-  ++ fmt_env "global" global
+  -- ++ fmt_env "global" global
   -- "global(detail):\n  " ++ (join "\n  " $ map (tie show) global)
  where
   fmt_env title [] = title ++ ": (empty)\n"

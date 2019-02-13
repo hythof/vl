@@ -1,27 +1,78 @@
-compile s = to_go(parse(s))
+compile s = c_root(parse(s))
 
 enum ast:
+  int:
+    value int
   str:
     value str
+  ref:
+    reference str
+  op2:
+    type str
+    op str
+    left ast
+    right ast
   func:
-    args [str]
-    ret str
+    type str
+    name str
+    args [arguments]
     body ast
+  call:
+    name str
+    args [ast]
+
+struct argument:
+  name str
+  type str
 
 struct define:
   name str
   lines [ast]
 
 
-parse s = [define("main" [ast.func([] "str" ast.str("hello go world"))])]
-to_go defines = defines.map(from_define).join("\n")
-from_define define = define.lines.map(from_line.bind(define.name)).join("\n")
-from_line name x =
-| _ ast.str = `"` . x.value . `"`
-| _ ast.func = "func vl_" . name . "() " . to_type(x.ret) . " { return " . from_line(name x.body) . "}"
+parse s = [
+  define("main" [
+    ast.func(
+      "str"
+      "main"
+      []
+      ast.op2(
+        "str"
+        "."
+        ast.str("hello go world 1 + 2 = ")
+        ast.call("add" [ast.int(1) ast.int(2)])
+      )
+    )
+    ])
+  define("add" [
+    ast.func(
+      "int"
+      "add"
+      [argument("x" "int") argument("y" "int")]
+      ast.op2("int" "+" ast.ref("x") ast.ref("y"))
+    )
+    ])
+  ]
+c_root defines = defines.map(c_define).join("\n")
+c_define define = define.lines.map(c_ast).join("\n")
+c_ast x =
+| ast.int = x.value.str
+| ast.str = `"` . x.value . `"`
+| ast.ref = x.reference
+| ast.op2 = c_ast(x.left) . " " . c_op(x.op) . " " . c_ast(x.right)
+| ast.call = `"3"`
+| ast.func = "func vl_" . x.name . "(" . c_args(x.args) . ") " . c_type(x.type) .
+  " { return " . c_ast(x.body) . "}"
 
-to_type t =
+c_type t =
 | "str" = "string"
 | "int" = "int"
 | "void" = ""
+| _ = c_type(t.type)
 
+c_args args = args.map(c_arg).join(",")
+c_arg x = x.name . " " . x.type
+
+c_op op =
+| "." = "+"
+| _ = op
