@@ -233,11 +233,12 @@ parse_stmt = Stmt [] <$> sepBy1 parse_line next_br1
   parse_line = parse_assign <|> parse_call
   parse_assign = do
     name <- next_id
+    args <- many next_id
     op <- next_update_op2
-    ast <- parse_exp
+    ast <- (next_br >> parse_matches) <|> parse_exp
     let short_op = take ((length op) - 1) op
     case op of
-      "="  -> return (name, ast)
+      "="  -> return (name, make_func args ast)
       ":=" -> return (name, ast)
       _    -> return (name, Op2 short_op (make_ref name) ast)
   parse_call = do
@@ -396,6 +397,7 @@ eval (Dot target name apply_args) = do
     ((List xs), "fold", [init, func]) -> fold_monad func init xs
     ((List xs), "join", [String glue]) -> return $ String (p_join glue xs)
     ((List xs), "filter", [func]) -> List <$> (p_filter func xs [])
+    ((List s), _, _) -> return $ s !! (read name :: Int)
     ((Enum tag _), _, _) -> fail $ "can't touch tagged value: " ++ tag ++ "." ++ name
     ((Func _ _), "bind", _) -> return $ Closure args $ ret
     ((Int v), "str", _) -> return $ String $ show v
@@ -436,10 +438,10 @@ eval (Apply target apply_args) = do
   match :: [([AST], AST)] -> [AST] -> Eval AST
   match all_conds args = if all (\x -> (length $ fst x) == (length args)) all_conds
     then _match all_conds
-    else fail $ "does not match the number of matching" ++ (show all_conds) ++ "\n" ++ (show args)
+    else fail $ "does not match the number of matching conds=" ++ (show all_conds) ++ "\nargs = " ++ (show args)
    where
     _match :: [([AST], AST)] -> Eval AST
-    _match [] = fail $ "can't match " ++ (show all_conds) ++ " == \n" ++ (show apply_args) ++ " from \n" ++ (show target)
+    _match [] = fail $ "can't match " ++ (show all_conds) ++ " == \n" ++ (show args) ++ " == \n" ++ (show apply_args) ++ " from \n" ++ (show target)
     _match ((conds, body):rest) = do
       if conds `equals` args
         then eval body
@@ -464,6 +466,7 @@ eval (Stmt env lines) = with_local (exec lines) env
  where
   exec :: [(String, AST)] -> Eval AST
   exec [("", ast)] = eval ast
+  exec ((line@(_, Func _ _)):lines) = with_local (exec lines) [line]
   exec ((assign, ast):lines) = do
     let local a = do { v <- eval a; with_local (exec lines) [(assign, v)] }
     v <- eval ast
@@ -473,6 +476,7 @@ eval (Stmt env lines) = with_local (exec lines) env
         ":=" -> ast
         _  -> Op2 (tail op) (Ref name) ast
       ast -> local ast
+
 eval ast = error $ "yet: '" ++ (show ast) ++ "'"
 
 evaluate env ast = runEval (eval ast) Scope { global = env, local = [] }

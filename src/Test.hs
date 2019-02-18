@@ -54,6 +54,7 @@ main = do
     , ("3", "update(1)")
     , ("9", "update(5)")
     , ("99", "assign(0)")
+    , ("1", "local_func(1)")
     ]
   test state_code [
       ("true", "t(1)")
@@ -135,9 +136,15 @@ main = do
     , "assign a ="
     , "  a := 99"
     , "  a"
+    , "local_func x ="
+    , "  add a b = a + b"
+    , "  flip y ="
+    , "  | 0 = 1"
+    , "  | 1 = 0"
+    , "  add(x flip(x))"
     ]
   state_code = unlines [
-      "state parser a:"
+      "state parser:"
     , "  src str"
     , "  miss"
     , "  satisfy f ="

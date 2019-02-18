@@ -55,27 +55,24 @@ parse s = [
     )
     ])
   ]
-c_root defines = defines.map(c_define).join("\n")
-c_define define = define.lines.map(c_ast).join("\n")
-c_ast x =
-| ast.int = x.value.str
-| ast.str = `"` . x.value . `"`
-| ast.ref = x.reference
-| ast.op2 = c_ast(x.left) . c_op(x.op) . c_ast(x.right)
-| ast.call = "strconv.Itoa(" .
-  "v." . x.name . "(" . x.args.map(c_ast).join(", ") . ")" . ")"
-| ast.func = "func (v *vt)" . x.name . "(" . c_args(x.args) . ") " . c_type(x.type) .
-  " { return " . c_ast(x.body) . "}"
 
-c_type t =
-| "str" = "string"
-| "int" = "int"
-| "void" = ""
-| _ = c_type(t.type)
-
-c_args args = args.map(c_arg).join(",")
-c_arg x = x.name . " " . x.type
-
-c_op op =
-| "." = "+"
-| _ = op
+c_root defines =
+  c_ast x =
+  | ast.int = x.value.str
+  | ast.str = `"` . x.value . `"`
+  | ast.ref = x.reference
+  | ast.op2 = c_ast(x.left) . c_op(x.op) . c_ast(x.right)
+  | ast.call = "strconv.Itoa(" .  "v." . x.name . "(" . x.args.map(c_ast).join(", ") . ")" . ")"
+  | ast.func = "func (v *vt)" . x.name . "(" . c_args(x.args) . ") " . c_type(x.type) .  " { return " . c_ast(x.body) . "}"
+  c_type t =
+  | "str" = "string"
+  | "int" = "int"
+  | "void" = ""
+  | _ = c_type(t.type)
+  c_args args = args.map(c_arg).join(",")
+  c_arg x = x.name . " " . x.type
+  c_op op =
+  | "." = "+"
+  | _ = op
+  c_define define = define.lines.map(c_ast).join("\n")
+  defines.map(c_define).join("\n")
