@@ -40,8 +40,8 @@ main = do
     , ("one", "m(1)")
     , ("many", "m(2)")
     , ("many", "m(1.0)")
-    , ("many", "m(true)")
-    , ("many", "m(\"s\")")
+    , ("true", "m(true)")
+    , ("str", "m(\"s\")")
     , ("3", "m(1).length")
     , ("4", "m(0).length")
     ]
@@ -111,6 +111,8 @@ main = do
       "m ="
     , "| 0 = \"zero\""
     , "| 1 = \"one\""
+    , "| true = \"true\""
+    , "| str = \"str\""
     , "| _ = \"ma\" .\n  \"ny\""
     ]
   enum_match_code = enum_code ++ (unlines [

@@ -450,6 +450,10 @@ eval (Apply target apply_args) = do
   equal (Void) _                         = True
   equal (Dot (Ref x) y _) (TypeEnum z _) = x ++ "." ++ y == z
   equal (Dot (Ref x) y _) (Enum z _)     = x ++ "." ++ y == z
+  equal (Ref "str") (String _)           = True
+  equal (Ref "int") (Int _)              = True
+  equal (Ref "bool") (Bool _)            = True
+  equal (Ref "real") (Real _)            = True
   equal x y                              = x == y
   untag (Enum _ ast) = ast
   untag ast = ast
