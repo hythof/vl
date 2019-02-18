@@ -25,8 +25,11 @@ main = do
   go_layout = unlines [
       "package main"
     , "import \"fmt\""
+    , "import \"strconv\""
+    , "type vt struct {}"
     , "func main() {"
-    , "  ret := vl_main()"
+    , "  var v vt"
+    , "  ret := v.main()"
     , "  fmt.Printf(\"%v\\n\", ret)"
     , "}"
     ]

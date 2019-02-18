@@ -15,13 +15,15 @@ enum ast:
   func:
     type str
     name str
-    args [arguments]
+    args [param]
     body ast
   call:
     name str
     args [ast]
+  struct:
+    params [param]
 
-struct argument:
+struct param:
   name str
   type str
 
@@ -48,7 +50,7 @@ parse s = [
     ast.func(
       "int"
       "add"
-      [argument("x" "int") argument("y" "int")]
+      [param("x" "int") param("y" "int")]
       ast.op2("int" "+" ast.ref("x") ast.ref("y"))
     )
     ])
@@ -59,9 +61,10 @@ c_ast x =
 | ast.int = x.value.str
 | ast.str = `"` . x.value . `"`
 | ast.ref = x.reference
-| ast.op2 = c_ast(x.left) . " " . c_op(x.op) . " " . c_ast(x.right)
-| ast.call = `"3"`
-| ast.func = "func vl_" . x.name . "(" . c_args(x.args) . ") " . c_type(x.type) .
+| ast.op2 = c_ast(x.left) . c_op(x.op) . c_ast(x.right)
+| ast.call = "strconv.Itoa(" .
+  "v." . x.name . "(" . x.args.map(c_ast).join(", ") . ")" . ")"
+| ast.func = "func (v *vt)" . x.name . "(" . c_args(x.args) . ") " . c_type(x.type) .
   " { return " . c_ast(x.body) . "}"
 
 c_type t =
