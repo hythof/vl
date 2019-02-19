@@ -132,6 +132,7 @@ next_op2 = do
   op <- (many1 $ some "+-*/|&")
     <|> (char '.' >> return ".")
     <|> (string "==" >> return "==")
+    <|> (string "=>" >> return "=>")
   return op
 next_update_op2 = lexeme $ many1 $ some "+-*/|&:="
 next_id = lexeme $ do
@@ -251,6 +252,8 @@ parse_op2 = do
   o <- option "" next_op2
   case o of
     "" -> return l
+    "=>" -> case l of
+      Ref name -> Func [name] <$> (skip_white_spaces >> parse_exp)
     _ -> Op2 o l <$> (skip_white_spaces >> parse_exp)
 
 parse_bottom :: Parser AST
@@ -269,11 +272,11 @@ parse_bottom = do
     case mark of
       ' ' -> return part
       '(' -> do
-        args <- parenthesis noop (char ')') parse_bottom
+        args <- parenthesis noop (char ')') parse_exp
         follow $ Apply part args
       '.' -> do
         name <- many1 $ some $ az ++ num
-        args <- option [] $ parenthesis (char '(') (char ')') parse_bottom
+        args <- option [] $ parenthesis (char '(') (char ')') parse_exp
         follow $ Dot part name args
 parse_ref = make_ref <$> next_id
 parse_bool = Bool <$> do
@@ -300,7 +303,7 @@ parse_num = do
   real n = do
     m <- many1 (some $ '-' : num)
     return $ Real (read (n ++ "." ++ m) :: Double)
-parse_list = List <$> parenthesis (next_char '[') (char ']') parse_bottom
+parse_list = List <$> parenthesis (next_char '[') (char ']') parse_exp
 
 
 
@@ -438,10 +441,10 @@ eval (Apply target apply_args) = do
   match :: [([AST], AST)] -> [AST] -> Eval AST
   match all_conds args = if all (\x -> (length $ fst x) == (length args)) all_conds
     then _match all_conds
-    else fail $ "does not match the number of matching conds=" ++ (show all_conds) ++ "\nargs = " ++ (show args)
+    else fail $ "does not match the number of matching\nconds=" ++ (show $ map fst all_conds) ++ "\nargs = " ++ (show args)
    where
     _match :: [([AST], AST)] -> Eval AST
-    _match [] = fail $ "can't match " ++ (show all_conds) ++ " == \n" ++ (show args) ++ " == \n" ++ (show apply_args) ++ " from \n" ++ (show target)
+    _match [] = fail $ "can't match\nconds = " ++ (show $ map fst all_conds) ++ "\n == " ++ (show args) ++ "\n == " ++ (show apply_args) ++ "\nfrom \n" ++ (show target)
     _match ((conds, body):rest) = do
       if conds `equals` args
         then eval body

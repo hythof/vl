@@ -10,6 +10,7 @@ main = do
     , ("1\\n", "\"1\n\"")
     , ("2\\n", "\"2\\n\"")
     , ("3", "1 + \n2")
+    , ("3", "(a => a + 1)(2)")
     , ("hi", "\"h\" . \n  \"i\"")
     ]
   test values_code [
@@ -72,6 +73,7 @@ main = do
     , ("[l l]", "as3.filter(\nis_l\n)")
     , ("3", "add.bind(1)(2)")
     , ("3", "add(\n1\n  2\n)")
+    , ("3", "id(x => x)(3)")
     ]
   putStrLn "ok"
  where
@@ -163,6 +165,7 @@ main = do
     , "inc x = x + 1"
     , "add x y = x + y"
     , "is_l s = s == \"l\""
+    , "id x = x"
     ]
   test _ [] = return ()
   test common ((expect, src):rest) = do
