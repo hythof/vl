@@ -10,10 +10,6 @@ data AST =
   | Int Int
   | Real Double
   | Bool Bool
--- type
-  | TypeStruct [String] -- field names
-  | TypeEnum String [String] -- tag, field names
-  | TypeState [String] [(String, AST)] -- field names, scope
 -- container
   | List [AST]
   | Struct [(String, AST)]
@@ -194,10 +190,12 @@ parse_define = do
     enums <- many (next_br1 >> enum_line name)
     funcs <- many $ do { next_br1; name <- next_id; def_func name }
     return (name, f name fields enums funcs)
-  def_struct _ fields _ _ = TypeStruct fields
+  def_struct _ fields _ _ = Func fields $ Struct []
   def_enum _ _ enums _ = Struct enums
-  def_state name fields enums funcs = TypeState fields $ funcs ++ (
-    map (\(x, _) -> (x, Return $ Enum (name ++ "." ++ x) Void)) enums)
+  def_state name fields enums funcs = Func fields (Stmt defs [])
+    where
+      defs = funcs ++ (map emap enums)
+      emap (x, _) = (x, Return $ Enum (name ++ "." ++ x) Void)
   def_func name = do
     args <- many next_id
     next_char '='
@@ -212,7 +210,7 @@ parse_define = do
     fields <- option [] enum_fields
     look_ahead (next_char '\n')
     let tag = prefix ++ "." ++ name
-    return (name, TypeEnum tag fields)
+    return (name, Func fields $ Enum tag Void)
   enum_fields = do
     next_char ':'
     many1 (next_br2 >> def_line)
@@ -352,6 +350,7 @@ with_local e env = Eval $ \s -> case runEval e $ s { local = env ++ local s } of
   Fail m s -> Fail m s
 
 eval :: AST -> Eval AST
+eval x@(Void) = return x
 eval x@(Int _) = return x
 eval x@(Real _) = return x
 eval x@(Bool _) = return x
@@ -360,10 +359,6 @@ eval (Func [] ast) = return ast
 eval x@(Func _ _) = return x
 eval x@(Closure _ _) = return x
 eval x@(Match _) = return x
-eval x@(TypeStruct _) = return x
-eval (TypeEnum tag []) = return $ Enum tag $ Struct []
-eval x@(TypeEnum _ _) = return x
-eval x@(TypeState _ _) = return x
 eval x@(Struct _) = return x
 eval x@(Enum _ _) = return x
 eval x@(Return _) = return x
@@ -429,12 +424,12 @@ eval (Apply target apply_args) = do
   args <- mapM eval apply_args
   v <- eval target
   case v of
+    Func fargs (Stmt state []) -> return $ Stmt ((zip fargs args) ++ state) []
+    Func fargs (Struct fields) -> return $ Struct (zip fargs args)
     Func fargs (Match conds) -> with_local (match conds args) $ zip fargs args
+    Func fargs (Enum tag _) -> return $ Enum tag $ Struct (zip fargs args)
     Func fargs body -> with_local (eval body) $ zip fargs args
     Closure binds ast -> eval $ Apply ast $ binds ++ args
-    TypeStruct fields -> return $ Struct $ zip fields args
-    TypeEnum tag fields -> return $ Enum tag $ Struct (zip fields args)
-    TypeState fields state -> return $ Stmt ((zip fields args) ++ state) []
     Match conds -> match conds args
     other -> fail $ "invalid apply: " ++ show other ++ " with " ++ show args
  where
@@ -452,14 +447,13 @@ eval (Apply target apply_args) = do
   equals [] []         = True
   equals (x:xs) (y:ys) = equal x y && equals xs ys
   equals _ _           = False
-  equal (Void) _                         = True
-  equal (Dot (Ref x) y _) (TypeEnum z _) = x ++ "." ++ y == z
-  equal (Dot (Ref x) y _) (Enum z _)     = x ++ "." ++ y == z
-  equal (Ref "str") (String _)           = True
-  equal (Ref "int") (Int _)              = True
-  equal (Ref "bool") (Bool _)            = True
-  equal (Ref "real") (Real _)            = True
-  equal x y                              = x == y
+  equal (Void) _                     = True
+  equal (Dot (Ref x) y _) (Enum z _) = x ++ "." ++ y == z
+  equal (Ref "str") (String _)       = True
+  equal (Ref "int") (Int _)          = True
+  equal (Ref "bool") (Bool _)        = True
+  equal (Ref "real") (Real _)        = True
+  equal x y                          = x == y
 
 eval (Ref name) = find name
 
@@ -477,8 +471,7 @@ eval (Stmt env lines) = with_local (exec lines) env
         ":=" -> ast
         _  -> Op2 (tail op) (Ref name) ast
       ast -> local ast
-
-eval ast = error $ "yet: '" ++ (show ast) ++ "'"
+  exec x = fail $ show x
 
 evaluate env ast = runEval (eval ast) Scope { global = env, local = [] }
 
@@ -505,9 +498,6 @@ fmt (Stmt env stmt) = "stmt: " ++ (show env) ++ "  " ++ (show stmt)
 fmt (Update name op ast) = name ++ op ++ (fmt ast)
 fmt (Return ast) = "return: " ++ (fmt ast)
 fmt (Match m) = "match: " ++ (show m)
-fmt (TypeStruct fields) = "type(" ++ (join ":" fields) ++ ")"
-fmt (TypeEnum tag fields) = "enum." ++ tag ++ "(" ++ (join ":" fields) ++ ")"
-fmt (TypeState fields state) = "state(" ++ (join " " fields) ++ ";  " ++ (fmt_env state) ++ ")"
 fmt (Struct fields) = "(" ++ (fmt_env fields) ++ ")"
 fmt (Enum tag (Struct [])) = tag
 fmt (Enum tag Void) = tag
