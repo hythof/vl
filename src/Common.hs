@@ -14,7 +14,6 @@ data AST =
   | List [AST]
   | Struct [(String, AST)]
   | Enum String AST
-  | Return AST
 -- expression
   | Func [String] AST
   | Ref String
@@ -23,6 +22,7 @@ data AST =
   | Dot AST String [AST]
   | Match [([AST], AST)]
   | Stmt [(String, AST)] [(String, AST)] -- variables, statements
+  | Return AST
   | Update String String AST -- variable, op code, ast
   | Closure [AST] AST
   deriving (Show, Eq, Ord)

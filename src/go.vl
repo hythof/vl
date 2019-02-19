@@ -1,4 +1,7 @@
-compile s = c_root(parse(s))
+compile s =
+  defines = parse(s)
+  types = defines.map(x => param(x.name x.ast.type))
+  defines.map(define => c_go(types define)).join("\n")
 
 enum ast:
   int:
@@ -20,6 +23,8 @@ enum ast:
   call:
     name str
     args [ast]
+  stmt:
+    lines [ast]
   struct:
     params [param]
 
@@ -29,11 +34,10 @@ struct param:
 
 struct define:
   name str
-  lines [ast]
-
+  ast ast
 
 parse s = [
-  define("main" [
+  define("main"
     ast.func(
       "str"
       "main"
@@ -45,18 +49,18 @@ parse s = [
         ast.call("add" [ast.int(1) ast.int(2)])
       )
     )
-    ])
-  define("add" [
+  )
+  define("add"
     ast.func(
       "int"
       "add"
       [param("x" "int") param("y" "int")]
       ast.op2("int" "+" ast.ref("x") ast.ref("y"))
     )
-    ])
-  ]
+  )
+]
 
-c_root defines =
+c_go types define =
   c_type t =
   | "str" = "string"
   | "int" = "int"
@@ -71,9 +75,9 @@ c_root defines =
   | ast.ref = "int"
   | ast.op2 = op2.type
   | ast.func = t.type
-  | ast.call = defines.filter(x => x.name == t.name).0.lines.0.type
-  | ast.struct = "BUG: struct"
-  | _ = "BUG2"
+  | ast.call = types.filter(x => x.name == t.name).0.type
+  | ast.struct = "BUG1: struct"
+  | _ = "BUG3"
   c_ast x =
   | ast.int = x.value.str
   | ast.str = `"` . x.value . `"`
@@ -81,6 +85,7 @@ c_root defines =
   | ast.op2 = c_op(x.op x.left x.right)
   | ast.call = "v." . x.name . "(" . x.args.map(c_ast).join(", ") . ")"
   | ast.func = "func (v *vt)" . x.name . "(" . c_args(x.args) . ") " . c_type(x.type) .  " { return " . c_ast(x.body) . "}"
+  | ast.stmt = x.lines.map(c_ast).join("\n")
   c_args args = args.map(c_arg).join(",")
   c_arg x = x.name . " " . x.type
   c_op op l r =
@@ -93,8 +98,7 @@ c_root defines =
   | _ "int" "int" = c_ast(v)
   | _ "str" "str" = c_ast(v)
   | _ _ _ = from
-  c_define define = define.lines.map(c_ast).join("\n")
-  defines.map(c_define).join("\n")
+  c_ast(define.ast)
 
 __comment__
   | ast.ref = "BUG:ref(" . t.name . ")"
