@@ -401,7 +401,7 @@ eval (Dot target name apply_args) = do
     ((List xs), "join", [String glue]) -> return $ String (p_join glue xs)
     ((List xs), "filter", [func]) -> List <$> (p_filter func xs [])
     ((List s), _, _) -> return $ s !! (read name :: Int)
-    ((Enum tag _), _, _) -> fail $ "can't touch tagged value: " ++ tag ++ "." ++ name
+    ((Enum _ ast), _, _) -> eval (Dot ast name apply_args)
     ((Func _ _), "bind", _) -> return $ Closure args $ ret
     ((Int v), "str", _) -> return $ String $ show v
     _ -> fail $ "not found1 " ++ name ++ " in " ++ (show ret)
@@ -429,7 +429,7 @@ eval (Apply target apply_args) = do
   args <- mapM eval apply_args
   v <- eval target
   case v of
-    Func fargs (Match conds) -> with_local (match conds args) $ zip fargs $ map untag args
+    Func fargs (Match conds) -> with_local (match conds args) $ zip fargs args
     Func fargs body -> with_local (eval body) $ zip fargs args
     Closure binds ast -> eval $ Apply ast $ binds ++ args
     TypeStruct fields -> return $ Struct $ zip fields args
@@ -460,8 +460,6 @@ eval (Apply target apply_args) = do
   equal (Ref "bool") (Bool _)            = True
   equal (Ref "real") (Real _)            = True
   equal x y                              = x == y
-  untag (Enum _ ast) = ast
-  untag ast = ast
 
 eval (Ref name) = find name
 

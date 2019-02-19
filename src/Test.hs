@@ -31,6 +31,7 @@ main = do
       ("ast.int(value:1)", "ast.int(1)")
     , ("ast.none", "ast.none")
     , ("ast.func(args:[]  body:ast.str(value:hello))", "ast.func([] ast.str(\"hello\"))")
+    , ("1", "ast.int(1).value")
     ]
   test struct_code [
       ("age", "attribute(\"age\" 35).key")

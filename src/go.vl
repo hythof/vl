@@ -6,7 +6,7 @@ enum ast:
   str:
     value str
   ref:
-    reference str
+    name str
   op2:
     type str
     op str
@@ -62,28 +62,39 @@ c_root defines =
   | "int" = "int"
   | "void" = ""
   | ast.func = c_type(t.type)
-  | _ = "BUG"
+  | ast.int = "int"
+  | ast.str = "string"
+  | _ = "BUG1"
+  v_type t =
+  | ast.int = "int"
+  | ast.str = "str"
+  | ast.ref = "int"
+  | ast.op2 = op2.type
+  | ast.func = t.type
+  | ast.call = defines.filter(x => x.name == t.name).0.lines.0.type
+  | ast.struct = "BUG: struct"
+  | _ = "BUG2"
   c_ast x =
   | ast.int = x.value.str
   | ast.str = `"` . x.value . `"`
-  | ast.ref = x.reference
+  | ast.ref = x.name
   | ast.op2 = c_op(x.op x.left x.right)
   | ast.call = "v." . x.name . "(" . x.args.map(c_ast).join(", ") . ")"
   | ast.func = "func (v *vt)" . x.name . "(" . c_args(x.args) . ") " . c_type(x.type) .  " { return " . c_ast(x.body) . "}"
   c_args args = args.map(c_arg).join(",")
   c_arg x = x.name . " " . x.type
   c_op op l r =
-  | "." _ _ = c_cast(c_type(l) "str" l) . "+" . c_cast(c_type(r) "str" r)
-  | "+" _ _ = c_cast(c_type(l) "int" l) . "+" . c_cast(c_type(r) "int" r)
+  | "." _ _ = c_cast(l "str") . "+" . c_cast(r "str")
+  | "+" _ _ = c_cast(l "int") . "+" . c_cast(r "int")
   | _ _ _ = op
-  c_cast from to v =
-  | "int" "str" _ = "strconv.Itoa(" . c_ast(v) . ")"
-  | "int" "int" _ = c_ast(v)
-  | _ _ _ = c_ast(v)
+  c_cast value to = c_cast_to(value v_type(value) to)
+  c_cast_to v from to v =
+  | _ "int" "str" = "strconv.Itoa(" . c_ast(v) . ")"
+  | _ "int" "int" = c_ast(v)
+  | _ "str" "str" = c_ast(v)
+  | _ _ _ = from
   c_define define = define.lines.map(c_ast).join("\n")
   defines.map(c_define).join("\n")
 
 __comment__
-| _ = c_type(t.type)
-| ast.op2 = c_ast(x.left) . c_op(x.op) . c_ast(x.right)
-c_type_of_func name = c_type(defines.filter(x => x.name == name).0.lines.0)
+  | ast.ref = "BUG:ref(" . t.name . ")"
