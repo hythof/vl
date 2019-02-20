@@ -1,7 +1,7 @@
 compile s =
   defines = parse(s)
   types = defines.map(x => param(x.name x.ast.type))
-  defines.map(define => c_go(types define)).join("\n")
+  defines.map(define => c_go(types define.ast)).join("\n")
 
 enum ast:
   int:
@@ -60,7 +60,7 @@ parse s = [
   )
 ]
 
-c_go types define =
+c_go types target =
   c_type t =
   | "str" = "string"
   | "int" = "int"
@@ -72,7 +72,7 @@ c_go types define =
   v_type t =
   | ast.int = "int"
   | ast.str = "str"
-  | ast.ref = "int"
+  | ast.ref = types.filter(x => x.name == t.name).0.type
   | ast.op2 = op2.type
   | ast.func = t.type
   | ast.call = types.filter(x => x.name == t.name).0.type
@@ -84,7 +84,7 @@ c_go types define =
   | ast.ref = x.name
   | ast.op2 = c_op(x.op x.left x.right)
   | ast.call = "v." . x.name . "(" . x.args.map(c_ast).join(", ") . ")"
-  | ast.func = "func (v *vt)" . x.name . "(" . c_args(x.args) . ") " . c_type(x.type) .  " { return " . c_ast(x.body) . "}"
+  | ast.func = "func (v *vt)" . x.name . "(" . c_args(x.args) . ") " . c_type(x.type) .  " { return " . c_go((types ++ x.args) x.body) . "}"
   | ast.stmt = x.lines.map(c_ast).join("\n")
   c_args args = args.map(c_arg).join(",")
   c_arg x = x.name . " " . x.type
@@ -98,7 +98,7 @@ c_go types define =
   | _ "int" "int" = c_ast(v)
   | _ "str" "str" = c_ast(v)
   | _ _ _ = from
-  c_ast(define.ast)
+  c_ast(target)
 
 __comment__
   | ast.ref = "BUG:ref(" . t.name . ")"
