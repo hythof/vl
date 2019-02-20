@@ -1,1 +1,1 @@
-main = "Hello go world. 1 + 2 = " . add(1 2).str
+main = "Hello go world. 1 + 2 = "

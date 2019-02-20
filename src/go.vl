@@ -1,27 +1,22 @@
-compile s =
-  defines = parse(s)
-  types = defines.map(x => param(x.name x.ast.type))
-  defines.map(define => c_go(types define.ast)).join("\n")
-
 enum ast:
   int:
     value int
-  str:
-    value str
+  string:
+    value string
   ref:
-    name str
+    name string
   op2:
-    type str
-    op str
+    type string
+    op string
     left ast
     right ast
   func:
-    type str
-    name str
+    type string
+    name string
     args [param]
     body ast
   call:
-    name str
+    name string
     args [ast]
   stmt:
     lines [ast]
@@ -29,23 +24,28 @@ enum ast:
     params [param]
 
 struct param:
-  name str
-  type str
+  name string
+  type string
 
 struct define:
-  name str
+  name string
   ast ast
+
+compile s =
+  defines = parse(s)
+  types = defines.map(x => param(x.name x.ast.type))
+  defines.map(define => c_go(types define.ast)).join("\n")
 
 parse s = [
   define("main"
     ast.func(
-      "str"
+      "string"
       "main"
       []
       ast.op2(
-        "str"
+        "string"
         "."
-        ast.str("hello go world 1 + 2 = ")
+        ast.string("hello go world 1 + 2 = ")
         ast.call("add" [ast.int(1) ast.int(2)])
       )
     )
@@ -62,16 +62,16 @@ parse s = [
 
 c_go types target =
   c_type t =
-  | "str" = "string"
+  | "string" = "string"
   | "int" = "int"
   | "void" = ""
   | ast.func = c_type(t.type)
   | ast.int = "int"
-  | ast.str = "string"
+  | ast.string = "string"
   | _ = "BUG1"
   v_type t =
   | ast.int = "int"
-  | ast.str = "str"
+  | ast.string = "string"
   | ast.ref = types.filter(x => x.name == t.name).0.type
   | ast.op2 = op2.type
   | ast.func = t.type
@@ -79,8 +79,8 @@ c_go types target =
   | ast.struct = "BUG1: struct"
   | _ = "BUG3"
   c_ast x =
-  | ast.int = x.value.str
-  | ast.str = `"` . x.value . `"`
+  | ast.int = x.value.string
+  | ast.string = `"` . x.value . `"`
   | ast.ref = x.name
   | ast.op2 = c_op(x.op x.left x.right)
   | ast.call = "v." . x.name . "(" . x.args.map(c_ast).join(", ") . ")"
@@ -89,16 +89,38 @@ c_go types target =
   c_args args = args.map(c_arg).join(",")
   c_arg x = x.name . " " . x.type
   c_op op l r =
-  | "." _ _ = c_cast(l "str") . "+" . c_cast(r "str")
+  | "." _ _ = c_cast(l "string") . "+" . c_cast(r "string")
   | "+" _ _ = c_cast(l "int") . "+" . c_cast(r "int")
   | _ _ _ = op
   c_cast value to = c_cast_to(value v_type(value) to)
   c_cast_to v from to v =
-  | _ "int" "str" = "strconv.Itoa(" . c_ast(v) . ")"
+  | _ "int" "string" = "strconv.Itoa(" . c_ast(v) . ")"
   | _ "int" "int" = c_ast(v)
-  | _ "str" "str" = c_ast(v)
+  | _ "string" "string" = c_ast(v)
   | _ _ _ = from
   c_ast(target)
 
 __comment__
-  | ast.ref = "BUG:ref(" . t.name . ")"
+parse s = [
+  define("main"
+    ast.func(
+      "string"
+      "main"
+      []
+      ast.op2(
+        "string"
+        "."
+        ast.string("hello go world 1 + 2 = ")
+        ast.call("add" [ast.int(1) ast.int(2)])
+      )
+    )
+  )
+  define("add"
+    ast.func(
+      "int"
+      "add"
+      [param("x" "int") param("y" "int")]
+      ast.op2("int" "+" ast.ref("x") ast.ref("y"))
+    )
+  )
+]

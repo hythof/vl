@@ -398,7 +398,7 @@ eval (Dot target name apply_args) = do
     ((List s), _, _) -> return $ s !! (read name :: Int)
     ((Enum _ ast), _, _) -> eval (Dot ast name apply_args)
     ((Func _ _), "bind", _) -> return $ Closure args $ ret
-    ((Int v), "str", _) -> return $ String $ show v
+    ((Int v), "string", _) -> return $ String $ show v
     _ -> fail $ "not found1 " ++ name ++ " in " ++ (show ret)
  where
    fold_monad :: AST -> AST -> [AST] -> Eval AST
