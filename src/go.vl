@@ -101,26 +101,15 @@ c_go types target =
   c_ast(target)
 
 __comment__
-parse s = [
-  define("main"
-    ast.func(
-      "string"
-      "main"
-      []
-      ast.op2(
-        "string"
-        "."
-        ast.string("hello go world 1 + 2 = ")
-        ast.call("add" [ast.int(1) ast.int(2)])
-      )
-    )
-  )
-  define("add"
-    ast.func(
-      "int"
-      "add"
-      [param("x" "int") param("y" "int")]
-      ast.op2("int" "+" ast.ref("x") ast.ref("y"))
-    )
-  )
-]
+state parser:
+  src string
+  miss
+  satisfy : int (string bool) string
+  satisfy n f =
+    s = src.slice(0 n)
+    if f(s)
+      src := src.slice(n)
+      return s
+    else
+      throw miss
+    end
