@@ -179,7 +179,7 @@ parse_define = do
   case name of
     "struct" -> parse_def def_struct
     "enum"   -> parse_def def_enum
-    "state"  -> parse_def def_state
+    "flow"   -> parse_def def_flow
     _        -> def_func name
  where
   parse_def f = do
@@ -192,7 +192,7 @@ parse_define = do
     return (name, f name fields enums funcs)
   def_struct _ fields _ _ = Func fields $ Struct []
   def_enum _ _ enums _ = Struct enums
-  def_state name fields enums funcs = Func fields (Stmt defs [])
+  def_flow name fields enums funcs = Func fields (Stmt defs [])
     where
       defs = funcs ++ (map emap enums)
       emap (x, _) = (x, Return $ Enum (name ++ "." ++ x) Void)

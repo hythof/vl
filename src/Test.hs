@@ -59,7 +59,7 @@ main = do
     , ("99", "assign(0)")
     , ("1", "local_func(1)")
     ]
-  test state_code [
+  test flow_code [
       ("true", "t(1)")
     , ("false", "f(1)")
     , ("val", "parser(\"val\").src")
@@ -147,8 +147,8 @@ main = do
     , "  | 1 = 0"
     , "  add(x flip(x))"
     ]
-  state_code = unlines [
-      "state parser:"
+  flow_code = unlines [
+      "flow parser:"
     , "  src str"
     , "  miss"
     , "  satisfy f ="
