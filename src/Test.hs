@@ -141,6 +141,7 @@ main = do
     , "assign a ="
     , "  a := 99"
     , "  a"
+    , "oneline a = a:= 88; a += 12; a"
     , "local_func x ="
     , "  add a b = a + b"
     , "  flip y ="
@@ -196,9 +197,11 @@ main = do
       putStrLn ""
       putStrLn $ "reason: " ++ reason
       putStrLn $ fmt_env env
+      putStrLn $ "   ast: " ++ src
       fail $ "failed execution"
     failed_eval reason scope = do
       putStrLn ""
       putStrLn $ "reason: " ++ reason
       putStrLn $ fmt_scope scope
+      putStrLn $ "   ast: " ++ src
       fail $ "failed execution"

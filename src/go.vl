@@ -41,6 +41,9 @@ step parser:
     c = input.0 | eof
     f(c) || miss("miss match")
     c
+  string s =
+  | [] = true
+  | _ = satisfy(c => c == s.0); string(s.slice(1))
 
 compile s =
   defines = parse(s)

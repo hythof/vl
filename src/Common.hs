@@ -145,7 +145,7 @@ next_type = (next_between '[' ']' next_type)
             <|> next_id
 next_br = do
   many $ some " \t"
-  many1 $ some "\r\n"
+  many1 $ some ";\r\n"
 next_br1 = next_br >> string "  "
 next_br2 = next_br >> string "    "
 skip_white_spaces = many $ some " \t\r\n"
@@ -223,6 +223,7 @@ parse_define = do
     many1 (next_br2 >> def_line)
 
 parse_top = (next_br >> (parse_matches <|> parse_stmt))
+  <|> parse_stmt_one_line
   <|> parse_exp
 
 parse_matches = Match <$> sepBy1 parse_match next_br
@@ -230,26 +231,31 @@ parse_match = do
   next_char '|'
   conds <- many parse_bottom
   next_char '='
-  body <- parse_exp
+  body <- parse_stmt_one_line <|> parse_exp
   return $ (conds, body)
 
 parse_stmt = Stmt [] <$> sepBy1 parse_line next_br1
- where
-  parse_line :: Parser (String, AST)
-  parse_line = parse_assign <|> parse_call
-  parse_assign = do
-    name <- next_id
-    args <- many next_id
-    op <- next_update_op2
-    ast <- (next_br >> parse_matches) <|> parse_exp
-    let short_op = take ((length op) - 1) op
-    case op of
-      "="  -> return (name, make_func args ast)
-      ":=" -> return (name, ast)
-      _    -> return (name, Op2 short_op (make_ref name) ast)
-  parse_call = do
-    ast <- parse_exp
-    return ("", ast)
+parse_line :: Parser (String, AST)
+parse_line = parse_assign <|> parse_call
+  where
+    parse_assign = do
+      name <- next_id
+      args <- many next_id
+      op <- next_update_op2
+      ast <- (next_br >> parse_matches) <|> parse_exp
+      let short_op = take ((length op) - 1) op
+      case op of
+        "="  -> return (name, make_func args ast)
+        ":=" -> return (name, ast)
+        _    -> return (name, Op2 short_op (make_ref name) ast)
+    parse_call = do
+      ast <- parse_exp
+      return ("", ast)
+
+parse_stmt_one_line = do
+  line <- parse_line
+  lines <- many1 (lexeme (char ';') >> parse_line)
+  return $ Stmt [] $ line : lines
 
 parse_exp = parse_op2
 parse_op2 = do
