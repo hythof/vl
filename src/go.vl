@@ -31,6 +31,12 @@ struct define:
   name string
   ast ast
 
+flow parser a:
+  eof
+  miss:
+    reason string
+  input string
+
 compile s =
   defines = parse(s)
   types = defines.map(x => param(x.name x.ast.type))

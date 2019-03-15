@@ -25,6 +25,8 @@ data AST =
   | Return AST
   | Update String String AST -- variable, op code, ast
   | Closure [AST] AST
+-- exception
+  | Exception String
   deriving (Show, Eq, Ord)
 
 type Env = [(String, AST)]
@@ -84,6 +86,11 @@ look_ahead f = Parser $ \s ->
   case runParser f s of
     Hit v _ -> Hit v s
     Miss m  -> Miss m
+look_eol = look_ahead (char '\n')
+read_id = do
+  prefix <- some $ az ++ symbols
+  remaining <- many $ some (az ++ num ++ symbols)
+  return $ prefix : remaining
 
 -- combination
 lexeme f = spaces >> f
@@ -126,15 +133,13 @@ next_char x = lexeme $ satisfy (== x)
 next_op2 = do
   spaces1
   op <- (many1 $ some "+-*/|&")
+    <|> (char '.' >> option "." (read_id))
     <|> (char '.' >> return ".")
     <|> (string "==" >> return "==")
     <|> (string "=>" >> return "=>")
   return op
 next_update_op2 = lexeme $ many1 $ some "+-*/|&:="
-next_id = lexeme $ do
-  prefix <- some $ az ++ symbols
-  remaining <- many $ some (az ++ num ++ symbols)
-  return $ prefix : remaining
+next_id = lexeme $ read_id
 next_type = (next_between '[' ']' next_type)
             <|> (next_between '(' ')' next_type)
             <|> next_id
@@ -186,8 +191,9 @@ parse_define = do
     name <- next_id
     many next_type
     next_char ':'
-    fields <- many (next_br1 >> def_line)
     enums <- many (next_br1 >> enum_line name)
+    fields <- many (next_br1 >> def_line)
+    option () (string $ "\nstep " ++ name ++ ":")
     funcs <- many $ do { next_br1; name <- next_id; def_func name }
     return (name, f name fields enums funcs)
   def_struct _ fields _ _ = Func fields $ Struct []
@@ -204,6 +210,7 @@ parse_define = do
   def_line = do
     name <- next_id
     type_ <- next_type
+    look_eol
     return name
   enum_line prefix = do
     name <- next_id
@@ -350,6 +357,7 @@ with_local e env = Eval $ \s -> case runEval e $ s { local = env ++ local s } of
   Fail m s -> Fail m s
 
 eval :: AST -> Eval AST
+eval x@(Exception _) = return x
 eval x@(Void) = return x
 eval x@(Int _) = return x
 eval x@(Real _) = return x
@@ -382,6 +390,8 @@ eval (Op2 op left right) = do
   f "." (String l) (String r) = return $ String $ l ++ r
   f "++" (List l) (List r) = return $ List $ l ++ r
   f "==" l r = return $ Bool $ l == r
+  f "or" (Exception _) r = return r
+  f "or" l _ = return l
   f op l r = fail $ "fail op: " ++ op ++ "\n- left: " ++ (show l) ++ "\n- right: " ++ (show r)
 eval (Dot target name apply_args) = do
   args <- mapM eval apply_args
@@ -390,12 +400,16 @@ eval (Dot target name apply_args) = do
     ((Struct env), _, _) -> look name env >>= \body -> eval $ Apply body args
     ((Stmt env stmt), _, _) -> look name env >>= \body -> eval $ Stmt env $ ("", Apply body args) : stmt
     ((String s), "length", _) -> return $ Int $ length s
-    ((String s), _, _) -> return $ String [s !! (read name :: Int)]
+    ((String s), _, _) -> if (length s) == 0
+      then return $ Exception "String out of index"
+      else return $ String [s !! (read name :: Int)]
     ((List xs), "map", [func]) -> List <$> (mapM eval $ map (\x -> Apply func [x]) xs)
     ((List xs), "fold", [init, func]) -> fold_monad func init xs
     ((List xs), "join", [String glue]) -> return $ String (p_join glue xs)
     ((List xs), "filter", [func]) -> List <$> (p_filter func xs [])
-    ((List s), _, _) -> return $ s !! (read name :: Int)
+    ((List s), _, _) -> if (length s) == 0
+      then return $ Exception "List out of index"
+      else return $ s !! (read name :: Int)
     ((Enum _ ast), _, _) -> eval (Dot ast name apply_args)
     ((Func _ _), "bind", _) -> return $ Closure args $ ret
     ((Int v), "string", _) -> return $ String $ show v
@@ -431,6 +445,7 @@ eval (Apply target apply_args) = do
     Func fargs body -> with_local (eval body) $ zip fargs args
     Closure binds ast -> eval $ Apply ast $ binds ++ args
     Match conds -> match conds args
+    Return x -> Return <$> eval x
     other -> fail $ "invalid apply: " ++ show other ++ " with " ++ show args
  where
   match :: [([AST], AST)] -> [AST] -> Eval AST

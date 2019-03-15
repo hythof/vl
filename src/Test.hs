@@ -64,6 +64,7 @@ main = do
     , ("false", "f(1)")
     , ("val", "parser(\"val\").src")
     , ("v", "parser(\"val\").satisfy(t)")
+    , ("parser.eof", "parser(\"\").satisfy(f)")
     , ("parser.miss", "parser(\"val\").satisfy(f)")
     ]
   test primitive_code [
@@ -149,11 +150,14 @@ main = do
     ]
   flow_code = unlines [
       "flow parser:"
+    , "  eof"
+    , "  miss:"
+    , "    reason string"
     , "  src str"
-    , "  miss"
+    , "step parser:"
     , "  satisfy f ="
-    , "    c = src.0"
-    , "    f(c) || miss"
+    , "    c = src.0 .or eof"
+    , "    f(c) || miss(\"miss match\")"
     , "    c"
     , "t _ ="
     , "| _ = true"

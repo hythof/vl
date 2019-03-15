@@ -1,1 +1,2 @@
-main = "Hello go world. 1 + 2 = "
+main = "Hello go world. 1 + 2 = " . add(1 2)
+add x y = x + y
