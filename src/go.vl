@@ -36,6 +36,11 @@ flow parser a:
   miss:
     reason string
   input string
+step parser:
+  satisfy f =
+    c = input.0 | eof
+    f(c) || miss("miss match")
+    c
 
 compile s =
   defines = parse(s)
