@@ -38,19 +38,18 @@ flow parser a:
   input string
 step parser:
   satisfy f =
-    c = input.0 | eof
+    c = input.0 .or eof
     f(c) || miss("miss match")
     c
-  string s =
-  | [] = true
-  | _ = satisfy(c => c == s.0); string(s.slice(1))
 
 compile s =
-  defines = parse(s)
+  defines = dummy_parse(s)
   types = defines.map(x => param(x.name x.ast.type))
   defines.map(define => c_go(types define.ast)).join("\n")
 
-parse s = [
+parse s = parser(s).satisfy(c => c == "h")
+
+dummy_parse s = [
   define("main"
     ast.func(
       "string"
@@ -115,6 +114,7 @@ c_go types target =
   c_ast(target)
 
 __comment__
+parse s = parser(s).satisfy(c => c == "h")
 state parser:
   src string
   miss

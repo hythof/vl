@@ -12,6 +12,7 @@ main = do
       putStrLn $ fmt_env env
     Right env -> case evaluate env $ (Apply (Ref "compile") [String sample]) of
       Success (String go_src) _ -> do
+        run_test env
         let path = "/tmp/tmp.go"
         writeFile path $ go_layout ++ go_src ++ "\n"
         runCommand $ "go run " ++ path
@@ -21,15 +22,23 @@ main = do
         putStrLn $ fmt_scope scope
         fail "Compile Error"
 
+go_layout = unlines [
+    "package main"
+  , "import \"fmt\""
+  , "import \"strconv\""
+  , "type vt struct {}"
+  , "func main() {"
+  , "  var v vt"
+  , "  ret := v.main()"
+  , "  fmt.Printf(\"%v\\n\", ret)"
+  , "}"
+  ]
+
+run_test :: Env -> IO ()
+run_test env = do
+  putStrLn $ to_s $ evaluate env (Apply (Ref "parse") [String "hell"])
  where
-  go_layout = unlines [
-      "package main"
-    , "import \"fmt\""
-    , "import \"strconv\""
-    , "type vt struct {}"
-    , "func main() {"
-    , "  var v vt"
-    , "  ret := v.main()"
-    , "  fmt.Printf(\"%v\\n\", ret)"
-    , "}"
-    ]
+  to_s v = case v of
+    Success (String s) _ -> s
+    Success v _ -> show v
+    Fail msg _ -> msg

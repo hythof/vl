@@ -34,30 +34,32 @@ type Env = [(String, AST)]
 
 
 --( Parser )---------------------------------------------------------
-data Result a = Hit { val :: a, src :: String }
-              | Miss { src :: String }
-data Parser a = Parser { runParser :: String -> Result a }
-
-pmap m f = Parser $ \s -> case runParser m s of
-  Hit val src -> f val src
-  Miss msg    -> Miss msg
-pmap2 m n f = Parser $ \s -> f (runParser m s) (runParser n s)
+data Result a = Hit { val :: a, src :: String, indent :: Int }
+              | Miss { src :: String, indent :: Int }
+data Parser a = Parser { runParser :: String -> Int -> Result a }
 
 instance Functor Parser where
-  fmap f m = pmap m $ \val src -> Hit (f val) src
+  fmap f m = Parser $ \s i -> case runParser m s i of
+    h@(Hit _ _ _) -> h { val = f (val h) }
+    Miss msg i -> Miss msg i
 
 instance Applicative Parser where
-  pure v = Parser $ \s -> Hit v s
-  l <*> r = pmap2 l r $ \m n -> n {val = (val m) (val n)}
+  pure v = Parser $ \s i -> Hit v s i
+  l <*> r = Parser $ \s i -> do
+    let l' = runParser l s i
+    let r' = runParser r s i
+    r' { val = (val l') (val r') }
 
 instance Monad Parser where
   return = pure
-  m >>= f = pmap m $ \val src -> runParser (f val) src
-  fail m = Parser $ \s -> Miss s
+  m >>= f = Parser $ \s i -> case runParser m s i of
+    Hit val src i -> runParser (f val) src i
+    Miss msg i -> Miss msg i
+  fail m = Parser $ \s i -> Miss s i
 
-l <|> r = Parser $ \s -> case runParser l s of
-  Hit val src -> Hit val src
-  Miss _      -> runParser r s
+l <|> r = Parser $ \s i -> case runParser l s i of
+  h@(Hit _ _ _) -> h
+  Miss _ _      -> runParser r s i
 
 -- core
 az = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -65,27 +67,42 @@ num = "0123456789"
 symbols = "_"
 dot = "."
 
-remaining_input = Parser $ \s -> Hit s s
-
-satisfy f = Parser $ \s -> go s
+satisfy f = Parser $ \s i -> go s i
   where
-    go "" = Miss "eof"
-    go s  = if f (s !! 0)
-      then Hit (s !! 0) (tail s)
-      else Miss "miss"
+    go "" i = Miss "eof" i
+    go s i = if f (s !! 0)
+      then Hit (s !! 0) (tail s) i
+      else Miss "miss" i
+set_br f = Parser $ \s i -> Hit i s (f i)
+put_indent :: Parser a -> Parser a
+put_indent f = do
+  set_br (+ 1)
+  v <- f
+  set_br (+ (-1))
+  return v
+next_br = Parser $ \s i -> runParser (parse_br i) s i
+ where
+  parse_br i = do
+    many $ some " \t"
+    (char ';' >> return ()) <|> (br i)
+  br i = do
+    many1 $ some "\r\n"
+    string $ concat $ replicate i "  "
 
+current_indent = Parser $ \s i -> Hit i s i
+remaining_input = Parser $ \s i -> Hit s s i
 some xs = satisfy $ \x -> elem x xs
 none xs = satisfy $ \x -> not $ elem x xs
-noop = Parser $ \s -> Hit () s
+noop = Parser $ \s i -> Hit () s i
 
 -- primitive
 char x = satisfy (== x)
-string []     = Parser $ \s -> Hit () s
+string []     = Parser $ \s i -> Hit () s i
 string (x:xs) = char x >> string xs
-look_ahead f = Parser $ \s ->
-  case runParser f s of
-    Hit v _ -> Hit v s
-    Miss m  -> Miss m
+look_ahead f = Parser $ \s i ->
+  case runParser f s i of
+    Hit v _ i -> Hit v s i
+    Miss m i -> Miss m i
 look_eol = look_ahead (char '\n')
 read_id = do
   prefix <- some $ az ++ symbols
@@ -143,18 +160,13 @@ next_id = lexeme $ read_id
 next_type = (next_between '[' ']' next_type)
             <|> (next_between '(' ')' next_type)
             <|> next_id
-next_br = do
-  many $ some " \t"
-  many1 $ some ";\r\n"
-next_br1 = next_br >> string "  "
-next_br2 = next_br >> string "    "
 skip_white_spaces = many $ some " \t\r\n"
 eof = do
   many $ some " \t\r\n"
   (string "__comment__\n" >> (many $ satisfy (const True))) <|> (return "")
-  Parser $ \s -> if s == ""
-    then Hit () s
-    else Miss $ "rest: " ++ (show s)
+  Parser $ \s i -> if s == ""
+    then Hit () s i
+    else Miss ("rest: " ++ (show s)) i
 
 
 -- make AST
@@ -165,10 +177,10 @@ make_ref s = Ref s
 
 -- parser
 parse :: String -> Either (String, Env) Env
-parse input = case runParser parse_root (trim input ++ "\n") of
-  Hit env ""   -> Right env
-  Hit env left -> Left ("left: " ++ (show left), env)
-  Miss m       -> Left (m, [])
+parse input = case runParser parse_root (trim input ++ "\n") 0 of
+  Hit env "" _   -> Right env
+  Hit env left _ -> Left ("left: " ++ (show left), env)
+  Miss m  i      -> Left (m ++ (" indent(" ++ show i ++ ")"), [])
  where
   trim s = reverse $ dropWhile (\x -> elem x " \t\r\n") (reverse s)
 
@@ -191,11 +203,12 @@ parse_define = do
     name <- next_id
     many next_type
     next_char ':'
-    enums <- many (next_br1 >> enum_line name)
-    fields <- many (next_br1 >> def_line)
-    option () (string $ "\nstep " ++ name ++ ":")
-    funcs <- many $ do { next_br1; name <- next_id; def_func name }
-    return (name, f name fields enums funcs)
+    put_indent $ do
+      enums <- many (next_br >> enum_line name)
+      fields <- many (next_br >> def_line)
+      option () (string $ "\nstep " ++ name ++ ":")
+      funcs <- many $ do { next_br; name <- next_id; def_func name }
+      return (name, f name fields enums funcs)
   def_struct _ fields _ _ = Func fields $ Struct []
   def_enum _ _ enums _ = Struct enums
   def_flow name fields enums funcs = Func fields (Stmt defs [])
@@ -214,27 +227,31 @@ parse_define = do
     return name
   enum_line prefix = do
     name <- next_id
-    fields <- option [] enum_fields
+    fields <- option [] (put_indent enum_fields)
     look_ahead (next_char '\n')
     let tag = prefix ++ "." ++ name
     return (name, Func fields $ Enum tag Void)
   enum_fields = do
     next_char ':'
-    many1 (next_br2 >> def_line)
+    many1 (next_br >> def_line)
 
-parse_top = (next_br >> (parse_matches <|> parse_stmt))
-  <|> parse_stmt_one_line
+parse_top = (next_br >> parse_matches <|> (put_indent parse_stmt))
   <|> parse_exp
 
 parse_matches = Match <$> sepBy1 parse_match next_br
-parse_match = do
-  next_char '|'
-  conds <- many parse_bottom
-  next_char '='
-  body <- parse_stmt_one_line <|> parse_exp
-  return $ (conds, body)
+ where
+  parse_match = do
+    next_char '|'
+    conds <- many parse_bottom
+    next_char '='
+    body <- parse_exp
+    return $ (conds, body)
 
-parse_stmt = Stmt [] <$> sepBy1 parse_line next_br1
+parse_stmt = Stmt [] <$> (sepBy1 parse_line next_br)
+parse_stmt_one_line = do
+  line <- parse_line
+  lines <- many1 (lexeme (char ';') >> parse_line)
+  return $ Stmt [] $ line : lines
 parse_line :: Parser (String, AST)
 parse_line = parse_assign <|> parse_call
   where
@@ -242,22 +259,17 @@ parse_line = parse_assign <|> parse_call
       name <- next_id
       args <- many next_id
       op <- next_update_op2
-      ast <- (next_br >> parse_matches) <|> parse_exp
+      ast <- (next_br >> parse_matches) <|> parse_op2
       let short_op = take ((length op) - 1) op
       case op of
         "="  -> return (name, make_func args ast)
         ":=" -> return (name, ast)
         _    -> return (name, Op2 short_op (make_ref name) ast)
     parse_call = do
-      ast <- parse_exp
+      ast <- parse_op2
       return ("", ast)
 
-parse_stmt_one_line = do
-  line <- parse_line
-  lines <- many1 (lexeme (char ';') >> parse_line)
-  return $ Stmt [] $ line : lines
-
-parse_exp = parse_op2
+parse_exp = parse_stmt_one_line <|> parse_op2
 parse_op2 = do
   l <- parse_bottom
   o <- option "" next_op2
@@ -325,6 +337,7 @@ data Scope = Scope {
   } deriving (Show)
 data Ret a = Success { ret :: a, scope :: Scope }
            | Fail { messgage :: String, scope :: Scope }
+           deriving (Show)
 data Eval a = Eval { runEval :: Scope -> Ret a }
 
 emap m f = Eval $ \e -> case runEval m e of
@@ -356,7 +369,7 @@ find name = do
 look name table = do
   case lookup name table of
     Just x -> eval x
-    Nothing -> fail $ "not found " ++ name ++ " in " ++ (show table)
+    Nothing -> fail $ "not found " ++ name ++ " in " ++ (show $ map fst table)
 
 with_local e env = Eval $ \s -> case runEval e $ s { local = env ++ local s } of
   Success a _ -> Success a s
@@ -478,21 +491,20 @@ eval (Apply target apply_args) = do
 
 eval (Ref name) = find name
 
-eval (Stmt env lines) = with_local (exec lines) env
+eval (Stmt env lines) = with_local (exec lines (String $ "EMPTY STATEMENT" ++ show lines)) env
  where
-  exec :: [(String, AST)] -> Eval AST
-  exec [("", ast)] = eval ast
-  exec ((line@(_, Func _ _)):lines) = with_local (exec lines) [line]
-  exec ((assign, ast):lines) = do
-    let local a = do { v <- eval a; with_local (exec lines) [(assign, v)] }
+  exec :: [(String, AST)] -> AST -> Eval AST
+  exec [] ret = eval ret
+  exec ((line@(_, Func _ _)):lines) ret = with_local (exec lines ret) [line]
+  exec ((assign, ast):lines) ret = do
     v <- eval ast
+    let local a = do { v <- eval a; with_local (exec lines v) [(assign, v)] }
     case v of
       Return ast -> eval ast
       Update name op ast -> local $ case op of
         ":=" -> ast
         _  -> Op2 (tail op) (Ref name) ast
       ast -> local ast
-  exec x = fail $ show x
 
 evaluate env ast = runEval (eval ast) Scope { global = env, local = [] }
 
@@ -538,11 +550,9 @@ fmt_scope (Scope local global) = fmt_env "local" local
   tie f (k, v) = k ++ "\t= " ++ (f v)
 
 debug x = do
-  trace (show x) (return 0)
+  i <- current_indent
   s <- remaining_input
-  trace ">>>" (return 0)
-  trace s (return 0)
-  trace "<<<" (return 0)
+  trace (">>> " ++ x ++ "\n" ++ (unlines $ take 3 (lines s)) ++ "<<< indent:" ++ show i) (return 0)
 
 split :: String -> Char -> [String]
 split s c = go s [] []
