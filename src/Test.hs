@@ -3,6 +3,13 @@ module Test where
 import Common
 
 main = do
+  test flow_code [
+    --("", "parser(\"val\").string(\"\")")
+    --("v", "parser(\"val\").string(\"v\")")
+    ("vv", "parser(\"val\").string(\"vv\")")
+    --, ("parser.miss", "parser(\"val\").string(\"z\")")
+    ]
+a = do
   test "" [
       ("2", "(\"h\" . \"i\").length")
     , (" ", "\" \"")
@@ -63,6 +70,9 @@ main = do
     , ("false", "f(1)")
     , ("val", "parser(\"val\").src")
     , ("v", "parser(\"val\").satisfy(t)")
+    , ("va", "parser(\"val\").string(\"va\")")
+    , ("val", "parser(\"val\").string(\"val\")")
+    , ("parser.miss", "parser(\"val\").string(\"z\")")
     , ("parser.eof", "parser(\"\").satisfy(f)")
     , ("parser.miss", "parser(\"val\").satisfy(f)")
     ]
@@ -117,7 +127,7 @@ match_code = unlines [
   , "| 0 = \"zero\""
   , "| 1 = \"one\""
   , "| true = \"true\""
-  , "| str = \"str\""
+  , "| string = \"str\""
   , "| _ = \"ma\" .\n  \"ny\""
   ]
 enum_match_code = enum_code ++ (unlines [
@@ -153,16 +163,17 @@ flow_code = unlines [
   , "  eof"
   , "  miss:"
   , "    reason string"
-  , "  src str"
+  , "  src string"
   , "step parser:"
   , "  satisfy f ="
   , "    c = src.0 .or eof"
   , "    f(c) || miss(\"miss match\")"
+  , "    src := src.slice(1)"
   , "    c"
-  , "  string s9 = _string(s9); s9"
+  , "  string s = _string(s); s"
   , "  _string s ="
   , "  | \"\" = \"\""
-  , "  | \"\" = satisfy(s.0); _string(s.slice(1))"
+  , "  | _ = satisfy(x => x == s.0); _string(s.slice(1))"
   , "t _ = true"
   , "f _ = false"
   ]

@@ -371,7 +371,7 @@ look name table = do
     Just x -> eval x
     Nothing -> fail $ "not found " ++ name ++ " in " ++ (show $ map fst table)
 
-with_local e env = Eval $ \s -> case runEval e $ s { local = env ++ local s } of
+into_scope e env = Eval $ \s -> case runEval e $ s { local = env ++ local s } of
   Success a _ -> Success a s
   Fail m s -> Fail m s
 
@@ -419,21 +419,26 @@ eval (Dot target name apply_args) = do
     ((Struct env), _, _) -> look name env >>= \body -> eval $ Apply body args
     ((Stmt env stmt), _, _) -> look name env >>= \body -> eval $ Stmt env $ ("", Apply body args) : stmt
     ((String s), "length", _) -> return $ Int $ length s
-    ((String s), _, _) -> if (length s) == 0
-      then return $ Exception "String out of index"
-      else return $ String [s !! (read name :: Int)]
+    ((String s), "slice", [Int n]) -> return $ String $ (drop n s)
+    ((String s), _, _) -> if (length s) > 0 && (is_int name)
+      then return $ String [s !! (read name :: Int)]
+      else return $ Exception ("String out of index: " ++ show s)
     ((List xs), "map", [func]) -> List <$> (mapM eval $ map (\x -> Apply func [x]) xs)
     ((List xs), "fold", [init, func]) -> fold_monad func init xs
     ((List xs), "join", [String glue]) -> return $ String (p_join glue xs)
     ((List xs), "filter", [func]) -> List <$> (p_filter func xs [])
-    ((List s), _, _) -> if (length s) == 0
-      then return $ Exception "List out of index"
-      else return $ s !! (read name :: Int)
+    ((List s), _, _) -> if (length s) == 0 && (is_int name)
+      then return $ List [s !! (read name :: Int)]
+      else return $ Exception ("List out of index: " ++ show s)
     ((Enum _ ast), _, _) -> eval (Dot ast name apply_args)
     ((Func _ _), "bind", _) -> return $ Closure args $ ret
     ((Int v), "string", _) -> return $ String $ show v
     _ -> fail $ "not found1 " ++ name ++ " in " ++ (show ret)
  where
+   is_int :: String -> Bool
+   is_int [] = False
+   is_int [x] = elem x "0123456789"
+   is_int (x:xs) = (elem x "0123456789") && is_int xs
    fold_monad :: AST -> AST -> [AST] -> Eval AST
    fold_monad _ ast [] = return ast
    fold_monad func left (right:rest) = do
@@ -459,13 +464,15 @@ eval (Apply target apply_args) = do
   case v of
     Func fargs (Stmt state []) -> return $ Stmt ((zip fargs args) ++ state) []
     Func fargs (Struct fields) -> return $ Struct (zip fargs args)
-    Func fargs (Match conds) -> with_local (match conds args) $ zip fargs args
+    Func fargs (Match conds) -> into_scope (match conds args) $ zip fargs args
     Func fargs (Enum tag _) -> return $ Enum tag $ Struct (zip fargs args)
-    Func fargs body -> with_local (eval body) $ zip fargs args
+    Func fargs body -> into_scope (eval body) $ zip fargs args
     Closure binds ast -> eval $ Apply ast $ binds ++ args
     Match conds -> match conds args
     Return x -> Return <$> eval x
-    other -> fail $ "invalid apply: " ++ show other ++ " with " ++ show args
+    other -> fail $ "invalid apply: " ++ show other ++
+      " with " ++ show args ++
+      " target " ++ show target
  where
   match :: [([AST], AST)] -> [AST] -> Eval AST
   match all_conds args = if all (\x -> (length $ fst x) == (length args)) all_conds
@@ -483,7 +490,7 @@ eval (Apply target apply_args) = do
   equals _ _           = False
   equal (Void) _                     = True
   equal (Dot (Ref x) y _) (Enum z _) = x ++ "." ++ y == z
-  equal (Ref "str") (String _)       = True
+  equal (Ref "string") (String _)    = True
   equal (Ref "int") (Int _)          = True
   equal (Ref "bool") (Bool _)        = True
   equal (Ref "real") (Real _)        = True
@@ -491,16 +498,18 @@ eval (Apply target apply_args) = do
 
 eval (Ref name) = find name
 
-eval (Stmt env lines) = with_local (exec lines (String $ "EMPTY STATEMENT" ++ show lines)) env
+eval (Stmt env lines) = into_scope (exec lines (String $ "EMPTY STATEMENT")) env
  where
   exec :: [(String, AST)] -> AST -> Eval AST
   exec [] ret = eval ret
-  exec ((line@(_, Func _ _)):lines) ret = with_local (exec lines ret) [line]
+  exec ((line@(_, Func _ _)):lines) ret = into_scope (exec lines ret) [line]
   exec ((assign, ast):lines) ret = do
     v <- eval ast
-    let local a = do { v <- eval a; with_local (exec lines v) [(assign, v)] }
+    let local a = do { v <- eval a; into_scope (exec lines v) [(assign, v)] }
+    debug_eval "src" v
     case v of
-      Return ast -> eval ast
+      Return ast -> return ast
+      Enum _ _ -> return v
       Update name op ast -> local $ case op of
         ":=" -> ast
         _  -> Op2 (tail op) (Ref name) ast
@@ -536,6 +545,7 @@ fmt (Enum tag (Struct [])) = tag
 fmt (Enum tag Void) = tag
 fmt (Enum tag val) = tag ++ (fmt val)
 fmt (Void) = "_"
+fmt other = "BUG: " ++ show other
 
 fmt_env xs = (join "  " (map tie xs))
  where
@@ -549,10 +559,14 @@ fmt_scope (Scope local global) = fmt_env "local" local
   fmt_env title xs = title ++ ":\n  " ++ (join "\n  " (map (tie fmt) xs)) ++ "\n"
   tie f (k, v) = k ++ "\t= " ++ (f v)
 
-debug x = do
+debug_parse x = do
   i <- current_indent
   s <- remaining_input
   trace (">>> " ++ x ++ "\n" ++ (unlines $ take 3 (lines s)) ++ "<<< indent:" ++ show i) (return 0)
+
+debug_eval name v = do
+  s <- get_scope
+  trace (show (lookup name (local s)) ++ " " ++ show v) (return 0)
 
 split :: String -> Char -> [String]
 split s c = go s [] []
