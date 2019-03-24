@@ -110,10 +110,9 @@ parse_steps = Steps <$> many1 go
   where
     go = do
       next_br1
-      read_return <|> read_assign <|> read_apply
-    read_return = do
-      next_string "return "
-      parse_exp
+      read_return <|> read_throw <|> read_assign <|> read_apply
+    read_return = (next_string "return ") >> (Return <$> parse_exp)
+    read_throw = (next_string "throw ") >> (Throw <$> next_token)
     read_assign = do
       name <- next_token
       args <- many next_token
@@ -129,7 +128,6 @@ parse_func = do
   next_string "=>"
   body <- parse_top
   return $ Func [arg] body
-parse_return = (next_string "return") >> parse_exp
 
 -- utility
 debug mark = Parser $ \s -> trace ("@ " ++ show mark ++ " | " ++ show s) (return ((), s))
@@ -159,6 +157,7 @@ l <|> r = Parser $ \s -> case runParser l s of
   _ -> runParser r s
 
 oneOf xs = satisfy (\x -> elem x xs)
+noneOf xs = satisfy (\x -> not $ elem x xs)
 select [] = Parser $ \_ -> Nothing
 select (x:xs) = (string x) <|> (select xs)
 

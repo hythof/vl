@@ -26,6 +26,8 @@ main = do
     , ("-1", "1 - 2")
     , ("6", "2 * 3")
     , ("3", "\n  a = 1\n  b = a + 1\n  a + b")
+    , ("1", "\n  return 1\n  2")
+    , ("throw:cancel", "\n  throw cancel\n  2")
     ]
   putStrLn "ok"
 

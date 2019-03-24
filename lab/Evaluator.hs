@@ -42,10 +42,11 @@ eval env (Steps root_step) = go root_step
     go [] = Void
     go [ast] = eval env ast
     go (ast:rest) = branch ast rest (\ast ->
-                      branch (eval env ast) rest (
-                        \ast -> Throw $ "step " ++ show ast))
+      branch (eval env ast) rest (
+        \ast -> Throw $ "step " ++ show ast ++ " in " ++ show root_step))
     branch ast rest f = case ast of
       Return ret -> ret
+      Throw _ -> ast
       Assign name exp -> eval ((name, eval env exp):env) (Steps rest)
       _ -> f ast
 
