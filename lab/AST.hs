@@ -7,6 +7,7 @@ data AST =
     Void
   | Bool Bool
   | Int Int
+  | String String
 -- container
   | List [AST]
 -- expression
@@ -14,7 +15,7 @@ data AST =
   | Op2 String AST AST
   | Apply AST [AST]
   | Method AST String [AST]
-  | Match [(AST, AST)] -- [(cond, expression)]
+  | Match [(Pattern, AST)]
 -- define
   | Struct Env
   | Enum String AST
@@ -25,6 +26,8 @@ data AST =
   | Assign String AST
   | Return AST
   deriving (Show, Eq)
+
+data Pattern = EnumPattern String deriving (Show, Eq)
 
 data Source = Source { source :: String, indent :: Int } deriving (Show)
 

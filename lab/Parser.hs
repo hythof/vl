@@ -58,13 +58,14 @@ parse_top = parse_match <|> parse_steps <|> parse_exp
 parse_exp = parse_op2
 parse_unit = parse_ref_apply_method <|> parse_value
 -- value
-parse_value = parse_int <|> parse_void <|> parse_bool
+parse_value = parse_string <|> parse_int <|> parse_void <|> parse_bool
 parse_void = (next_string "()") >> (return Void)
 parse_bool = ((next_string "true") >> (return (Bool True))) <|>
              ((next_string "false") >> (return (Bool False)))
 parse_int = do
   s <- next $ many1 $ oneOf "0123456789"
   return $ Int (read s :: Int)
+parse_string = String <$> between (next_string "\"") (string "\"") (many $ noneOf "\"")
 -- container
 parse_list = between_string "[" "]" parse_exp
 -- expression
@@ -74,7 +75,7 @@ parse_ref_apply_method = parse_method <|> parse_ref_apply
     parse_method = do
       target <- parse_ref_apply <|> parse_value
       string "."
-      name <- next_token
+      name <- next_token <|> (many1 $ oneOf "0123456789")
       args <- read_args
       return $ Method target name args
     parse_ref_apply = do
@@ -102,10 +103,12 @@ parse_match = Match <$> many1 go
     go = do
       next_br
       next_string "|"
-      cond <- parse_value <|> parse_ref
+      pattern <- parse_pattern
       next_string "="
       body <- parse_exp
-      return (cond, body)
+      return (pattern, body)
+    parse_pattern = parse_enum_pattern
+    parse_enum_pattern = EnumPattern <$> next_token
 parse_steps = Steps <$> many1 go
   where
     go = do

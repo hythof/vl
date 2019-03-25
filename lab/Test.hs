@@ -10,11 +10,12 @@ main = do
       ("2", "either(1 2).right")
     , ("1", "either(1 2).left")
     ]
-  test "enum maybe a: just value a, none" [
+  test enum_code [
       ("just:value:1", "maybe.just(1)")
     , ("none", "maybe.none")
+    , ("value:1", "to_int(maybe.just(1))")
     ]
-  test ("flow parser a: input string, eof, miss\n" ++ code_parser_methods) [
+  test flow_code [
       ("true", "parser(true).input")
     , ("throw:eof", "parser(true).eof")
     , ("throw:miss", "parser(true).miss")
@@ -22,6 +23,11 @@ main = do
   test "" [
       ("true", "true && true")
     , ("true", "false || true")
+    , ("hello", "\"h\" . \"ello\"")
+    , ("e", "\"hello\".1")
+    , ("throw:out of index a.1", "\"a\".1")
+    , ("z", "\"hello\".9 | \"z\"")
+    , ("5", "\"hello\".length")
     , ("3", "1 + 2")
     , ("-1", "1 - 2")
     , ("6", "2 * 3")
@@ -31,8 +37,15 @@ main = do
     ]
   putStrLn "ok"
 
-code_parser_methods = unlines [
-    "satisfy f ="
+enum_code = unlines [
+    "enum maybe a: just value a, none"
+  , "to_int m ="
+  , "| just = m"
+  , "| none = _"
+  ]
+flow_code = unlines [
+    "flow parser a: input string, eof, miss"
+  , "satisfy f ="
   , "  c = input.0 | eof"
   , "  f(c) || miss"
   , "  input := input.slice(1)"
@@ -59,6 +72,7 @@ fmt (Void) = "()"
 fmt (Bool True) = "true"
 fmt (Bool False) = "false"
 fmt (Int n) = show n
+fmt (String s) = s
 fmt (List xs) = "[" ++ (map_reduce fmt xs) ++ "]"
 fmt (Ref s) = s
 fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
