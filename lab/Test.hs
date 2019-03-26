@@ -16,7 +16,8 @@ main = do
     , ("value:1", "to_int(maybe.just(1))")
     ]
   test flow_code [
-      ("true", "parser(true).input")
+      ("hello", "parser(\"hello\").input")
+    , ("h", "satisfy(parser(\"hello\") (x => x == \"h\"))")
     , ("throw:eof", "parser(true).eof")
     , ("throw:miss", "parser(true).miss")
     ]
@@ -28,11 +29,14 @@ main = do
     , ("throw:out of index a.1", "\"a\".1")
     , ("z", "\"hello\".9 | \"z\"")
     , ("5", "\"hello\".length")
+    , ("llo", "\"hello\".slice(2)")
+    , ("ll", "\"hello\".slice(2 2)")
     , ("3", "1 + 2")
     , ("-1", "1 - 2")
     , ("6", "2 * 3")
     , ("3", "\n  a = 1\n  b = a + 1\n  a + b")
     , ("1", "\n  return 1\n  2")
+    , ("2", "(x => x + 1)(1)")
     , ("throw:cancel", "\n  throw cancel\n  2")
     ]
   putStrLn "ok"
@@ -52,21 +56,22 @@ flow_code = unlines [
   , "  c"
   ]
 
-test src tests =  mapM_ go tests
+test src tests =  mapM_ (runTest src) tests
+runTest src (expect, exp) = runAssert expect (src ++ "\nmain = " ++ exp)
+runAssert expect src = if expect == result
+  then putStr "."
+  else error $ makeMessage (expect ++ " != " ++ result)
   where
-    go (expect, exp) = eq expect (run $ src ++ "\nmain = " ++ exp)
     env = get_env src
-    eq expect fact = if expect == fact
-      then putStr "."
-      else error $ "\n" ++ expect ++ " != " ++ fact
-    run src = case lookup "main" (get_env src) of
-      Just v -> fmt $ eval (get_env src) v
-      _ -> error $ "not found main in " ++ (show $ get_env src)
+    result = case lookup "main" env of
+      Just v -> fmt $ eval env v
+      _ -> error $ makeMessage "Not found main"
     get_env src = case parse src of
       (env, "") -> env
-      (env, rest) -> error $ "failed parsing: `" ++ rest ++ "`" ++
-        "\n  env: " ++ show env ++
-        "\n  source: " ++ src
+      (env, rest) -> error $ makeMessage ("Failed parsing: `" ++ rest ++ "`")
+    makeMessage message = message ++
+      concat (map (\(k, v) -> "\n- " ++ k ++ "\t" ++ show v) env) ++
+      "\n" ++ src ++ "\n"
 
 fmt (Void) = "()"
 fmt (Bool True) = "true"

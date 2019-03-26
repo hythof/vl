@@ -33,10 +33,13 @@ eval env (Op2 op left right) = go op (eval env left) (eval env right)
     go "-" (Int l) (Int r) = Int $ l - r
     go "*" (Int l) (Int r) = Int $ l * r
     go "." (String l) (String r) = String $ l ++ r
-eval env (Method self method argv) = go (eval env self) method argv
+    go op l r = Throw $ "op: (" ++ show l ++ ") " ++ op ++ " (" ++ show r ++ ")"
+eval env a@(Method self method argv_) = go (eval env self) method (map (eval env) argv_)
   where
-    go (Struct fields) _ _ = find method fields $ apply (fields ++ env) argv
+    go (Struct fields) _ argv = find method fields $ apply (fields ++ env) argv
     go (String s) "length" [] = Int $ length s
+    go (String s) "slice" [Int n] = String $ drop n s
+    go (String s) "slice" [Int n, Int m] = String $ take m (drop n s)
     go (String s) ns [] = case is_num of
         False -> Throw $ "method not found: String." ++ ns
         True
@@ -48,7 +51,7 @@ eval env (Method self method argv) = go (eval env self) method argv
     go a@(Throw _) _ _ = a
     go v _ _ = Throw $ "method " ++ show v ++
              "." ++ method ++
-             "(" ++ (show argv) ++ ")"
+             "(" ++ (show argv_) ++ ")"
 eval env (Steps root_step) = go root_step
   where
     go :: [AST] -> AST
@@ -85,4 +88,3 @@ apply env argv_ ast = go (eval env ast)
       then eval ((name, v) : env) ast
       else match env name a rest
     match _ _ _ _ = Throw $ "miss match " ++ show argv ++ show (eval env ast)
-

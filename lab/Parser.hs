@@ -10,6 +10,13 @@ parse input = case runParser parse_root (Source { source = input, indent = 0}) o
 
 -- parser combination
 parse_root = many (spaces >> parse_define)
+parse_top = parse_match <|> parse_steps <|> parse_exp
+parse_exp = parse_op2
+parse_unit = parse_method <|> parse_bottom
+parse_bottom = (next_between "(" ")" parse_exp) <|>
+  parse_value <|>
+  parse_ref
+-- define
 parse_define = go
   where
     go = do
@@ -54,9 +61,6 @@ parse_define = go
       return $ x : xs
     to_enum x [] = Enum x Void
     to_enum x ys = make_func ys (Enum x Void)
-parse_top = parse_match <|> parse_steps <|> parse_exp
-parse_exp = parse_op2
-parse_unit = parse_ref_apply_method <|> parse_value
 -- value
 parse_value = parse_string <|> parse_int <|> parse_void <|> parse_bool
 parse_void = (next_string "()") >> (return Void)
@@ -66,22 +70,25 @@ parse_int = do
   s <- next $ many1 $ oneOf "0123456789"
   return $ Int (read s :: Int)
 parse_string = String <$> between (next_string "\"") (string "\"") (many $ noneOf "\"")
--- container
-parse_list = between_string "[" "]" parse_exp
--- expression
-parse_ref = Ref <$> next_token
-parse_ref_apply_method = parse_method <|> parse_ref_apply
-  where
-    parse_method = do
-      target <- parse_ref_apply <|> parse_value
-      string "."
+-- func
+parse_method = do
+  target <- parse_apply
+  op <- option "" (string ".")
+  case op of
+    "." -> do
       name <- next_token <|> (many1 $ oneOf "0123456789")
       args <- read_args
       return $ Method target name args
-    parse_ref_apply = do
-      id <- next_token
-      args <- read_args
-      return $ make_apply id args
+    _ -> do
+      return target
+parse_apply = do
+  ast <- parse_bottom
+  args <- read_args
+  return $ make_apply ast args
+-- container
+parse_list = next_between "[" "]" parse_exp
+-- expression
+parse_ref = Ref <$> next_token
 parse_op2 = go
   where
     go = do
@@ -91,6 +98,10 @@ parse_op2 = go
       return ret
     consume l op = case op of
       "" -> return l
+      "=>" -> do
+        let (Ref name) = l
+        body <- parse_exp
+        return $ Func [name] body
       ":=" -> do
         let (Ref name) = l
         e <- parse_exp
@@ -126,19 +137,12 @@ parse_steps = Steps <$> many1 go
       target <- parse_exp
       args <- many parse_exp
       return $ if (length args) == 0 then target else Apply target args
-parse_func = do
-  arg <- next_token
-  next_string "=>"
-  body <- parse_top
-  return $ Func [arg] body
 
 -- utility
 debug mark = Parser $ \s -> trace ("@ " ++ show mark ++ " | " ++ show s) (return ((), s))
 read_args = option [] (between (string "(") (next_string ")") (many1 parse_exp))
-make_apply "true" [] = Bool True
-make_apply "false" [] = Bool False
-make_apply id [] = Ref id
-make_apply id args = Apply (Ref id) args
+make_apply ast [] = ast
+make_apply ast args = Apply ast args
 make_func [] body = body
 make_func args body = Func args body
 
@@ -150,8 +154,8 @@ satisfy f = Parser $ \s -> do
   Just (c, s { source = drop 1 src })
 
 look f = Parser $ \s -> case runParser f s of
-  Just (a, _) -> Just (a, s)
-  Nothing -> Nothing
+  Just (a, _) -> Just (True, s)
+  Nothing -> Just (False, s)
 
 guard c = if c then Just () else Nothing
 
@@ -183,7 +187,7 @@ sepBy1 f sep = do
   xs <- many (sep >> f)
   return $ x : xs
 
-between_string l r m = between (next_string l) (next_string r) m
+next_between l r m = between (next_string l) (next_string r) m
 between l r m = do
   l
   ret <- m
@@ -214,7 +218,7 @@ token = go
 next_op = next $ select op
   where
     op = op2 ++ op1
-    op2 = ["==", "!=", ">=", "<=", "||", "&&"]
+    op2 = ["==", "!=", ">=", "<=", "||", "&&", "=>"]
     op1 = map (\x -> [x]) ".+-*/%|<>"
 
 next_sep = next $ string ","
