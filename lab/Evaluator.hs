@@ -21,18 +21,22 @@ eval env (Func [] a) = eval env a
 eval env a@(Func _ _) = a
 eval env (Op2 op left right) = go op (eval env left) (eval env right)
   where
-    go "|" (Throw l) r = r
+    go "|" (Throw _) r = r
     go "|" l _ = l
-    go _ a@(Throw _) _ = a
-    go _ _ a@(Throw _) = a
-    go _ a@(Return _) _ = a
-    go _ _ a@(Return _) = a
-    go "&&" (Bool l) (Bool r) = Bool $ l && r
-    go "||" (Bool l) (Bool r) = Bool $ l || r
+    go "&&" (Bool True) r = r
+    go "&&" (Bool False) _ = Bool False
+    go "||" (Bool True) _ = Bool True
+    go "||" (Bool False) r = r
     go "+" (Int l) (Int r) = Int $ l + r
     go "-" (Int l) (Int r) = Int $ l - r
     go "*" (Int l) (Int r) = Int $ l * r
+    go ">" (Int l) (Int r) = Bool $ l > r
+    go ">=" (Int l) (Int r) = Bool $ l >= r
+    go "<" (Int l) (Int r) = Bool $ l < r
+    go "<=" (Int l) (Int r) = Bool $ l <= r
     go "." (String l) (String r) = String $ l ++ r
+    go "==" l r = Bool $ show l == show r
+    go "!=" l r = Bool $ show l /= show r
     go op l r = Throw $ "op: (" ++ show l ++ ") " ++ op ++ " (" ++ show r ++ ")"
 eval env a@(Method self method argv_) = go (eval env self) method (map (eval env) argv_)
   where
@@ -58,19 +62,23 @@ eval env (Steps root_step) = go root_step
     go [] = Void
     go [ast] = eval env ast
     go (ast:rest) = branch ast rest (\ast ->
-      branch (eval env ast) rest (
-        \ast -> Throw $ "step " ++ show ast ++ " in " ++ show root_step))
+      branch (eval env ast) rest (\ast ->
+        eval env $ Steps rest))
     branch ast rest f = case ast of
       Return ret -> ret
       Throw _ -> ast
-      Assign name exp -> eval ((name, eval env exp):env) (Steps rest)
+      Assign name exp -> case eval env exp of
+        a@(Throw _) -> a
+        _ -> eval ((name, eval env exp):env) (Steps rest)
       _ -> f ast
 
 eval env ast = error $ "unknown " ++ show ast
 
 -- utility
 find name env f = case lookup name env of
-  Just (Ref name') -> if name /= name' then find name' env f else Throw $ "circle reference " ++ name ++ " in " ++ (show env)
+  Just (Ref name') -> if name == name'
+    then Throw $ "circle reference " ++ name ++ " in " ++ (show env)
+    else find name' env f
   Just v -> f $ eval env v
   _ -> Throw $ "not found " ++ name ++ " in " ++ (show $ map fst env)
 

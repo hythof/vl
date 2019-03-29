@@ -17,13 +17,21 @@ main = do
     ]
   test flow_code [
       ("hello", "parser(\"hello\").input")
-    , ("h", "satisfy(parser(\"hello\") (x => x == \"h\"))")
-    , ("throw:eof", "parser(true).eof")
-    , ("throw:miss", "parser(true).miss")
+    , ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
+    , ("throw:miss", "parser(\"Hello\").satisfy(x => x == \"h\")")
+    , ("throw:eof", "parser(\"\").satisfy(x => x == \"h\")")
+    , ("throw:eof", "parser(\"\").eof")
+    , ("throw:miss", "parser(\"\").miss")
     ]
   test "" [
       ("true", "true && true")
     , ("true", "false || true")
+    , ("true", "1 == 1")
+    , ("false", "1 == 2")
+    , ("false", "1 > 2")
+    , ("true", "1 < 2")
+    , ("true", "2 >= 2")
+    , ("true", "2 <= 2")
     , ("hello", "\"h\" . \"ello\"")
     , ("e", "\"hello\".1")
     , ("throw:out of index a.1", "\"a\".1")
@@ -49,18 +57,18 @@ enum_code = unlines [
   ]
 flow_code = unlines [
     "flow parser a: input string, eof, miss"
-  , "satisfy f ="
-  , "  c = input.0 | eof"
-  , "  f(c) || miss"
-  , "  input := input.slice(1)"
-  , "  c"
+  , "  satisfy f ="
+  , "    c = input.0 | eof"
+  , "    f(c) || miss"
+  , "    input := input.slice(1)"
+  , "    c"
   ]
 
 test src tests =  mapM_ (runTest src) tests
-runTest src (expect, exp) = runAssert expect (src ++ "\nmain = " ++ exp)
-runAssert expect src = if expect == result
+runTest src (expect, exp) = runAssert expect (src ++ "\nmain = " ++ exp) exp
+runAssert expect src exp = if expect == result
   then putStr "."
-  else error $ makeMessage (expect ++ " != " ++ result)
+  else error $ makeMessage (expect ++ " != " ++ result ++ "\n" ++ exp)
   where
     env = get_env src
     result = case lookup "main" env of

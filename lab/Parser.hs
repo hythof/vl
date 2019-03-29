@@ -36,8 +36,9 @@ parse_define = go
       names <- sepBy struct_line next_sep
       many next_sep
       throws <- sepBy enum_line next_sep
+      methods <- many (do { string "\n  "; f <- next_token; def_func f })
       let funcs = map (\(x:_) -> (x, Throw x)) throws
-      return $ make_func names (Struct funcs)
+      return $ make_func names (Struct $ funcs ++ methods)
     def_func name = do
       args <- many next_token
       next_string "="
