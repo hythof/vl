@@ -4,75 +4,75 @@ import Debug.Trace (trace)
 import AST
 
 eval :: Env -> AST -> AST
-eval env a@(Void) = a
-eval env a@(Bool _) = a
-eval env a@(Int _) = a
-eval env a@(String _) = a
-eval env (List xs) = List $ map (\x -> eval env x) xs
-eval env (Ref name) = find name env id
-eval env (Apply body []) = eval env body
-eval env (Apply body argv) = apply env argv body
-eval env a@(Struct _) = a
-eval env a@(Match _) = a
-eval env a@(Throw _) = a
-eval env a@(Return _) = a
-eval env a@(Enum _ _) = a
-eval env (Func [] a) = eval env a
-eval env a@(Func _ _) = a
-eval env (Op2 op left right) = go op (eval env left) (eval env right)
+eval env input = go input
   where
-    go "|" (Throw _) r = r
-    go "|" l _ = l
-    go "&&" (Bool True) r = r
-    go "&&" (Bool False) _ = Bool False
-    go "||" (Bool True) _ = Bool True
-    go "||" (Bool False) r = r
-    go "+" (Int l) (Int r) = Int $ l + r
-    go "-" (Int l) (Int r) = Int $ l - r
-    go "*" (Int l) (Int r) = Int $ l * r
-    go ">" (Int l) (Int r) = Bool $ l > r
-    go ">=" (Int l) (Int r) = Bool $ l >= r
-    go "<" (Int l) (Int r) = Bool $ l < r
-    go "<=" (Int l) (Int r) = Bool $ l <= r
-    go "." (String l) (String r) = String $ l ++ r
-    go "==" l r = Bool $ show l == show r
-    go "!=" l r = Bool $ show l /= show r
-    go op l r = Throw $ "op: (" ++ show l ++ ") " ++ op ++ " (" ++ show r ++ ")"
-eval env a@(Method self method argv_) = go (eval env self) method (map (eval env) argv_)
-  where
-    go (Struct fields) _ argv = find method fields $ apply (fields ++ env) argv
-    go (String s) "length" [] = Int $ length s
-    go (String s) "slice" [Int n] = String $ drop n s
-    go (String s) "slice" [Int n, Int m] = String $ take m (drop n s)
-    go (String s) ns [] = case is_num of
-        False -> Throw $ "method not found: String." ++ ns
-        True
-          | index < length s -> String $ [(s !! index)]
-          | otherwise -> Throw $ "out of index " ++ s ++ "." ++ ns
+    go (Void) = input
+    go (Bool _) = input
+    go (Int _) = input
+    go (String _) = input
+    go (List xs) = List $ map (\x -> eval env x) xs
+    go (Ref name) = find name env id
+    go (Apply body []) = eval env body
+    go (Apply body argv) = apply env argv body
+    go (Struct _) = input
+    go (Match _) = input
+    go (Throw _) = input
+    go (Return _) = input
+    go (Enum _ _) = input
+    go (Func [] a) = eval env a
+    go (Func _ _) = input
+    go (Op2 op left right) = op2 op (eval env left) (eval env right)
+    go (Method self name argv) = method (eval env self) name (map (eval env) argv)
+    go (Steps root_step) = steps root_step
+    go _ = error $ "unknown " ++ show input
+
+    op2 "|" (Throw _) r = r
+    op2 "|" l _ = l
+    op2 "&&" (Bool True) r = r
+    op2 "&&" (Bool False) _ = Bool False
+    op2 "||" (Bool True) _ = Bool True
+    op2 "||" (Bool False) r = r
+    op2 "+" (Int l) (Int r) = Int $ l + r
+    op2 "-" (Int l) (Int r) = Int $ l - r
+    op2 "*" (Int l) (Int r) = Int $ l * r
+    op2 ">" (Int l) (Int r) = Bool $ l > r
+    op2 ">=" (Int l) (Int r) = Bool $ l >= r
+    op2 "<" (Int l) (Int r) = Bool $ l < r
+    op2 "<=" (Int l) (Int r) = Bool $ l <= r
+    op2 "." (String l) (String r) = String $ l ++ r
+    op2 "==" l r = Bool $ show l == show r
+    op2 "!=" l r = Bool $ show l /= show r
+    op2 op l r = Throw $ "op: (" ++ show l ++ ") " ++ op ++ " (" ++ show r ++ ")"
+
+    method (Struct fields) name argv = find name fields $ apply (fields ++ env) argv
+    method (String s) "length" [] = Int $ length s
+    method (String s) "slice" [Int n] = String $ drop n s
+    method (String s) "slice" [Int n, Int m] = String $ take m (drop n s)
+    method (String s) ns [] = case (is_num, index < length s) of
+        (False, _) -> Throw $ "method not found: String." ++ ns
+        (True, True) -> String $ [(s !! index)]
+        _ -> Throw $ "out of index " ++ s ++ "." ++ ns
       where
         is_num = all (\x -> elem x "01234566789") ns
         index = if is_num then read ns :: Int else -1
-    go a@(Throw _) _ _ = a
-    go v _ _ = Throw $ "method " ++ show v ++
-             "." ++ method ++
-             "(" ++ (show argv_) ++ ")"
-eval env (Steps root_step) = go root_step
-  where
-    go :: [AST] -> AST
-    go [] = Void
-    go [ast] = eval env ast
-    go (ast:rest) = branch ast rest (\ast ->
+    method a@(Throw _) _ _ = a
+    method v name argv = Throw $ "method " ++ show v ++
+      "." ++ name ++
+      "(" ++ (show argv) ++ ")"
+
+    steps [] = Void
+    steps [ast] = eval env ast
+    steps (ast:rest) = branch ast rest (\ast ->
       branch (eval env ast) rest (\ast ->
         eval env $ Steps rest))
-    branch ast rest f = case ast of
-      Return ret -> ret
-      Throw _ -> ast
-      Assign name exp -> case eval env exp of
-        a@(Throw _) -> a
-        _ -> eval ((name, eval env exp):env) (Steps rest)
-      _ -> f ast
-
-eval env ast = error $ "unknown " ++ show ast
+      where
+        branch ast rest f = case ast of
+          Return ret -> ret
+          Throw _ -> ast
+          Assign name exp -> case eval env exp of
+            a@(Throw _) -> a
+            _ -> eval ((name, eval env exp):env) (Steps rest)
+          _ -> f ast
 
 -- utility
 find name env f = case lookup name env of
