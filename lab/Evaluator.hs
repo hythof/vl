@@ -63,7 +63,7 @@ eval env input = go input
 
     steps [] = Void
     steps [ast] = eval_ ast
-    steps (ast:rest) = branch ast rest (\ast ->
+    steps (head_ast:rest) = branch head_ast rest (\ast ->
       branch (eval_ ast) rest (\ast ->
         eval_ $ Steps rest))
       where
