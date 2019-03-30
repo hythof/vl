@@ -6,23 +6,24 @@ import AST
 eval :: Env -> AST -> AST
 eval env input = go input
   where
+    eval_ ast = eval env ast
     go (Void) = input
     go (Bool _) = input
     go (Int _) = input
     go (String _) = input
-    go (List xs) = List $ map (\x -> go x) xs
+    go (List xs) = List $ map (\x -> eval_ x) xs
     go (Ref name) = find name env id
-    go (Apply body []) = go body
+    go (Apply body []) = eval_ body
     go (Apply body argv) = apply env argv body
     go (Struct _) = input
     go (Match _) = input
     go (Throw _) = input
     go (Return _) = input
     go (Enum _ _) = input
-    go (Func [] a) = go a
+    go (Func [] a) = eval_ a
     go (Func _ _) = input
-    go (Op2 op left right) = op2 op (eval env left) (eval env right)
-    go (Method self name argv) = method (eval env self) name (map (eval env) argv)
+    go (Op2 op left right) = op2 op (eval_ left) (eval_ right)
+    go (Method self name argv) = method (eval_ self) name (map eval_ argv)
     go (Steps root_step) = steps root_step
     go _ = error $ "unknown " ++ show input
 
@@ -61,17 +62,17 @@ eval env input = go input
       "(" ++ (show argv) ++ ")"
 
     steps [] = Void
-    steps [ast] = eval env ast
+    steps [ast] = eval_ ast
     steps (ast:rest) = branch ast rest (\ast ->
-      branch (eval env ast) rest (\ast ->
-        eval env $ Steps rest))
+      branch (eval_ ast) rest (\ast ->
+        eval_ $ Steps rest))
       where
         branch ast rest f = case ast of
           Return ret -> ret
           Throw _ -> ast
-          Assign name exp -> case eval env exp of
+          Assign name exp -> case eval_ exp of
             a@(Throw _) -> a
-            _ -> eval ((name, eval env exp):env) (Steps rest)
+            _ -> eval ((name, eval_ exp):env) (Steps rest)
           _ -> f ast
 
 -- utility
