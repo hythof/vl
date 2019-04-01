@@ -12,10 +12,23 @@ parse input = case runParser parse_root (Source { source = input, indent = 0}) o
 parse_root = many (spaces >> parse_define)
 parse_top = parse_match <|> parse_steps <|> parse_exp
 parse_exp = parse_op2
-parse_unit = parse_method <|> parse_bottom
-parse_bottom = (next_between "(" ")" parse_exp) <|>
-  parse_value <|>
-  parse_ref
+parse_bottom = go
+  where
+    go = do
+      bottom <- (next_between "(" ")" parse_exp) <|> parse_value <|> parse_ref
+      chain bottom
+    chain unit = do
+      op <- option ' ' (oneOf "(.")
+      switch op unit
+    switch '.' unit = do
+      name <- token <|> (many1 $ oneOf "0123456789")
+      args <- option [] (between (string "(") (next_string ")") (many1 parse_exp))
+      chain $ Method unit name args
+    switch '(' unit = do
+      args <- many1 parse_exp
+      next_string ")"
+      chain $ Apply unit args
+    switch _ unit = return unit
 -- define
 parse_define = go
   where
@@ -71,21 +84,6 @@ parse_int = do
   s <- next $ many1 $ oneOf "0123456789"
   return $ Int (read s :: Int)
 parse_string = String <$> between (next_string "\"") (string "\"") (many $ noneOf "\"")
--- func
-parse_method = do
-  target <- parse_apply
-  op <- option "" (string ".")
-  case op of
-    "." -> do
-      name <- next_token <|> (many1 $ oneOf "0123456789")
-      args <- read_args
-      return $ Method target name args
-    _ -> do
-      return target
-parse_apply = do
-  ast <- parse_bottom
-  args <- read_args
-  return $ make_apply ast args
 -- container
 parse_list = next_between "[" "]" parse_exp
 -- expression
@@ -93,7 +91,7 @@ parse_ref = Ref <$> next_token
 parse_op2 = go
   where
     go = do
-      l <- parse_unit
+      l <- parse_bottom
       op <- option "" next_op
       ret <- consume l op
       return ret
@@ -108,7 +106,7 @@ parse_op2 = go
         e <- parse_exp
         return $ Assign name e
       _ -> do
-        r <- parse_op2
+        r <- go
         return $ Op2 op l r
 parse_match = Match <$> many1 go
   where
