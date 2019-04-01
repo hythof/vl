@@ -4,13 +4,13 @@ import Debug.Trace (trace)
 import AST
 
 parse :: String -> (Env, String)
-parse input = case runParser parse_root (Source { source = "\n" ++ input, indent = 0}) of
+parse input = case runParser parse_root (Source {source = input}) of
   Just (a, s) -> (a, source s)
   Nothing -> ([], input)
 
 -- parser combination
 parse_root = many (spaces >> parse_define)
-parse_top = parse_match <|> parse_steps <|> parse_exp
+parse_top = parse_match <|> parse_block <|> parse_exp
 parse_exp = parse_op2
 parse_bottom = go
   where
@@ -121,7 +121,7 @@ parse_match = Match <$> many1 go
       return (pattern, body)
     parse_pattern = parse_enum_pattern
     parse_enum_pattern = EnumPattern <$> next_token
-parse_steps = Steps <$> next_brackets go
+parse_block = Block <$> next_brackets go
   where
     go = sepBy1 (spaces >> step) next_br
     step = read_return <|> read_throw <|> read_assign <|> read_apply
@@ -139,11 +139,8 @@ parse_steps = Steps <$> next_brackets go
       return $ if (length args) == 0 then target else Apply target args
 
 -- utility
-bug = Parser $ \s -> error $ "BUG\n" ++ (source s)
+bug = Parser $ \s -> error $ "BUG\n" ++ show s
 debug mark = Parser $ \s -> trace ("@ " ++ show mark ++ " | " ++ show s) (return ((), s))
-read_args = option [] (between (string "(") (next_string ")") (many1 parse_exp))
-make_apply ast [] = ast
-make_apply ast args = Apply ast args
 make_func [] body = body
 make_func args body = Func args body
 
@@ -193,7 +190,7 @@ next_between l r m = between (next_string l) (next_string r) m
 between l r m = do
   l
   ret <- m
-  r
+  r <|> bug
   return ret
 
 spaces = many $ oneOf " \t\r\n"

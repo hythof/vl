@@ -24,7 +24,7 @@ eval env input = go input
     go (Func _ _) = input
     go (Op2 op left right) = op2 op (eval_ left) (eval_ right)
     go (Method self name argv) = method (eval_ self) name (map eval_ argv)
-    go (Steps root_step) = steps root_step
+    go (Block root_step) = block root_step
     go _ = error $ "unknown " ++ show input
 
     op2 "|" (Throw _) r = r
@@ -61,18 +61,18 @@ eval env input = go input
       "." ++ name ++
       "(" ++ (show argv) ++ ")"
 
-    steps [] = Void
-    steps [ast] = eval_ ast
-    steps (head_ast:rest) = branch head_ast rest (\ast ->
+    block [] = Void
+    block [ast] = eval_ ast
+    block (head_ast:rest) = branch head_ast rest (\ast ->
       branch (eval_ ast) rest (\ast ->
-        eval_ $ Steps rest))
+        eval_ $ Block rest))
       where
         branch ast rest f = case ast of
           Return ret -> ret
           Throw _ -> ast
           Assign name exp -> case eval_ exp of
             a@(Throw _) -> a
-            _ -> eval ((name, eval_ exp):env) (Steps rest)
+            _ -> eval ((name, eval_ exp):env) (Block rest)
           _ -> f ast
 
 -- utility
