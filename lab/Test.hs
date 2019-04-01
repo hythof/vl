@@ -6,7 +6,7 @@ import Parser (parse)
 import Evaluator (eval)
 
 main = do
-  test "struct either: left int, right int" [
+  test struct_code [
       ("2", "either(1 2).right")
     , ("1", "either(1 2).left")
     ]
@@ -42,26 +42,42 @@ main = do
     , ("3", "1 + 2")
     , ("-1", "1 - 2")
     , ("6", "2 * 3")
-    , ("3", "\n  a = 1\n  b = a + 1\n  a + b")
-    , ("1", "\n  return 1\n  2")
     , ("2", "(x => x + 1)(1)")
-    , ("throw:cancel", "\n  throw cancel\n  2")
+    , ("3", "{a = 1; b = a + 1; a + b}")
+    , ("1", "{return 1; 2}")
+    , ("throw:cancel", "{throw cancel; 2}")
     ]
   putStrLn "ok"
 
+struct_code = unlines [
+    "struct either {"
+  , "  left int"
+  , "  right int"
+  , "}"
+  ]
 enum_code = unlines [
-    "enum maybe a: just value a, none"
+    "enum maybe a {"
+  , "  just value a"
+  , "  none"
+  , "}"
   , "to_int m ="
   , "| just = m"
   , "| none = _"
   ]
 flow_code = unlines [
-    "flow parser a: input string, eof, miss"
-  , "  satisfy f ="
+    "class parser a {"
+  , "  input string"
+  , "  eof"
+  , "  miss"
+  , "}"
+  , "method parser {"
+  , "  satisfy f = {"
   , "    c = input.0 | eof"
   , "    f(c) || miss"
   , "    input := input.slice(1)"
   , "    c"
+  , "  }"
+  , "}"
   ]
 
 test src tests =  mapM_ (runTest src) tests

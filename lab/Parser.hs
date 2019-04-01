@@ -4,7 +4,7 @@ import Debug.Trace (trace)
 import AST
 
 parse :: String -> (Env, String)
-parse input = case runParser parse_root (Source { source = input, indent = 0}) of
+parse input = case runParser parse_root (Source { source = "\n" ++ input, indent = 0}) of
   Just (a, s) -> (a, source s)
   Nothing -> ([], input)
 
@@ -32,49 +32,51 @@ parse_bottom = go
 -- define
 parse_define = go
   where
-    go = do
+    go = def_type <|> def_func
+    def_func = do
       name <- next_token
-      case name of
-        "enum" -> skip_generic_and_mark def_enum
-        "struct" -> skip_generic_and_mark def_struct
-        "flow" -> skip_generic_and_mark def_flow
-        _ -> def_func name
-    def_enum = do
-      names <- sepBy1 enum_line next_sep
-      return $ Struct (map (\(x:xs) -> (x, to_enum x xs)) names)
-    def_struct = do
-      names <- sepBy1 struct_line next_sep
-      return $ Func names Void
-    def_flow = do
-      names <- sepBy struct_line next_sep
-      many next_sep
-      throws <- sepBy enum_line next_sep
-      methods <- many (do { string "\n  "; f <- next_token; def_func f })
-      let funcs = map (\(x:_) -> (x, Throw x)) throws
-      return $ make_func names (Struct $ funcs ++ methods)
-    def_func name = do
       args <- many next_token
       next_string "="
       body <- parse_top
       return $ (name, make_func args body)
-    skip_generic_and_mark f = do
+    def_type = do
+      kind <- next_token
       name <- next_token
-      many next_token
-      next_string ":"
-      many next_br
-      ast <- f
-      return (name, ast)
-    to_struct xs = Struct $ map (\x -> (x, Void)) xs
-    struct_line = do
+      many next_type -- drop generic types
+      body <- next_brackets (switch kind)
+      return $ (name, body)
+    switch "enum" = do
+      tags <- many (next_br >> next_tag)
+      return $ Struct (map (\(x:xs) -> (x, to_enum x xs)) tags)
+    switch "struct" = do
+      props <- many (next_br >> next_property)
+      return $ Func props Void
+    switch "class" = do
+      props <- many (next_br >> next_property)
+      tags <- many (next_br >> next_tag)
+      methods <- option [] next_methods
+      return $ make_func props (Struct $ methods ++ map to_throw tags)
+    switch kind = error $ "unsupported parse " ++ kind
+    next_methods = do
+      spaces
+      next_string "}"
+      spaces
+      next_string "method "
+      many1 next_token
+      next_string "{"
+      spaces
+      sepBy1 def_func next_br
+    to_enum x [] = Enum x Void
+    to_enum x ys = make_func ys (Enum x Void)
+    to_throw (x:_) = (x, Throw x)
+    next_property = do
       name <- next_token
       next_type
       return name
-    enum_line = do
-      x <- next_token
-      xs <- sepBy (do { v <- next_token; next_token; return v }) next_sep
-      return $ x : xs
-    to_enum x [] = Enum x Void
-    to_enum x ys = make_func ys (Enum x Void)
+    next_tag = do
+      tag <- next_token
+      props <- sepBy next_property (next_string ",")
+      return $ tag : props
 -- value
 parse_value = parse_string <|> parse_int <|> parse_void <|> parse_bool
 parse_void = (next_string "()") >> (return Void)
@@ -119,11 +121,10 @@ parse_match = Match <$> many1 go
       return (pattern, body)
     parse_pattern = parse_enum_pattern
     parse_enum_pattern = EnumPattern <$> next_token
-parse_steps = Steps <$> many1 go
+parse_steps = Steps <$> next_brackets go
   where
-    go = do
-      next_br1
-      read_return <|> read_throw <|> read_assign <|> read_apply
+    go = sepBy1 (spaces >> step) next_br
+    step = read_return <|> read_throw <|> read_assign <|> read_apply
     read_return = (next_string "return ") >> (Return <$> parse_exp)
     read_throw = (next_string "throw ") >> (Throw <$> next_token)
     read_assign = do
@@ -138,6 +139,7 @@ parse_steps = Steps <$> many1 go
       return $ if (length args) == 0 then target else Apply target args
 
 -- utility
+bug = Parser $ \s -> error $ "BUG\n" ++ (source s)
 debug mark = Parser $ \s -> trace ("@ " ++ show mark ++ " | " ++ show s) (return ((), s))
 read_args = option [] (between (string "(") (next_string ")") (many1 parse_exp))
 make_apply ast [] = ast
@@ -186,6 +188,7 @@ sepBy1 f sep = do
   xs <- many (sep >> f)
   return $ x : xs
 
+next_brackets m = between (next_string "{") (spaces >> (string "}")) m
 next_between l r m = between (next_string l) (next_string r) m
 between l r m = do
   l
@@ -194,6 +197,7 @@ between l r m = do
   return ret
 
 spaces = many $ oneOf " \t\r\n"
+spaces1 = (oneOf " \t\r\n") >> spaces
 next f = (many $ oneOf " \t") >> f
 
 next_string s = next $ string s
@@ -220,6 +224,4 @@ next_op = next $ select op
     op2 = ["==", "!=", ">=", "<=", "||", "&&", "=>"]
     op1 = map (\x -> [x]) ".+-*/%|<>"
 
-next_sep = next $ string ","
 next_br = next $ oneOf ";\n"
-next_br1 = next_br >> string "  "
