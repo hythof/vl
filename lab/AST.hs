@@ -29,7 +29,7 @@ data AST =
 
 data Pattern = EnumPattern String deriving (Show, Eq)
 
-data Source = Source { source :: String } deriving (Show)
+data Source = Source { source :: String, indent :: Int } deriving (Show)
 
 data Parser a = Parser { runParser :: Source -> Maybe (a, Source) }
 

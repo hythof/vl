@@ -43,41 +43,35 @@ main = do
     , ("-1", "1 - 2")
     , ("6", "2 * 3")
     , ("2", "(x => x + 1)(1)")
-    , ("3", "{a = 1; b = a + 1; a + b}")
-    , ("1", "{return 1; 2}")
-    , ("throw:cancel", "{throw cancel; 2}")
+    , ("3", "\n  a = 1\n  b = a + 1\n  a + b")
+    , ("1", "\n  return 1\n  2")
+    , ("throw:cancel", "\n  throw cancel\n  2")
     ]
   putStrLn "ok"
 
 struct_code = unlines [
-    "struct either {"
+    "struct either:"
   , "  left int"
   , "  right int"
-  , "}"
   ]
 enum_code = unlines [
-    "enum maybe a {"
+    "enum maybe a:"
   , "  just value a"
   , "  none"
-  , "}"
   , "to_int m ="
   , "| just = m"
   , "| none = _"
   ]
 flow_code = unlines [
-    "class parser a {"
-  , "  input string"
+    "flow parser a:"
   , "  eof"
-  , "  miss"
-  , "}"
-  , "method parser {"
-  , "  satisfy f = {"
+  , "  miss reason string"
+  , "  input string"
+  , "  satisfy f ="
   , "    c = input.0 | eof"
   , "    f(c) || miss"
   , "    input := input.slice(1)"
   , "    c"
-  , "  }"
-  , "}"
   ]
 
 test src tests =  mapM_ (runTest src) tests

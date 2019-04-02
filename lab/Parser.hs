@@ -4,13 +4,16 @@ import Debug.Trace (trace)
 import AST
 
 parse :: String -> (Env, String)
-parse input = case runParser parse_root (Source {source = input}) of
+parse input = case runParser parse_root (Source {source = input, indent = 0}) of
   Just (a, s) -> (a, source s)
   Nothing -> ([], input)
 
 -- parser combination
 parse_root = many (spaces >> parse_define)
-parse_top = parse_match <|> parse_block <|> parse_exp
+parse_top = do
+  v <- parse_match <|> parse_block <|> parse_exp <|> (bug "top")
+  eol
+  return v
 parse_exp = parse_op2
 parse_bottom = go
   where
@@ -43,29 +46,22 @@ parse_define = go
       kind <- next_token
       name <- next_token
       many next_type -- drop generic types
-      body <- next_brackets (switch kind)
+      next_string ":"
+      next_br
+      body <- indent_nest $ switch kind
       return $ (name, body)
     switch "enum" = do
-      tags <- many (next_br >> next_tag)
+      tags <- indented_lines next_tag
       return $ Struct (map (\(x:xs) -> (x, to_enum x xs)) tags)
     switch "struct" = do
-      props <- many (next_br >> next_property)
+      props <- indented_lines next_property
       return $ Func props Void
-    switch "class" = do
-      props <- many (next_br >> next_property)
-      tags <- many (next_br >> next_tag)
-      methods <- option [] next_methods
+    switch "flow" = do
+      tags <- indented_lines next_tag
+      props <- indented_lines next_property
+      methods <- indented_lines def_func
       return $ make_func props (Struct $ methods ++ map to_throw tags)
     switch kind = error $ "unsupported parse " ++ kind
-    next_methods = do
-      spaces
-      next_string "}"
-      spaces
-      next_string "method "
-      many1 next_token
-      next_string "{"
-      spaces
-      sepBy1 def_func next_br
     to_enum x [] = Enum x Void
     to_enum x ys = make_func ys (Enum x Void)
     to_throw (x:_) = (x, Throw x)
@@ -121,9 +117,9 @@ parse_match = Match <$> many1 go
       return (pattern, body)
     parse_pattern = parse_enum_pattern
     parse_enum_pattern = EnumPattern <$> next_token
-parse_block = Block <$> next_brackets go
+parse_block = Block <$> (next_br >> (indent_nest go))
   where
-    go = sepBy1 (spaces >> step) next_br
+    go = indented_lines step
     step = read_return <|> read_throw <|> read_assign <|> read_apply
     read_return = (next_string "return ") >> (Return <$> parse_exp)
     read_throw = (next_string "throw ") >> (Throw <$> next_token)
@@ -136,11 +132,16 @@ parse_block = Block <$> next_brackets go
     read_apply = do
       target <- parse_exp
       args <- many parse_exp
-      return $ if (length args) == 0 then target else Apply target args
+      return $ if (length args) == 0
+        then target else
+        Apply target args
 
 -- utility
-bug = Parser $ \s -> error $ "BUG\n" ++ show s
+bug message = Parser $ \s -> error $ "BUG " ++ message ++ " \n" ++ show s
+eof = Parser $ \s -> if 0 == (length $ source s) then Just ((), s) else Nothing
+eol = (look next_br) <|> (bug "eol")
 debug mark = Parser $ \s -> trace ("@ " ++ show mark ++ " | " ++ show s) (return ((), s))
+current_indent = Parser $ \s -> return (indent s, s)
 make_func [] body = body
 make_func args body = Func args body
 
@@ -152,8 +153,8 @@ satisfy f = Parser $ \s -> do
   Just (c, s { source = drop 1 src })
 
 look f = Parser $ \s -> case runParser f s of
-  Just (a, _) -> Just (True, s)
-  Nothing -> Just (False, s)
+  Just (a, _) -> Just (a, s)
+  Nothing -> Nothing
 
 guard c = if c then Just () else Nothing
 
@@ -185,12 +186,11 @@ sepBy1 f sep = do
   xs <- many (sep >> f)
   return $ x : xs
 
-next_brackets m = between (next_string "{") (spaces >> (string "}")) m
 next_between l r m = between (next_string l) (next_string r) m
 between l r m = do
   l
   ret <- m
-  r <|> bug
+  r <|> (bug "between")
   return ret
 
 spaces = many $ oneOf " \t\r\n"
@@ -221,4 +221,20 @@ next_op = next $ select op
     op2 = ["==", "!=", ">=", "<=", "||", "&&", "=>"]
     op1 = map (\x -> [x]) ".+-*/%|<>"
 
-next_br = next $ oneOf ";\n"
+next_br = do
+  next (eof <|> ((oneOf ";\n") >> return ()))
+  return ()
+
+indent_nest f = Parser $ \s ->
+  case runParser f (s { indent = 1 + indent s }) of
+    Just (a, ss) -> Just (a, ss { indent = indent s })
+    Nothing -> Nothing
+
+indented_line f = do
+  indent <- current_indent
+  string (take (2 * indent) (repeat ' '))
+  v <- f
+  next_br
+  return v
+
+indented_lines f = many (indented_line f)
