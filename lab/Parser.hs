@@ -4,7 +4,7 @@ import Debug.Trace (trace)
 import AST
 
 parse :: String -> (Env, String)
-parse input = case runParser parse_root (Source {source = input, indent = 0}) of
+parse input = case runParser parse_root (Source {source = input, indentation = 0}) of
   Just (a, s) -> (a, source s)
   Nothing -> ([], input)
 
@@ -30,7 +30,7 @@ parse_bottom = go
     switch '(' unit = do
       args <- many1 parse_exp
       next_string ")"
-      chain $ Apply unit args
+      chain $ make_apply unit args
     switch _ unit = return unit
 -- define
 parse_define = go
@@ -48,7 +48,7 @@ parse_define = go
       many next_type -- drop generic types
       next_string ":"
       next_br
-      body <- indent_nest $ switch kind
+      body <- indent $ switch kind
       return $ (name, body)
     switch "enum" = do
       tags <- indented_lines next_tag
@@ -117,7 +117,7 @@ parse_match = Match <$> many1 go
       return (pattern, body)
     parse_pattern = parse_enum_pattern
     parse_enum_pattern = EnumPattern <$> next_token
-parse_block = Block <$> (next_br >> (indent_nest go))
+parse_block = Block <$> (next_br >> (indent go))
   where
     go = indented_lines step
     step = read_return <|> read_throw <|> read_assign <|> read_apply
@@ -132,16 +132,17 @@ parse_block = Block <$> (next_br >> (indent_nest go))
     read_apply = do
       target <- parse_exp
       args <- many parse_exp
-      return $ if (length args) == 0
-        then target else
-        Apply target args
+      return $ make_apply target args
 
 -- utility
 bug message = Parser $ \s -> error $ "BUG " ++ message ++ " \n" ++ show s
 eof = Parser $ \s -> if 0 == (length $ source s) then Just ((), s) else Nothing
 eol = (look next_br) <|> (bug "eol")
 debug mark = Parser $ \s -> trace ("@ " ++ show mark ++ " | " ++ show s) (return ((), s))
-current_indent = Parser $ \s -> return (indent s, s)
+current_indent = Parser $ \s -> return (indentation s, s)
+
+make_apply ast [] = ast
+make_apply ast argv = Apply ast argv
 make_func [] body = body
 make_func args body = Func args body
 
@@ -194,7 +195,7 @@ between l r m = do
   return ret
 
 spaces = many $ oneOf " \t\r\n"
-spaces1 = (oneOf " \t\r\n") >> spaces
+
 next f = (many $ oneOf " \t") >> f
 
 next_string s = next $ string s
@@ -225,9 +226,9 @@ next_br = do
   next (eof <|> ((oneOf ";\n") >> return ()))
   return ()
 
-indent_nest f = Parser $ \s ->
-  case runParser f (s { indent = 1 + indent s }) of
-    Just (a, ss) -> Just (a, ss { indent = indent s })
+indent f = Parser $ \s ->
+  case runParser f (s { indentation = 1 + indentation s }) of
+    Just (a, ss) -> Just (a, ss { indentation = indentation s })
     Nothing -> Nothing
 
 indented_line f = do
