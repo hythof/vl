@@ -1,67 +1,35 @@
-enum ast {
-  int {
-    value int
-  }
-  string {
-    value string
-  }
-  ref {
-    name string
-  }
-  op2 {
-    type string
-    op string
-    left ast
-    right ast
-  }
-  func {
-    type string
-    name string
-    args [param]
-    body ast
-  }
-  call {
-    name string
-    args [ast]
-  }
-  stmt {
-    lines [ast]
-  }
-  struct {
-    params [param]
-  }
-}
+enum ast:
+  int value int
+  string value string
+  ref name string
+  op2 type string, op string, left ast, right ast
+  func type string, name string, args [param], body ast
+  call name string, args [ast]
+  stmt lines [ast]
+  struct params [param]
 
-struct param {
+struct param:
   name string
   type string
-}
 
-struct define {
+struct define:
   name string
   ast ast
-}
 
-class parser a {
+flow parser a:
   eof
-  miss {
-    reason string
-  }
+  miss reason string
   input string
-}
-method parser {
-  satisfy f = {
-    c = input.0 .or eof
+  satisfy f =
+    c = input.0 | eof
     f(c) || miss("miss match")
+    input := input.slice(1)
     c
-  }
-}
 
-compile s = {
+compile s =
   defines = dummy_parse(s)
   types = defines.map(x => param(x.name x.ast.type))
   defines.map(define => c_go(types define.ast)).join("\n")
-}
 
 parse s = parser(s).satisfy(c => c == "h")
 
@@ -89,7 +57,7 @@ dummy_parse s = [
   )
 ]
 
-c_go types target = {
+c_go types target =
   c_type t =
   | "string" = "string"
   | "int" = "int"
@@ -128,7 +96,6 @@ c_go types target = {
   | _ "string" "string" = c_ast(v)
   | _ _ _ = from
   c_ast(target)
-}
 
 __comment__
 parse s = parser(s).satisfy(c => c == "h")

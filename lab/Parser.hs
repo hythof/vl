@@ -11,6 +11,7 @@ parse input = case runParser parse_root (Source {source = input, indentation = 0
 -- parser combination
 parse_root = many (spaces >> parse_define)
 parse_top = do
+  many $ oneOf " \t"
   v <- parse_match <|> parse_block <|> parse_exp <|> (bug "top")
   eol
   return v
@@ -28,8 +29,9 @@ parse_bottom = go
       args <- option [] (between (string "(") (next_string ")") (many1 parse_exp))
       chain $ Method unit name args
     switch '(' unit = do
-      args <- many1 parse_exp
-      next_string ")"
+      args <- many1 (spaces >> parse_exp)
+      spaces
+      string ")"
       chain $ make_apply unit args
     switch _ unit = return unit
 -- define
@@ -74,7 +76,7 @@ parse_define = go
       props <- sepBy next_property (next_string ",")
       return $ tag : props
 -- value
-parse_value = parse_string <|> parse_int <|> parse_void <|> parse_bool
+parse_value = parse_string <|> parse_int <|> parse_void <|> parse_bool <|> parse_list
 parse_void = (next_string "()") >> (return Void)
 parse_bool = ((next_string "true") >> (return (Bool True))) <|>
              ((next_string "false") >> (return (Bool False)))
@@ -82,8 +84,10 @@ parse_int = do
   s <- next $ many1 $ oneOf "0123456789"
   return $ Int (read s :: Int)
 parse_string = String <$> between (next_string "\"") (string "\"") (many $ noneOf "\"")
--- container
-parse_list = next_between "[" "]" parse_exp
+parse_list = List <$> (between
+  (next_string "[")
+  (spaces >> (string "]"))
+  (sepBy (spaces >> parse_exp) spaces1))
 -- expression
 parse_ref = Ref <$> next_token
 parse_op2 = go
@@ -99,10 +103,6 @@ parse_op2 = go
         let (Ref name) = l
         body <- parse_exp
         return $ Func [name] body
-      ":=" -> do
-        let (Ref name) = l
-        e <- parse_exp
-        return $ Assign name e
       _ -> do
         r <- go
         return $ Op2 op l r
@@ -115,24 +115,20 @@ parse_match = Match <$> many1 go
       next_string "="
       body <- parse_exp
       return (pattern, body)
-    parse_pattern = parse_enum_pattern
+    parse_pattern = (ValuePattern <$> parse_value) <|> parse_enum_pattern
     parse_enum_pattern = EnumPattern <$> next_token
 parse_block = Block <$> (next_br >> (indent go))
   where
     go = indented_lines step
-    step = read_return <|> read_throw <|> read_assign <|> read_apply
+    step = read_return <|> read_throw <|> read_assign <|> parse_exp
     read_return = (next_string "return ") >> (Return <$> parse_exp)
     read_throw = (next_string "throw ") >> (Throw <$> next_token)
     read_assign = do
       name <- next_token
       args <- many next_token
       next $ select ["=", ":="]
-      body <- read_apply
+      body <- parse_top
       return $ Assign name (make_func args body)
-    read_apply = do
-      target <- parse_exp
-      args <- many parse_exp
-      return $ make_apply target args
 
 -- utility
 bug message = Parser $ \s -> error $ "BUG " ++ message ++ " \n" ++ show s
@@ -195,6 +191,7 @@ between l r m = do
   return ret
 
 spaces = many $ oneOf " \t\r\n"
+spaces1 = many1 $ oneOf " \t\r\n"
 
 next f = (many $ oneOf " \t") >> f
 
@@ -204,17 +201,17 @@ string s = go s
     go [] = return s
     go (x:xs) = (satisfy (== x)) >> (go xs)
 
+az = "abcdefghijklmnopqrstuvxwyz"
+num = "0123456789"
+sym = "_"
 next_token = next token
-next_type = next token
+next_type = next (many1 $ oneOf (az ++ num ++ sym ++ "[]"))
 token = go
   where
     go = do
       prefix <- oneOf (sym ++ az)
       remaining <- many $ oneOf (sym ++ az ++ num)
       return $ prefix : remaining
-    az = "abcdefghijklmnopqrstuvxwyz"
-    num = "0123456789"
-    sym = "_"
 
 next_op = next $ select op
   where

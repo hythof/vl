@@ -6,25 +6,20 @@ import Parser (parse)
 import Evaluator (eval)
 
 main = do
-  test struct_code [
-      ("2", "either(1 2).right")
-    , ("1", "either(1 2).left")
+  test match_code [
+      ("0", "match(true)")
+    , ("1", "match(0)")
+    , ("2", "match(\"hello\")")
+    , ("3", "match(3)")
     ]
-  test enum_code [
-      ("just:value:1", "maybe.just(1)")
-    , ("none", "maybe.none")
-    , ("value:1", "to_int(maybe.just(1))")
-    ]
-  test flow_code [
-      ("hello", "parser(\"hello\").input")
-    , ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
-    , ("throw:miss", "parser(\"Hello\").satisfy(x => x == \"h\")")
-    , ("throw:eof", "parser(\"\").satisfy(x => x == \"h\")")
-    , ("throw:eof", "parser(\"\").eof")
-    , ("throw:miss", "parser(\"\").miss")
-    ]
-  test "" [
-      ("true", "true && true")
+  test "id a = a" [
+      ("[]", "[]")
+    , ("[1]", "[1]")
+    , ("[1]", "[\n1\n]")
+    , ("[1 2]", "[\n1\nid(2)\n]")
+    , ("1", "id(1)")
+    , ("1", "id(\n1\n)")
+    , ("true", "true && true")
     , ("true", "false || true")
     , ("true", "1 == 1")
     , ("false", "1 == 2")
@@ -46,6 +41,23 @@ main = do
     , ("3", "\n  a = 1\n  b = a + 1\n  a + b")
     , ("1", "\n  return 1\n  2")
     , ("throw:cancel", "\n  throw cancel\n  2")
+    ]
+  test struct_code [
+      ("2", "either(1 2).right")
+    , ("1", "either(1 2).left")
+    ]
+  test enum_code [
+      ("just:value:1", "maybe.just(1)")
+    , ("none", "maybe.none")
+    , ("value:1", "to_int(maybe.just(1))")
+    ]
+  test flow_code [
+      ("hello", "parser(\"hello\").input")
+    , ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
+    , ("throw:miss", "parser(\"Hello\").satisfy(x => x == \"h\")")
+    , ("throw:eof", "parser(\"\").satisfy(x => x == \"h\")")
+    , ("throw:eof", "parser(\"\").eof")
+    , ("throw:miss", "parser(\"\").miss")
     ]
   putStrLn "ok"
 
@@ -72,6 +84,13 @@ flow_code = unlines [
   , "    f(c) || miss"
   , "    input := input.slice(1)"
   , "    c"
+  ]
+match_code = unlines [
+    "match n ="
+  , "| true = 0"
+  , "| 0 = n + 1"
+  , "| \"hello\" = 2"
+  , "| _ = n"
   ]
 
 test src tests =  mapM_ (runTest src) tests

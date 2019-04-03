@@ -27,7 +27,9 @@ data AST =
   | Return AST
   deriving (Show, Eq)
 
-data Pattern = EnumPattern String deriving (Show, Eq)
+data Pattern =
+    ValuePattern AST
+  | EnumPattern String deriving (Show, Eq)
 
 data Source = Source { source :: String, indentation :: Int } deriving (Show)
 

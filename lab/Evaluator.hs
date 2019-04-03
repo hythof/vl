@@ -93,7 +93,11 @@ apply env argv_ ast = go (eval env ast)
     go (Func args body) = eval ((zip args argv) ++ env) body
     go (Ref name) = find name env id
     go v = eval env v
+    match env name v ((EnumPattern "_", ast):_) = eval ((name, v) : env) ast
     match env name a@(Enum t1 v) ((EnumPattern t2, ast):rest) = if t1 == t2
       then eval ((name, v) : env) ast
       else match env name a rest
+    match env name v1 ((ValuePattern v2, ast):rest) = if (eval env v1) == (eval env v2)
+      then eval ((name, eval env v1) : env) ast
+      else match env name v1 rest
     match _ _ _ _ = Throw $ "miss match " ++ show argv ++ show (eval env ast)
