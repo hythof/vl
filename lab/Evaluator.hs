@@ -12,6 +12,7 @@ eval env input = go input
     go (Int _) = input
     go (String _) = input
     go (List xs) = List $ map (\x -> eval_ x) xs
+    go (Ref "_") = Ref "_"
     go (Ref name) = find name env id
     go (Apply body []) = eval_ body
     go (Apply body argv) = apply env argv body
@@ -41,6 +42,7 @@ eval env input = go input
     op2 "<" (Int l) (Int r) = Bool $ l < r
     op2 "<=" (Int l) (Int r) = Bool $ l <= r
     op2 "." (String l) (String r) = String $ l ++ r
+    op2 "++" (List l) (List r) = List $ l ++ r
     op2 "==" l r = Bool $ show l == show r
     op2 "!=" l r = Bool $ show l /= show r
     op2 op l r = Throw $ "op: (" ++ show l ++ ") " ++ op ++ " (" ++ show r ++ ")"
@@ -93,11 +95,11 @@ apply env argv_ ast = go (eval env ast)
     go (Func args body) = eval ((zip args argv) ++ env) body
     go (Ref name) = find name env id
     go v = eval env v
-    match env name v ((EnumPattern "_", ast):_) = eval ((name, v) : env) ast
-    match env name a@(Enum t1 v) ((EnumPattern t2, ast):rest) = if t1 == t2
-      then eval ((name, v) : env) ast
-      else match env name a rest
-    match env name v1 ((ValuePattern v2, ast):rest) = if (eval env v1) == (eval env v2)
-      then eval ((name, eval env v1) : env) ast
-      else match env name v1 rest
-    match _ _ _ _ = Throw $ "miss match " ++ show argv ++ show (eval env ast)
+    match env name v1 [] = Throw $ "miss match " ++ show argv ++ show (eval env ast)
+    match env name v1 ((v2,branch):rest) = try v1 (eval env v2)
+      where
+        try _ (Ref "_") = run v1 True
+        try (Enum t1 v) (Enum t2 _) = run v $ t1 == t2
+        try v1 v2 = run v1 $ v1 == v2
+        run v True = eval ((name, v):env) branch
+        run _ False = match env name v1 rest

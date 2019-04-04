@@ -15,7 +15,7 @@ data AST =
   | Op2 String AST AST
   | Apply AST [AST]
   | Method AST String [AST]
-  | Match [(Pattern, AST)]
+  | Match [(AST, AST)]
 -- define
   | Struct Env
   | Enum String AST

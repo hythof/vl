@@ -83,7 +83,18 @@ parse_bool = ((next_string "true") >> (return (Bool True))) <|>
 parse_int = do
   s <- next $ many1 $ oneOf "0123456789"
   return $ Int (read s :: Int)
-parse_string = String <$> between (next_string "\"") (string "\"") (many $ noneOf "\"")
+parse_string = (String <$> (fmap trim1 $ next_between "`" "`" (many $ noneOf "`")))
+  <|> (String <$> (fmap unescape $ between (next_string "\"") (string "\"") (many $ noneOf "\"")))
+ where
+  trim1 s = reverse $ _trim1 $ reverse $ _trim1 s
+  _trim1 ('\r':s) = s
+  _trim1 ('\n':s) = s
+  _trim1 ('\t':s) = s
+  _trim1 (' ':s) = s
+  _trim1 s        = s
+  unescape [] = []
+  unescape ('\\':('n':xs)) = '\n' : unescape xs
+  unescape (x:xs) = x : unescape xs
 parse_list = List <$> (between
   (next_string "[")
   (spaces >> (string "]"))
@@ -111,7 +122,8 @@ parse_match = Match <$> many1 go
     go = do
       next_br
       next_string "|"
-      pattern <- parse_pattern
+      --pattern <- parse_pattern
+      pattern <- parse_exp
       next_string "="
       body <- parse_exp
       return (pattern, body)
@@ -216,7 +228,7 @@ token = go
 next_op = next $ select op
   where
     op = op2 ++ op1
-    op2 = ["==", "!=", ">=", "<=", "||", "&&", "=>"]
+    op2 = ["==", "!=", ">=", "<=", "||", "&&", "=>", "++"]
     op1 = map (\x -> [x]) ".+-*/%|<>"
 
 next_br = do

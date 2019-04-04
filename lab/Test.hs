@@ -71,8 +71,8 @@ enum_code = unlines [
   , "  just value a"
   , "  none"
   , "to_int m ="
-  , "| just = m"
-  , "| none = _"
+  , "| maybe.just = m"
+  , "| maybe.none = _"
   ]
 flow_code = unlines [
     "flow parser a:"
