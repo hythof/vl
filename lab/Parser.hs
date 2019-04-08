@@ -9,7 +9,10 @@ parse input = case runParser parse_root (Source {source = input, indentation = 0
   Nothing -> ([], input)
 
 -- parser combination
-parse_root = many (spaces >> parse_define)
+parse_root = do
+  defines <- many (spaces >> parse_define)
+  option () parse_tail_comment
+  return $ defines
 parse_top = do
   many $ oneOf " \t"
   v <- parse_match <|> parse_block <|> parse_exp <|> (bug "top")
@@ -91,7 +94,7 @@ parse_string = (String <$> (fmap trim1 $ next_between "`" "`" (many $ noneOf "`"
   _trim1 ('\n':s) = s
   _trim1 ('\t':s) = s
   _trim1 (' ':s) = s
-  _trim1 s        = s
+  _trim1 s = s
   unescape [] = []
   unescape ('\\':('n':xs)) = '\n' : unescape xs
   unescape (x:xs) = x : unescape xs
@@ -122,13 +125,10 @@ parse_match = Match <$> many1 go
     go = do
       next_br
       next_string "|"
-      --pattern <- parse_pattern
-      pattern <- parse_exp
+      conds <- many1 parse_exp
       next_string "="
       body <- parse_exp
-      return (pattern, body)
-    parse_pattern = (ValuePattern <$> parse_value) <|> parse_enum_pattern
-    parse_enum_pattern = EnumPattern <$> next_token
+      return (conds, body)
 parse_block = Block <$> (next_br >> (indent go))
   where
     go = indented_lines step
@@ -141,7 +141,11 @@ parse_block = Block <$> (next_br >> (indent go))
       next $ select ["=", ":="]
       body <- parse_top
       return $ Assign name (make_func args body)
-
+-- comments
+parse_tail_comment = do
+  spaces1
+  string "__comment__"
+  Parser $ \s -> Just ((), s { source = "" })
 -- utility
 bug message = Parser $ \s -> error $ "BUG " ++ message ++ " \n" ++ show s
 eof = Parser $ \s -> if 0 == (length $ source s) then Just ((), s) else Nothing

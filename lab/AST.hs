@@ -15,7 +15,7 @@ data AST =
   | Op2 String AST AST
   | Apply AST [AST]
   | Method AST String [AST]
-  | Match [(AST, AST)]
+  | Match [([AST], AST)]
 -- define
   | Struct Env
   | Enum String AST
@@ -26,10 +26,6 @@ data AST =
   | Assign String AST
   | Return AST
   deriving (Show, Eq)
-
-data Pattern =
-    ValuePattern AST
-  | EnumPattern String deriving (Show, Eq)
 
 data Source = Source { source :: String, indentation :: Int } deriving (Show)
 

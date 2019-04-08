@@ -59,6 +59,8 @@ eval env input = go input
         is_num = all (\x -> elem x "01234566789") ns
         index = if is_num then read ns :: Int else -1
     method a@(Throw _) _ _ = a
+    method (List xs) "map" [ast] = List $ map (\arg -> eval env $ Apply ast [arg]) xs
+    method (List xs) "join" [String glue] = String $ string_join glue (map to_string xs)
     method v name argv = Throw $ "method " ++ show v ++
       "." ++ name ++
       "(" ++ (show argv) ++ ")"
@@ -78,28 +80,61 @@ eval env input = go input
           _ -> f ast
 
 -- utility
+to_strings xs = string_join " " (map to_string xs)
+to_string Void = "_"
+to_string (Bool True) = "true"
+to_string (Bool False) = "false"
+to_string (Int n) = show n
+to_string (String s) = '"' : escape s ++ "\""
+to_string (List xs) = '[' : (to_strings xs) ++ "]"
+to_string (Ref s) = s
+to_string (Op2 op l r) = (to_string l) ++ " " ++ op ++ " " ++ (to_string r)
+to_string (Apply body args) = (to_string body) ++ "(" ++ to_strings args ++ ")"
+to_string (Method self method args) = (to_string self) ++ "." ++ method ++ "(" ++ to_strings args ++ ")"
+to_string (Match matches) = "\n" ++ string_join "\n" (map go matches)
+  where
+    go (conds, branch) = "| " ++ to_strings conds ++ " = " ++ to_string branch
+to_string (Struct kvs) = string_join "\n" (map go kvs)
+  where
+    go (k, v) = k ++ ": " ++ to_string v
+to_string (Enum tag body) = tag ++ "(" ++ to_string body ++ ")"
+to_string (Func args body) = "(" ++ string_join " " args ++ to_string body
+to_string (Block block) = string_join "\n  " $ map to_string block
+to_string (Throw s) = "throw(\"" ++ escape s ++ "\")"
+to_string (Assign name ast) = name ++ " = " ++ to_string ast
+to_string (Return ast) = "return " ++ to_string ast
+escape [] = ""
+escape ('"':xs) = "\\\"" ++ escape xs
+escape (x:xs) = x : escape xs
+string_join :: String -> [String] -> String
+string_join glue [] = ""
+string_join glue [x] = x
+string_join glue (x:xs) = x ++ glue ++ (string_join glue xs)
 find name env f = case lookup name env of
   Just (Ref name') -> if name == name'
     then Throw $ "circle reference " ++ name ++ " in " ++ (show env)
     else find name' env f
   Just v -> f $ eval env v
-  _ -> Throw $ "not found " ++ name ++ " in " ++ (show $ map fst env)
+  _ -> error $ "not found " ++ name ++ " in " ++ (show $ map fst env)
 
-apply env argv_ ast = go (eval env ast)
+apply env argv_ ast = go body
   where
+    body = eval env ast
     argv = map (eval env) argv_
     go (Func args Void) = Struct $ zip args argv
     go (Func args (Enum name Void)) = Enum name (Struct $ zip args argv)
     go (Func args (Struct kvs)) = Struct $ (zip args argv) ++ kvs
-    go (Func args (Match matches)) = match env (args !! 0) (argv !! 0) matches
+    go (Func args (Match matches)) = match args argv matches
     go (Func args body) = eval ((zip args argv) ++ env) body
     go (Ref name) = find name env id
     go v = eval env v
-    match env name v1 [] = Throw $ "miss match " ++ show argv ++ show (eval env ast)
-    match env name v1 ((v2,branch):rest) = try v1 (eval env v2)
-      where
-        try _ (Ref "_") = run v1 True
-        try (Enum t1 v) (Enum t2 _) = run v $ t1 == t2
-        try v1 v2 = run v1 $ v1 == v2
-        run v True = eval ((name, v):env) branch
-        run _ False = match env name v1 rest
+    match :: [String] -> [AST] -> [([AST], AST)] -> AST
+    match args argv [] = Throw $ "miss match " ++ show argv ++ show body
+    match args argv ((conds,branch):rest) = if all id (zipWith is argv (map (eval env) conds))
+      then eval ((zip args (map unwrap argv)) ++ env) branch
+      else match args argv rest
+    unwrap (Enum _ v) = v
+    unwrap v = v
+    is _ (Ref "_") = True
+    is (Enum t1 v) (Enum t2 _) = t1 == t2
+    is v1 v2 = v1 == v2
