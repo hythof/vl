@@ -96,7 +96,8 @@ to_string (Match matches) = "\n" ++ string_join "\n" (map go matches)
     go (conds, branch) = "| " ++ to_strings conds ++ " = " ++ to_string branch
 to_string (Struct kvs) = string_join "\n" (map go kvs)
   where
-    go (k, v) = k ++ ": " ++ to_string v
+    go (k, v) = k ++ ":" ++ to_string v
+to_string (Enum tag Void) = tag
 to_string (Enum tag body) = tag ++ "(" ++ to_string body ++ ")"
 to_string (Func args body) = "(" ++ string_join " " args ++ to_string body
 to_string (Block block) = string_join "\n  " $ map to_string block
@@ -115,7 +116,7 @@ find name env f = case lookup name env of
     then Throw $ "circle reference " ++ name ++ " in " ++ (show env)
     else find name' env f
   Just v -> f $ eval env v
-  _ -> error $ "not found " ++ name ++ " in " ++ (show $ map fst env)
+  _ -> Throw $ "not found " ++ name ++ " in " ++ (show $ map fst env)
 
 apply env argv_ ast = go body
   where

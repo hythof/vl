@@ -3,7 +3,7 @@ module Lab where
 import Debug.Trace (trace)
 import AST
 import Parser (parse)
-import Evaluator (eval)
+import Evaluator (eval, to_string)
 
 main = do
   test match_code [
@@ -47,7 +47,7 @@ main = do
     , ("1", "either(1 2).left")
     ]
   test enum_code [
-      ("just:value:1", "maybe.just(1)")
+      ("just(value:1)", "maybe.just(1)")
     , ("none", "maybe.none")
     , ("value:1", "to_int(maybe.just(1))")
     ]
@@ -110,26 +110,7 @@ runAssert expect src exp = if expect == result
       concat (map (\(k, v) -> "\n- " ++ k ++ "\t" ++ show v) env) ++
       "\n" ++ src ++ "\n"
 
-fmt (Void) = "()"
-fmt (Bool True) = "true"
-fmt (Bool False) = "false"
-fmt (Int n) = show n
 fmt (String s) = s
-fmt (List xs) = "[" ++ (map_reduce fmt xs) ++ "]"
-fmt (Ref s) = s
-fmt (Op2 o l r) = (fmt l) ++ " " ++ o ++ " " ++ (fmt r)
-fmt (Apply o args) = (fmt o) ++ "(" ++ (map_reduce fmt args) ++ ")"
-fmt (Method o m args) = (fmt o) ++ "." ++ m ++ "(" ++ (map_reduce fmt args) ++ ")"
-fmt (Struct env) = (map_reduce (\(k,v) -> k ++ ":" ++ (fmt v)) env)
-fmt (Enum name Void) = name
-fmt (Enum name v) = name ++ ":" ++ fmt v
-fmt (Func args body) = (map_reduce id args) ++ "=>" ++ fmt body
-fmt (Assign name ast) = name ++ " := " ++ fmt ast
 fmt (Return ast) = "return:" ++ fmt ast
 fmt (Throw ast) = "throw:" ++ ast
-fmt ast = show ast
-map_reduce f xs = go xs
-  where
-    go [] = ""
-    go [x] = f x
-    go (x:xs) = (f x) ++ " " ++ (go xs)
+fmt ast = to_string ast
