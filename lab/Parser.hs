@@ -63,7 +63,9 @@ parse_define = go
       return $ Func props Void
     switch "flow" = do
       tags <- indented_lines next_tag
+      next_br
       props <- indented_lines next_property
+      next_br
       methods <- indented_lines def_func
       return $ make_func props (Struct $ methods ++ map to_throw tags)
     switch kind = error $ "unsupported parse " ++ kind
@@ -244,11 +246,10 @@ indent f = Parser $ \s ->
     Just (a, ss) -> Just (a, ss { indentation = indentation s })
     Nothing -> Nothing
 
+indented_lines f = sepBy1 (indented_line f) next_br
 indented_line f = do
   indent <- current_indent
   string (take (2 * indent) (repeat ' '))
   v <- f
-  next_br
+  look next_br
   return v
-
-indented_lines f = many (indented_line f)

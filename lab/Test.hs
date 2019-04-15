@@ -59,6 +59,9 @@ main = do
     , ("throw:eof", "parser(\"\").eof")
     , ("throw:miss", "parser(\"\").miss")
     ]
+  test vl_code [
+      ("int(value:3)", "parser(\"1 + 2\").parse_op2")
+    ]
   putStrLn "ok"
 
 struct_code = unlines [
@@ -91,6 +94,35 @@ match_code = unlines [
   , "| 0 = n + 1"
   , "| \"hello\" = 2"
   , "| _ = n"
+  ]
+vl_code = unlines [
+    "enum ast:"
+  , "  int value int"
+  , "  op2 op string, left ast, right ast"
+  , "flow parser a:"
+  , "  eof"
+  , "  miss reason string"
+  , "  input string"
+  , "  satisfy f ="
+  , "    c = input.0 | eof"
+  , "    f(c) || miss"
+  , "    input := input.slice(1)"
+  , "    c"
+  , "  parse_op2 ="
+  , "    left = parse_int"
+  , "    op = read_one([\"+\"])"
+  , "    right = read_op2"
+  , "    ast.op2(op left right)"
+  , "  parse_int = read_one([\"0\" \"1\" \"2\"]).many1.to_int"
+  , "  read_one xs = satisfy(x => xs.has(x))"
+  , "  many1 f ="
+  , "    x = f"
+  , "    xs = many(f)"
+  , "    [x] ++ xs"
+  , "  many f = many_acc(f [])"
+  , "  many_acc f acc ="
+  , "    x = f || return(acc)"
+  , "    many_acc(f acc ++ [x])"
   ]
 
 test src tests =  mapM_ (runTest src) tests

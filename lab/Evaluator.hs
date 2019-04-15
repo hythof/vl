@@ -61,9 +61,9 @@ eval env input = go input
     method a@(Throw _) _ _ = a
     method (List xs) "map" [ast] = List $ map (\arg -> eval env $ Apply ast [arg]) xs
     method (List xs) "join" [String glue] = String $ string_join glue (map to_string xs)
-    method v name argv = Throw $ "method " ++ show v ++
-      "." ++ name ++
-      "(" ++ (show argv) ++ ")"
+    method (List xs) "has" [ast] = Bool $ elem ast xs
+    method v name argv = Throw $ "method (" ++ show v ++ ")." ++
+      name ++ "(" ++ (show argv) ++ ")"
 
     block [] = Void
     block [ast] = eval_ ast
