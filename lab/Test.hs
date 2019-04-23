@@ -28,19 +28,19 @@ main = do
     , ("true", "2 >= 2")
     , ("true", "2 <= 2")
     , ("hello", "\"h\" . \"ello\"")
-    , ("e", "\"hello\".1")
-    , ("throw:out of index a.1", "\"a\".1")
-    , ("z", "\"hello\".9 | \"z\"")
+    , ("e", "\"hello\".at(1)")
+    , ("throw:out of index 1 in \"a\"", "\"a\".at(1)")
+    , ("z", "\"hello\".at(9) | \"z\"")
     , ("5", "\"hello\".length")
     , ("llo", "\"hello\".slice(2)")
     , ("ll", "\"hello\".slice(2 2)")
     , ("3", "1 + 2")
     , ("-1", "1 - 2")
     , ("6", "2 * 3")
-    , ("2", "(x => x + 1)(1)")
-    , ("3", "\n  a = 1\n  b = a + 1\n  a + b")
-    , ("1", "\n  return 1\n  2")
-    , ("throw:cancel", "\n  throw cancel\n  2")
+    --, ("2", "(x => x + 1)(1)")
+    --, ("3", "\n  a = 1\n  b = a + 1\n  a + b")
+    --, ("1", "\n  return 1\n  2")
+    --, ("throw:cancel", "\n  throw cancel\n  2")
     ]
   test struct_code [
       ("2", "either(1 2).right")
@@ -52,12 +52,13 @@ main = do
     , ("value:1", "to_int(maybe.just(1))")
     ]
   test flow_code [
-      ("hello", "parser(\"hello\").input")
-    , ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
-    , ("throw:miss", "parser(\"Hello\").satisfy(x => x == \"h\")")
-    , ("throw:eof", "parser(\"\").satisfy(x => x == \"h\")")
-    , ("throw:eof", "parser(\"\").eof")
-    , ("throw:miss", "parser(\"\").miss")
+      ("0", "fl.f(\"0\")")
+--      ("hello", "parser(\"hello\").input")
+--    , ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
+--    , ("throw:miss", "parser(\"Hello\").satisfy(x => x == \"h\")")
+--    , ("throw:eof", "parser(\"\").satisfy(x => x == \"h\")")
+--    , ("throw:eof", "parser(\"\").eof")
+--    , ("throw:miss", "parser(\"\").miss")
     ]
   test vl_code [
       ("int(value:3)", "parser(\"1 + 2\").parse_op2")
@@ -78,13 +79,13 @@ enum_code = unlines [
   , "| maybe.none = _"
   ]
 flow_code = unlines [
-    "flow parser a:"
+    "flow fl a:"
   , "  eof"
   , "  miss reason string"
   , "  input string"
-  , "  satisfy f ="
-  , "    c = input.0 | eof"
-  , "    f(c) || miss"
+  , "  f ="
+  , "    c = input.at(0) | eof"
+  , "    (c == \"0\") || miss"
   , "    input := input.slice(1)"
   , "    c"
   ]
@@ -113,23 +114,24 @@ vl_code = unlines [
   , "    op = read_one([\"+\"])"
   , "    right = read_op2"
   , "    ast.op2(op left right)"
-  , "  parse_int = read_one([\"0\" \"1\" \"2\"]).many1.to_int"
+  , "  parse_int = read_one([\"0\" \"1\" \"2\"]).many1.fmap(x => x.to_int)"
   , "  read_one xs = satisfy(x => xs.has(x))"
   , "  many1 f ="
   , "    x = f"
   , "    xs = many(f)"
   , "    [x] ++ xs"
   , "  many f = many_acc(f [])"
-  , "  many_acc f acc ="
-  , "    x = f || return(acc)"
-  , "    many_acc(f acc ++ [x])"
+  , "  many_acc f acc = fmap(x => many_acc(f acc ++ [x])) | acc"
+  , "  fmap p f ="
+  , "    x <- p"
+  , "    f(x)"
   ]
 
 test src tests =  mapM_ (runTest src) tests
 runTest src (expect, exp) = runAssert expect (src ++ "\nmain = " ++ exp) exp
 runAssert expect src exp = if expect == result
   then putStr "."
-  else error $ makeMessage (expect ++ " != " ++ result ++ "\n" ++ exp)
+  else error $ makeMessage ("`" ++ expect ++ " != " ++ result ++ "\n" ++ exp ++ "`")
   where
     env = get_env src
     result = case lookup "main" env of
@@ -143,6 +145,4 @@ runAssert expect src exp = if expect == result
       "\n" ++ src ++ "\n"
 
 fmt (String s) = s
-fmt (Return ast) = "return:" ++ fmt ast
-fmt (Throw ast) = "throw:" ++ ast
 fmt ast = to_string ast

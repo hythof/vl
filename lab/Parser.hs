@@ -30,12 +30,13 @@ parse_bottom = go
     switch '.' unit = do
       name <- token <|> (many1 $ oneOf "0123456789")
       args <- option [] (between (string "(") (next_string ")") (many1 parse_exp))
-      chain $ Method unit name args
+      chain $ Apply name (unit : args)
     switch '(' unit = do
       args <- many1 (spaces >> parse_exp)
       spaces
       string ")"
-      chain $ make_apply unit args
+      let (Apply name []) = unit
+      chain $ Apply name args
     switch _ unit = return unit
 -- define
 parse_define = go
@@ -67,7 +68,9 @@ parse_define = go
       props <- indented_lines next_property
       next_br
       methods <- indented_lines def_func
-      return $ make_func props (Struct $ methods ++ map to_throw tags)
+      let env = methods ++ map to_throw tags
+      let fields = map (\(name, ast) -> (name, make_func props ast)) env
+      return $ Struct fields
     switch kind = error $ "unsupported parse " ++ kind
     to_enum x [] = Enum x Void
     to_enum x ys = make_func ys (Enum x Void)
@@ -105,7 +108,9 @@ parse_list = List <$> (between
   (spaces >> (string "]"))
   (sepBy (spaces >> parse_exp) spaces1))
 -- expression
-parse_ref = Ref <$> next_token
+parse_ref = do
+  v <- next_token
+  return $ Apply v []
 parse_op2 = go
   where
     go = do
@@ -116,12 +121,12 @@ parse_op2 = go
     consume l op = case op of
       "" -> return l
       "=>" -> do
-        let (Ref name) = l
+        let (Apply name []) = l
         body <- parse_exp
         return $ Func [name] body
       _ -> do
         r <- go
-        return $ Op2 op l r
+        return $ Apply op [l, r]
 parse_match = Match <$> many1 go
   where
     go = do
@@ -134,13 +139,12 @@ parse_match = Match <$> many1 go
 parse_block = Block <$> (next_br >> (indent go))
   where
     go = indented_lines step
-    step = read_return <|> read_throw <|> read_assign <|> parse_exp
-    read_return = (next_string "return ") >> (Return <$> parse_exp)
+    step = read_throw <|> read_assign <|> parse_exp
     read_throw = (next_string "throw ") >> (Throw <$> next_token)
     read_assign = do
       name <- next_token
       args <- many next_token
-      next $ select ["=", ":="]
+      next $ select ["=", ":=", "<-"]
       body <- parse_top
       return $ Assign name (make_func args body)
 -- comments
@@ -155,8 +159,6 @@ eol = (look next_br) <|> (bug "eol")
 debug mark = Parser $ \s -> trace ("@ " ++ show mark ++ " | " ++ show s) (return ((), s))
 current_indent = Parser $ \s -> return (indentation s, s)
 
-make_apply ast [] = ast
-make_apply ast argv = Apply ast argv
 make_func [] body = body
 make_func args body = Func args body
 
