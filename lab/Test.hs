@@ -52,16 +52,14 @@ main = do
     , ("value:1", "to_int(maybe.just(1))")
     ]
   test flow_code [
-      ("0", "fl.f(\"0\")")
---      ("hello", "parser(\"hello\").input")
---    , ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
---    , ("throw:miss", "parser(\"Hello\").satisfy(x => x == \"h\")")
---    , ("throw:eof", "parser(\"\").satisfy(x => x == \"h\")")
---    , ("throw:eof", "parser(\"\").eof")
---    , ("throw:miss", "parser(\"\").miss")
+      ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
+    , ("throw:miss", "parser(\"Hello\").satisfy(x => x == \"h\")")
+    , ("throw:eof", "parser(\"\").satisfy(x => x == \"h\")")
+    , ("throw:eof", "parser(\"\").eof")
+    , ("throw:miss", "parser(\"\").miss")
     ]
   test vl_code [
-      ("int(value:3)", "parser(\"1 + 2\").parse_op2")
+--      ("int(value:3)", "parser(\"3\").parse_int")
     ]
   putStrLn "ok"
 
@@ -79,13 +77,13 @@ enum_code = unlines [
   , "| maybe.none = _"
   ]
 flow_code = unlines [
-    "flow fl a:"
+    "flow parser a:"
   , "  eof"
   , "  miss reason string"
   , "  input string"
-  , "  f ="
+  , "  satisfy f ="
   , "    c = input.at(0) | eof"
-  , "    (c == \"0\") || miss"
+  , "    f(c) || miss"
   , "    input := input.slice(1)"
   , "    c"
   ]
@@ -105,7 +103,7 @@ vl_code = unlines [
   , "  miss reason string"
   , "  input string"
   , "  satisfy f ="
-  , "    c = input.0 | eof"
+  , "    c = input.at(0) | eof"
   , "    f(c) || miss"
   , "    input := input.slice(1)"
   , "    c"
@@ -131,7 +129,7 @@ test src tests =  mapM_ (runTest src) tests
 runTest src (expect, exp) = runAssert expect (src ++ "\nmain = " ++ exp) exp
 runAssert expect src exp = if expect == result
   then putStr "."
-  else error $ makeMessage ("`" ++ expect ++ " != " ++ result ++ "\n" ++ exp ++ "`")
+  else error $ makeMessage ("`" ++ expect ++ " != " ++ result ++ "`\nexp: " ++ exp)
   where
     env = get_env src
     result = case lookup "main" env of

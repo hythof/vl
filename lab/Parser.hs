@@ -69,8 +69,7 @@ parse_define = go
       next_br
       methods <- indented_lines def_func
       let env = methods ++ map to_throw tags
-      let fields = map (\(name, ast) -> (name, make_func props ast)) env
-      return $ Struct fields
+      return $ Func props $ Struct ((map (\name -> (name, Void)) props) ++ env)
     switch kind = error $ "unsupported parse " ++ kind
     to_enum x [] = Enum x Void
     to_enum x ys = make_func ys (Enum x Void)

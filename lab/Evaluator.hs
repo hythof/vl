@@ -15,7 +15,7 @@ eval env input = go_top input
     go (Apply name argv) = run name (map go argv)
     go (Func [] a) = go a
     go x = x
-    run "_" [] = input
+    run "_" [] = Apply "_" []
     run name [] = find "@1" name env id
     run "|" [(Throw _), r] = r
     run "|" [l, _] = l
@@ -48,17 +48,15 @@ eval env input = go_top input
     run name argv = find "@4" name env (apply env argv)
 
     block env [] = Void
-    block env [ast] = go ast
-    block env (head_ast:rest) = branch head_ast rest (\ast ->
-      branch (go ast) rest (\_ast ->
-        block env rest))
+    block env [ast] = eval env ast
+    block env (head_ast:rest) = branch head_ast rest
       where
-        branch ast rest f = case ast of
+        branch ast rest = case eval env ast of
           a@(Throw _) -> a
           Assign name exp -> case eval env exp of
             a@(Throw _) -> a
             _ -> block ((name, go exp):env) rest
-          _ -> f ast
+          x -> block env rest
 
 apply env argv ast = go body
   where
@@ -106,7 +104,7 @@ to_string (Struct kvs) = string_join "\n" (map go kvs)
     go (k, v) = k ++ ":" ++ to_string v
 to_string (Enum tag Void) = tag
 to_string (Enum tag body) = tag ++ "(" ++ to_string body ++ ")"
-to_string (Func args body) = "(" ++ string_join " " args ++ to_string body
+to_string (Func args body) = "(" ++ string_join " " args ++ " => " ++ to_string body ++ ")"
 to_string (Block block) = "block:" ++ (string_join "\n  " $ map to_string block)
 to_string (Throw s) = "throw:" ++ s
 to_string (Assign name ast) = name ++ " = " ++ to_string ast
