@@ -6,6 +6,9 @@ import Parser (parse)
 import Evaluator (eval, to_string)
 
 main = do
+  test flow_code [
+      ("01", "parser(\"01\").zero_one")
+    ]
   test match_code [
       ("0", "match(true)")
     , ("1", "match(0)")
@@ -32,8 +35,9 @@ main = do
     , ("throw:out of index 1 in \"a\"", "\"a\".at(1)")
     , ("z", "\"hello\".at(9) | \"z\"")
     , ("5", "\"hello\".length")
-    , ("llo", "\"hello\".slice(2)")
-    , ("ll", "\"hello\".slice(2 2)")
+    , ("hello", "\"hello\".slice(0)")
+    , ("ello", "\"hello\".slice(1)")
+    , ("el", "\"hello\".slice(1 2)")
     , ("3", "1 + 2")
     , ("-1", "1 - 2")
     , ("6", "2 * 3")
@@ -53,12 +57,15 @@ main = do
     ]
   test flow_code [
       ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
+    , ("01", "parser(\"01\").zero_one")
     , ("throw:miss", "parser(\"Hello\").satisfy(x => x == \"h\")")
     , ("throw:eof", "parser(\"\").satisfy(x => x == \"h\")")
     , ("throw:eof", "parser(\"\").eof")
     , ("throw:miss", "parser(\"\").miss")
     ]
   test vl_code [
+      ("1", "parser(\"1\").read_one([\"1\"])")
+--    , ("[1 2 3]", "parser(\"123\").parse_nm")
 --      ("int(value:3)", "parser(\"3\").parse_int")
     ]
   putStrLn "ok"
@@ -86,6 +93,11 @@ flow_code = unlines [
   , "    f(c) || miss"
   , "    input := input.slice(1)"
   , "    c"
+  , "  double p ="
+  , "    a <- p"
+  , "    b <- p"
+  , "    a . b"
+  , "  zero_one = satisfy(c => (c == \"0\") || (c == \"1\")).double"
   ]
 match_code = unlines [
     "match n ="
@@ -112,14 +124,15 @@ vl_code = unlines [
   , "    op = read_one([\"+\"])"
   , "    right = read_op2"
   , "    ast.op2(op left right)"
-  , "  parse_int = read_one([\"0\" \"1\" \"2\"]).many1.fmap(x => x.to_int)"
+  , "  parse_nm = many1(read_one([\"0\" \"1\" \"2\" \"3\"]))"
+  , "  parse_int = read_one([\"0\" \"1\" \"2\" \"3\"]).many1.fmap(s => s.to_int)"
   , "  read_one xs = satisfy(x => xs.has(x))"
-  , "  many1 f ="
-  , "    x = f"
-  , "    xs = many(f)"
+  , "  many1 p ="
+  , "    x <- p"
+  , "    xs <- many(p)"
   , "    [x] ++ xs"
-  , "  many f = many_acc(f [])"
-  , "  many_acc f acc = fmap(x => many_acc(f acc ++ [x])) | acc"
+  , "  many p = p.many_acc([])"
+  , "  many_acc p acc = p.fmap(a => p.many_acc(acc ++ [a])) | acc"
   , "  fmap p f ="
   , "    x <- p"
   , "    f(x)"
