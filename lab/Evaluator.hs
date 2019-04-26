@@ -7,72 +7,80 @@ reserved_func = ["length", "slice", "map", "join", "has", "at"]
 reserved_op2 = ["|" , "|" , "&&" , "&&" , "||" , "||" , "+" , "-" , "*" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
 
 eval :: Env -> AST -> AST
-eval env input = go_top input
-  where
-    go_top (Block root_step) = block env root_step
-    go_top x = go x
-    go (List xs) = List $ map go xs
-    go (Apply name argv) = run name (map go argv)
-    go (Func [] a) = go a
-    go x = x
-    run "_" [] = Apply "_" []
-    run name [] = find "@1" name env id
-    run "|" [(Throw _), r] = r
-    run "|" [l, _] = l
-    run "&&" [(Bool True), r] = r
-    run "&&" [(Bool False), _] = Bool False
-    run "||" [(Bool True), _] = Bool True
-    run "||" [(Bool False), r] = r
-    run "+" [(Int l), (Int r)] = Int $ l + r
-    run "-" [(Int l), (Int r)] = Int $ l - r
-    run "*" [(Int l), (Int r)] = Int $ l * r
-    run ">" [(Int l), (Int r)] = Bool $ l > r
-    run ">=" [(Int l), (Int r)] = Bool $ l >= r
-    run "<" [(Int l), (Int r)] = Bool $ l < r
-    run "<=" [(Int l), (Int r)] = Bool $ l <= r
-    run "." [(String l), (String r)] = String $ l ++ r
-    run "++" [(List l), (List r)] = List $ l ++ r
-    run "==" [l, r] = Bool $ show l == show r
-    run "!=" [l, r] = Bool $ show l /= show r
-    run _ (a@(Throw _):_) = a
-    run "map"  [List xs, ast] = List $ map (\arg -> go $ apply env [arg] ast) xs
-    run "has"  [List xs, ast] = Bool $ elem ast xs
-    run "join" [List xs, String glue] = String $ string_join glue (map to_string xs)
-    run "length" [String s] = Int $ length s
-    run "slice"  [String s, Int n] = String $ drop n s
-    run "slice"  [String s, Int n, Int m] = String $ take m (drop n s)
-    run "at" [String s, Int index] = if index < length s
-        then String $ [(s !! index)]
-        else Throw $ "out of index " ++ show index ++ " in \"" ++ s ++ "\""
-    run name ((Struct fields):argv) = find "@3" name fields $ apply (fields ++ env) argv
-    run name argv = find "@4" name env (apply env argv)
+eval env input = affect env (unify env input)
 
-    block env [] = Void
-    block env [ast] = eval env ast
-    block env (head_ast:rest) = branch head_ast rest
-      where
-        branch ast rest = case eval env ast of
-          a@(Throw _) -> a
-          Assign name exp -> case eval env exp of
-            a@(Throw _) -> a
-            _ -> block ((name, go exp):env) rest
-          x -> block env rest
+affect env (Apply name argv) = dispatch env name (map (unify env) argv)
+affect env (Block steps) = block env steps
+affect env ast = ast
 
-apply env argv ast = go body
+unify env (List xs) = List $ map (unify env) xs
+unify env (Apply name argv) = dispatch env name (map (unify env) argv)
+unify env x = x
+
+dispatch env "_" [] = Apply "_" []
+dispatch env "|" [(Throw _), r] = r
+dispatch env "|" [l, _] = l
+dispatch env "&&" [(Bool True), r] = r
+dispatch env "&&" [(Bool False), _] = Bool False
+dispatch env "||" [(Bool True), _] = Bool True
+dispatch env "||" [(Bool False), r] = r
+dispatch env "+" [(Int l), (Int r)] = Int $ l + r
+dispatch env "-" [(Int l), (Int r)] = Int $ l - r
+dispatch env "*" [(Int l), (Int r)] = Int $ l * r
+dispatch env ">" [(Int l), (Int r)] = Bool $ l > r
+dispatch env ">=" [(Int l), (Int r)] = Bool $ l >= r
+dispatch env "<" [(Int l), (Int r)] = Bool $ l < r
+dispatch env "<=" [(Int l), (Int r)] = Bool $ l <= r
+dispatch env "." [(String l), (String r)] = String $ l ++ r
+dispatch env "++" [(List l), (List r)] = List $ l ++ r
+dispatch env "==" [l, r] = Bool $ show l == show r
+dispatch env "!=" [l, r] = Bool $ show l /= show r
+dispatch env _ (a@(Throw _):_) = a
+dispatch env "map"  [List xs, ast] = List $ map (\arg -> unify env $ apply env [arg] ast) xs
+dispatch env "has"  [List xs, ast] = Bool $ elem ast xs
+dispatch env "join" [List xs, String glue] = String $ string_join glue (map to_string xs)
+dispatch env "length" [String s] = Int $ length s
+dispatch env "slice"  [String s, Int n] = String $ drop n s
+dispatch env "slice"  [String s, Int n, Int m] = String $ take m (drop n s)
+dispatch env "at" [String s, Int index] = if index < length s
+    then String $ [(s !! index)]
+    else Throw $ "out of index " ++ show index ++ " in \"" ++ s ++ "\""
+dispatch env name ((Struct fields):argv) = case find "@3" name fields $ apply (fields ++ env) argv of
+  Block steps -> Block $ (map (\(k,v) -> Define k v) (reverse fields)) ++ steps
+  x -> x
+dispatch env name argv = find "@4" name env (apply env argv)
+
+block env [] = Void
+block env [ast] = affect env ast
+block env (head_ast:rest) = branch head_ast rest
   where
-    body = eval env ast
+    branch ast rest = case unify env ast of
+      a@(Throw _) -> a
+      Block steps -> block env $ steps ++ rest
+      Define name exp -> block ((name, unify env exp) : env) rest
+      Assign name exp -> case unify env exp of
+        a@(Throw _) -> a
+        Block steps -> block env $ (last_assign name steps []) ++ rest
+        _ -> block ((name, unify env exp) : env) rest
+      x -> block env rest
+    last_assign name [last] acc = reverse $ (Assign name last) : acc
+    last_assign name (x:xs) acc = last_assign name xs (x : acc)
+
+apply env argv ast = go (unify env ast)
+  where
     go (Func args Void) = Struct $ zip args argv
     go (Func args (Enum name Void)) = Enum name (Struct $ zip args argv)
     go (Func args (Struct kvs)) = Struct $ (zip args argv) ++ kvs
     go (Func args (Match matches)) = match args matches
-    go (Func args body) = eval ((zip args argv) ++ env) body
-    go v = eval env v
+    go (Func args (Block steps)) = Block $ (map (\(k, v) -> Define k v) (zip args argv)) ++ steps
+    go (Func args body) = unify ((zip args argv) ++ env) body
+    go v = if length argv == 0 then v else Throw $ "bug:" ++ show v ++ " with " ++ show argv
     match :: [String] -> [([AST], AST)] -> AST
     match args all_conds = match_ args all_conds
       where
         match_ args [] = Throw $ "miss match\ntarget: " ++ show argv ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
-        match_ args ((conds,branch):rest) = if all id (zipWith is argv (map (eval env) conds))
-          then eval ((zip args (map unwrap argv)) ++ env) branch
+        match_ args ((conds,branch):rest) = if all id (zipWith is argv (map (unify env) conds))
+          then unify ((zip args (map unwrap argv)) ++ env) branch
           else match_ args rest
     unwrap (Enum _ v) = v
     unwrap v = v
@@ -107,7 +115,8 @@ to_string (Enum tag body) = tag ++ "(" ++ to_string body ++ ")"
 to_string (Func args body) = "(" ++ string_join " " args ++ " => " ++ to_string body ++ ")"
 to_string (Block block) = "block:" ++ (string_join "\n  " $ map to_string block)
 to_string (Throw s) = "throw:" ++ s
-to_string (Assign name ast) = name ++ " = " ++ to_string ast
+to_string (Define name ast) = name ++ " = " ++ to_string ast
+to_string (Assign name ast) = name ++ " <- " ++ to_string ast
 escape [] = ""
 escape ('"':xs) = "\\\"" ++ escape xs
 escape (x:xs) = x : escape xs

@@ -6,9 +6,9 @@ import Parser (parse)
 import Evaluator (eval, to_string)
 
 main = do
-  test flow_code [
-      ("01", "parser(\"01\").zero_one")
-    ]
+  --test flow_code [
+  --    ("01", "parser(\"01\").zero_one")
+  --  ]
   test match_code [
       ("0", "match(true)")
     , ("1", "match(0)")
@@ -57,7 +57,7 @@ main = do
     ]
   test flow_code [
       ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
-    , ("01", "parser(\"01\").zero_one")
+--    , ("01", "parser(\"01\").zero_one")
     , ("throw:miss", "parser(\"Hello\").satisfy(x => x == \"h\")")
     , ("throw:eof", "parser(\"\").satisfy(x => x == \"h\")")
     , ("throw:eof", "parser(\"\").eof")

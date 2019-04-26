@@ -20,6 +20,7 @@ data AST =
 -- flow
   | Block [AST]
   | Throw String
+  | Define String AST
   | Assign String AST
   deriving (Show, Eq)
 
