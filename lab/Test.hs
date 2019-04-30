@@ -6,9 +6,12 @@ import Parser (parse)
 import Evaluator (eval, to_string)
 
 main = do
-  --test flow_code [
-  --    ("01", "parser(\"01\").zero_one")
-  --  ]
+  test vl_code [
+      ("123", "parser(\"123\").parse_int")
+    ]
+  test flow_code [
+      ("01", "parser(\"01\").zero_one")
+    ]
   test match_code [
       ("0", "match(true)")
     , ("1", "match(0)")
@@ -57,7 +60,7 @@ main = do
     ]
   test flow_code [
       ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
---    , ("01", "parser(\"01\").zero_one")
+    , ("01", "parser(\"01\").zero_one")
     , ("throw:miss", "parser(\"Hello\").satisfy(x => x == \"h\")")
     , ("throw:eof", "parser(\"\").satisfy(x => x == \"h\")")
     , ("throw:eof", "parser(\"\").eof")
@@ -65,8 +68,8 @@ main = do
     ]
   test vl_code [
       ("1", "parser(\"1\").read_one([\"1\"])")
---    , ("[1 2 3]", "parser(\"123\").parse_nm")
---      ("int(value:3)", "parser(\"3\").parse_int")
+    , ("1", "parser(\"1\").parse_int")
+    , ("123", "parser(\"123\").parse_int")
     ]
   putStrLn "ok"
 
@@ -124,18 +127,17 @@ vl_code = unlines [
   , "    op = read_one([\"+\"])"
   , "    right = read_op2"
   , "    ast.op2(op left right)"
-  , "  parse_nm = many1(read_one([\"0\" \"1\" \"2\" \"3\"]))"
-  , "  parse_int = read_one([\"0\" \"1\" \"2\" \"3\"]).many1.fmap(s => s.to_int)"
-  , "  read_one xs = satisfy(x => xs.has(x))"
+  , "  parse_int = read_one([\"0\" \"1\" \"2\" \"3\"]).many1.fmap(s => s.join(\"\").to_int)"
+  , "  read_one candidates = satisfy(x => candidates.has(x))"
   , "  many1 p ="
   , "    x <- p"
-  , "    xs <- many(p)"
+  , "    xs <- p.many"
   , "    [x] ++ xs"
   , "  many p = p.many_acc([])"
   , "  many_acc p acc = p.fmap(a => p.many_acc(acc ++ [a])) | acc"
-  , "  fmap p f ="
-  , "    x <- p"
-  , "    f(x)"
+  , "  fmap p ff ="
+  , "    v <- p"
+  , "    ff(v)"
   ]
 
 test src tests =  mapM_ (runTest src) tests
