@@ -6,9 +6,6 @@ import Parser (parse)
 import Evaluator (eval, to_string)
 
 main = do
-  test vl_code [
-      ("123", "parser(\"123\").parse_int")
-    ]
   test flow_code [
       ("01", "parser(\"01\").zero_one")
     ]
@@ -45,9 +42,7 @@ main = do
     , ("-1", "1 - 2")
     , ("6", "2 * 3")
     --, ("2", "(x => x + 1)(1)")
-    --, ("3", "\n  a = 1\n  b = a + 1\n  a + b")
-    --, ("1", "\n  return 1\n  2")
-    --, ("throw:cancel", "\n  throw cancel\n  2")
+    , ("3", "\n  a = 1\n  b = a + 1\n  a + b")
     ]
   test struct_code [
       ("2", "either(1 2).right")
@@ -56,7 +51,7 @@ main = do
   test enum_code [
       ("just(value:1)", "maybe.just(1)")
     , ("none", "maybe.none")
-    , ("value:1", "to_int(maybe.just(1))")
+    , ("value:1", "to_integer(maybe.just(1))")
     ]
   test flow_code [
       ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
@@ -82,7 +77,7 @@ enum_code = unlines [
     "enum maybe a:"
   , "  just value a"
   , "  none"
-  , "to_int m ="
+  , "to_integer m ="
   , "| maybe.just = m"
   , "| maybe.none = _"
   ]
@@ -123,20 +118,20 @@ vl_code = unlines [
   , "    input := input.slice(1)"
   , "    c"
   , "  parse_op2 ="
-  , "    left = parse_int"
-  , "    op = read_one([\"+\"])"
-  , "    right = read_op2"
+  , "    left <- parse_int"
+  , "    op <- read_one([\"+\"])"
+  , "    right <- read_op2"
   , "    ast.op2(op left right)"
   , "  parse_int = read_one([\"0\" \"1\" \"2\" \"3\"]).many1.fmap(s => s.join(\"\").to_int)"
   , "  read_one candidates = satisfy(x => candidates.has(x))"
-  , "  many1 p ="
-  , "    x <- p"
-  , "    xs <- p.many"
+  , "  many1 p1 ="
+  , "    x <- p1"
+  , "    xs <- p1.many"
   , "    [x] ++ xs"
   , "  many p = p.many_acc([])"
-  , "  many_acc p acc = p.fmap(a => p.many_acc(acc ++ [a])) | acc"
-  , "  fmap p ff ="
-  , "    v <- p"
+  , "  many_acc pa acc = pa.fmap(a => pa.many_acc(acc ++ [a])) | acc"
+  , "  fmap pf ff ="
+  , "    v <- pf"
   , "    ff(v)"
   ]
 
