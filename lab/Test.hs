@@ -67,6 +67,12 @@ main = do
     , ("op2(op:+\nleft:int(value:1)\nright:int(value:2))", "parser(\"1+2\").parse_op2")
     , ("1", "run(\"1\")")
     , ("3", "run(\"1+2\")")
+    , ("-1", "run(\"1-2\")")
+    , ("6", "run(\"2*3\")")
+    , ("0", "run(\"2/3\")")
+    , ("1", "run(\"3/2\")")
+    , ("2", "run(\"4/2\")")
+    , ("2", "run(\"5/2\")")
     ]
   putStrLn "ok"
 
@@ -126,11 +132,11 @@ vl_code = unlines [
   , "    left <- parse_int"
   , "    parse_op2_remaining(left) | left"
   , "  parse_op2_remaining left ="
-  , "    op <- read_one([\"+\"])"
+  , "    op <- read_one([\"+\" \"-\" \"*\" \"/\"])"
   , "    right <- parse_op2"
   , "    ast.op2(op left right)"
   , "  parse_int = "
-  , "    v <- read_one([\"0\" \"1\" \"2\" \"3\"]).many1.fmap(s => s.join(\"\").to_int)"
+  , "    v <- read_one([\"0\" \"1\" \"2\" \"3\" \"4\" \"5\" \"6\" \"7\" \"8\" \"9\"]).many1.fmap(s => s.join(\"\").to_int)"
   , "    ast.int(v)"
   , "  read_one candidates = satisfy(x => candidates.has(x))"
   , "  many1 p1 ="
@@ -150,6 +156,9 @@ vl_code = unlines [
   , "| ast.op2 = eval_op2(v.op eval(v.left) eval(v.right))"
   , "eval_op2 op l r ="
   , "| \"+\" _ _ = l + r"
+  , "| \"-\" _ _ = l - r"
+  , "| \"*\" _ _ = l * r"
+  , "| \"/\" _ _ = l / r"
   ]
 
 test src tests =  mapM_ (runTest src) tests

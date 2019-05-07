@@ -4,7 +4,7 @@ import Debug.Trace (trace)
 import AST
 
 reserved_func = ["length", "slice", "map", "join", "has", "at", "to_int"]
-reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
+reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , "/" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
 
 eval :: Env -> AST -> AST
 eval env input = affect env (unify env input)
@@ -37,6 +37,7 @@ dispatch env name argv = go name argv
     dispatch_op2 "+" [(Int l), (Int r)] = Int $ l + r
     dispatch_op2 "-" [(Int l), (Int r)] = Int $ l - r
     dispatch_op2 "*" [(Int l), (Int r)] = Int $ l * r
+    dispatch_op2 "/" [(Int l), (Int r)] = Int $ div l r
     dispatch_op2 ">" [(Int l), (Int r)] = Bool $ l > r
     dispatch_op2 ">=" [(Int l), (Int r)] = Bool $ l >= r
     dispatch_op2 "<" [(Int l), (Int r)] = Bool $ l < r
@@ -124,7 +125,7 @@ find debug_mark name env f = case lookup name env of
   Just v -> f v
   _ -> error $ debug_mark ++ " " ++ message
     where
-      message = "not found " ++ name ++ " in " ++ (show $ map fst env)
+      message = "not found '" ++ name ++ "' in " ++ (show $ map fst env)
 
 -- utility
 to_strings xs = string_join " " (map to_string xs)
