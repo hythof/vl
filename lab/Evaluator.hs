@@ -4,13 +4,13 @@ import Debug.Trace (trace)
 import AST
 
 reserved_func = ["length", "slice", "map", "join", "has", "at", "to_int"]
-reserved_op2 = ["_", "|" , "|" , "&&" , "&&" , "||" , "||" , "+" , "-" , "*" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
+reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
 
 eval :: Env -> AST -> AST
 eval env input = affect env (unify env input)
 
 affect env (Apply name argv) = dispatch env name (map (unify env) argv)
-affect env (Block steps) = block env steps Void
+affect env (Block steps) = fst $ block env [] steps Void
 affect env ast = ast
 
 unify env ast = unify_ env ast
@@ -21,16 +21,19 @@ unify_ env x = x
 dispatch env name argv = go name argv
   where
     go name argv
-      | elem name reserved_op2 = dispatch_op2 name argv
+      | elem name reserved_op2 = dispatch_op name argv
       | elem name reserved_func = dispatch_func name argv
       | otherwise = dispatch_call name argv
-    dispatch_op2 "_" [] = Void
-    dispatch_op2 "|" [Throw _, r] = r
-    dispatch_op2 "|" [l, r] = Block [Apply "|" [l, r]]
+    dispatch_op "_" [] = Void
+    dispatch_op "|" [Throw _, r] = r
+    dispatch_op "|" [l, r] = Block [Apply "|" [l, r]]
+    dispatch_op "||" [(Bool True), _] = Bool True
+    dispatch_op "||" [(Bool False), r] = r
+    dispatch_op op [l@(Throw _), _] = l
+    dispatch_op op [_, r@(Throw _)] = r
+    dispatch_op op [l, r] = dispatch_op2 op [l, r]
     dispatch_op2 "&&" [(Bool True), r] = r
     dispatch_op2 "&&" [(Bool False), _] = Bool False
-    dispatch_op2 "||" [(Bool True), _] = Bool True
-    dispatch_op2 "||" [(Bool False), r] = r
     dispatch_op2 "+" [(Int l), (Int r)] = Int $ l + r
     dispatch_op2 "-" [(Int l), (Int r)] = Int $ l - r
     dispatch_op2 "*" [(Int l), (Int r)] = Int $ l * r
@@ -40,9 +43,18 @@ dispatch env name argv = go name argv
     dispatch_op2 "<=" [(Int l), (Int r)] = Bool $ l <= r
     dispatch_op2 "." [(String l), (String r)] = String $ l ++ r
     dispatch_op2 "++" [(List l), (List r)] = List $ l ++ r
-    dispatch_op2 "==" [l, r] = Bool $ show l == show r
-    dispatch_op2 "!=" [l, r] = Bool $ show l /= show r
+    dispatch_op2 "==" [l, r] = Bool $ dispatch_eq l r
+    dispatch_op2 "!=" [l, r] = Bool $ not $ dispatch_eq l r
     dispatch_op2 op argv = error $ "op2: " ++ op ++ " " ++ show argv
+    dispatch_eq Void Void = True
+    dispatch_eq (Bool a) (Bool b) = a == b
+    dispatch_eq (Int a) (Int b) = a == b
+    dispatch_eq (String a) (String b) = a == b
+    dispatch_eq (List a) (List b) = all id (zipWith dispatch_eq a b)
+    dispatch_eq (Struct a) (Struct b) = show a == show b
+    dispatch_eq a@(Enum _ _) b@(Enum _ _) = show a == show b
+    dispatch_eq a@(Throw _) b@(Throw _) = show a == show b
+    dispatch_eq a b = error $ "equal: " ++ show a ++ " == " ++ show b
     dispatch_func _ (a@(Throw _):_) = a
     dispatch_func "map"  [List xs, ast] = List $ map (\arg -> unify env $ apply env [arg] ast) xs
     dispatch_func "has"  [List xs, ast] = Bool $ elem ast xs
@@ -61,33 +73,24 @@ dispatch env name argv = go name argv
     --dispatch_call name argv = trace_ name $ find ("call by general " ++ show argv) name env (apply env argv)
     dispatch_call name argv = find ("call by general " ++ show argv) name env (apply env argv)
 
-block env [] last = last
-block env (head_ast:rest) last = branch head_ast rest
+block :: Env -> Env -> [AST] -> AST -> (AST, Env)
+block env local _ ast@(Throw _) = (ast, local)
+block env local [] ast = (ast, local)
+block env local (head_ast:rest) last = branch head_ast rest
   where
-    branch ast rest = case unify env ast of
-      a@(Throw _) -> a
-      Block [Apply "|" [l, r]] -> or "__or__" l r
-      Block steps -> block env (steps ++ rest) last
-      Define name exp -> block ((name, unify env exp) : env) rest (unify env exp)
-      Assign name exp -> do_assign name exp
-      x -> if length rest == 0 then x else block env rest x
-    do_assign name exp = case unify env exp of
-      a@(Throw _) -> a
-      Block [Apply "|" [l, r]] -> or name l r
-      Block steps -> continue name (Block steps)
-      x -> block ((name, unify env exp) : env) rest x
-    or name l r = case branch l [] of
-      Throw _ -> continue name (unify env r)
-      Block steps -> error $ "BUG " ++ name ++ "  " ++ show steps
-      l -> continue name (unify env l)
-    continue :: String -> AST -> AST
-    continue name (Block steps) = block env ((last_assign name steps []) ++ rest) Void
-    continue name ast@(Throw _) = ast
-    continue name ast = block ((name, ast) : env) rest ast
-    last_assign :: String -> [AST] -> [AST] -> [AST]
-    last_assign name [] _ = error "BUG: empty assign"
-    last_assign name [last] acc = reverse $ (Assign name last) : acc
-    last_assign name (x:xs) acc = last_assign name xs (x : acc)
+    uni :: AST -> AST
+    uni ast = unify (local ++ env) ast
+    branch :: AST -> [AST] -> (AST, Env)
+    branch ast rest = case uni ast of
+      a@(Throw _) -> (a, local)
+      Block [Apply "|" [l, r]] -> case branch l [] of
+        (Throw _, _) -> branch r rest
+        _ -> branch l rest
+      Block steps -> let (ast, local2) = block env local steps Void in block env (local2 ++ local) rest ast
+      Define name exp -> block ((name, uni exp) : env) local rest Void
+      Assign name exp -> let (ast, local2) = branch exp [] in block ((name, ast) : env) (local2 ++ local) rest ast
+      Update name exp -> let (ast, local2) = branch exp [] in block env ((name, ast) : local2 ++ local) rest ast
+      ast -> block env local rest ast
 
 apply env argv ast = go (unify env ast)
   where
@@ -145,6 +148,7 @@ to_string (Block block) = "block:" ++ (string_join "\n  " $ map to_string block)
 to_string (Throw s) = "throw:" ++ s
 to_string (Define name ast) = name ++ " = " ++ to_string ast
 to_string (Assign name ast) = name ++ " <- " ++ to_string ast
+to_string (Update name ast) = name ++ " := " ++ to_string ast
 escape [] = ""
 escape ('"':xs) = "\\\"" ++ escape xs
 escape (x:xs) = x : escape xs

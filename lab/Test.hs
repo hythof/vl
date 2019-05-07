@@ -6,9 +6,6 @@ import Parser (parse)
 import Evaluator (eval, to_string)
 
 main = do
-  test flow_code [
-      ("01", "parser(\"01\").zero_one")
-    ]
   test match_code [
       ("0", "match(true)")
     , ("1", "match(0)")
@@ -63,8 +60,9 @@ main = do
     ]
   test vl_code [
       ("1", "parser(\"1\").read_one([\"1\"])")
-    , ("1", "parser(\"1\").parse_int")
-    , ("123", "parser(\"123\").parse_int")
+    , ("int(value:1)", "parser(\"1\").parse_int")
+    , ("int(value:123)", "parser(\"123\").parse_int")
+    , ("op2(op:+\nleft:int(value:1)\nright:int(value:2))", "parser(\"1+2\").parse_op2")
     ]
   putStrLn "ok"
 
@@ -87,7 +85,7 @@ flow_code = unlines [
   , "  miss reason string"
   , "  input string"
   , "  satisfy f ="
-  , "    c = input.at(0) | eof"
+  , "    c <- input.at(0) | eof"
   , "    f(c) || miss"
   , "    input := input.slice(1)"
   , "    c"
@@ -95,7 +93,7 @@ flow_code = unlines [
   , "    a <- p"
   , "    b <- p"
   , "    a . b"
-  , "  zero_one = satisfy(c => (c == \"0\") || (c == \"1\")).double"
+  , "  zero_one = satisfy(x => (x == \"0\") || (x == \"1\")).double"
   ]
 match_code = unlines [
     "match n ="
@@ -113,16 +111,20 @@ vl_code = unlines [
   , "  miss reason string"
   , "  input string"
   , "  satisfy f ="
-  , "    c = input.at(0) | eof"
+  , "    c <- input.at(0) | eof"
   , "    f(c) || miss"
   , "    input := input.slice(1)"
   , "    c"
   , "  parse_op2 ="
   , "    left <- parse_int"
+  , "    parse_op2_remaining(left) | left"
+  , "  parse_op2_remaining left ="
   , "    op <- read_one([\"+\"])"
-  , "    right <- read_op2"
+  , "    right <- parse_op2"
   , "    ast.op2(op left right)"
-  , "  parse_int = read_one([\"0\" \"1\" \"2\" \"3\"]).many1.fmap(s => s.join(\"\").to_int)"
+  , "  parse_int = "
+  , "    v <- read_one([\"0\" \"1\" \"2\" \"3\"]).many1.fmap(s => s.join(\"\").to_int)"
+  , "    ast.int(v)"
   , "  read_one candidates = satisfy(x => candidates.has(x))"
   , "  many1 p1 ="
   , "    x <- p1"

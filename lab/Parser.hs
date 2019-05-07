@@ -143,9 +143,12 @@ parse_block = Block <$> (next_br >> (indent go))
     read_assign = do
       name <- next_token
       args <- many next_token
-      next $ select ["=", ":=", "<-"]
+      op <- next $ select ["=", ":=", "<-"]
       body <- parse_top
-      return $ Assign name (make_func args body)
+      return $ case op of
+        "=" -> Define name (make_func args body)
+        ":=" -> Update name (make_func args body)
+        "<-" -> Assign name (make_func args body)
 -- comments
 parse_tail_comment = do
   spaces1

@@ -22,6 +22,7 @@ data AST =
   | Throw String
   | Define String AST
   | Assign String AST
+  | Update String AST
   deriving (Show, Eq)
 
 data Source = Source { source :: String, indentation :: Int } deriving (Show)
