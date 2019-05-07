@@ -11,6 +11,8 @@ main = do
     , ("1", "match(0)")
     , ("2", "match(\"hello\")")
     , ("3", "match(3)")
+    , ("3", "match2(1 2)")
+    , ("99", "match2(9 9)")
     ]
   test "id a = a" [
       ("[]", "[]")
@@ -63,6 +65,8 @@ main = do
     , ("int(value:1)", "parser(\"1\").parse_int")
     , ("int(value:123)", "parser(\"123\").parse_int")
     , ("op2(op:+\nleft:int(value:1)\nright:int(value:2))", "parser(\"1+2\").parse_op2")
+    , ("1", "run(\"1\")")
+    , ("3", "run(\"1+2\")")
     ]
   putStrLn "ok"
 
@@ -101,6 +105,9 @@ match_code = unlines [
   , "| 0 = n + 1"
   , "| \"hello\" = 2"
   , "| _ = n"
+  , "match2 a b ="
+  , "| 9 9 = 99"
+  , "| _ _ = a + b"
   ]
 vl_code = unlines [
     "enum ast:"
@@ -135,6 +142,14 @@ vl_code = unlines [
   , "  fmap pf ff ="
   , "    v <- pf"
   , "    ff(v)"
+  , "run code = "
+  ,"   v <- parser(code).parse_op2"
+  ,"   eval(v)"
+  , "eval v ="
+  , "| ast.int = v.value"
+  , "| ast.op2 = eval_op2(v.op eval(v.left) eval(v.right))"
+  , "eval_op2 op l r ="
+  , "| \"+\" _ _ = l + r"
   ]
 
 test src tests =  mapM_ (runTest src) tests

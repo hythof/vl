@@ -67,7 +67,7 @@ dispatch env name argv = go name argv
       then String $ [(s !! index)]
       else Throw $ "out of index " ++ show index ++ " in \"" ++ s ++ "\""
     dispatch_func name argv = error $ "func: " ++ name ++ " " ++ show argv
-    dispatch_call name ((Struct fields):argv) = case find "call by struct " name fields $ apply (fields ++ env) argv of
+    dispatch_call name ((Struct fields):argv) = case find ("call by struct " ++ show argv) name fields $ apply (fields ++ env) argv of
       Block steps -> Block $ (map (\(k,v) -> Define k v) (reverse fields)) ++ steps
       x -> x
     --dispatch_call name argv = trace_ name $ find ("call by general " ++ show argv) name env (apply env argv)
@@ -86,11 +86,17 @@ block env local (head_ast:rest) last = branch head_ast rest
       Block [Apply "|" [l, r]] -> case branch l [] of
         (Throw _, _) -> branch r rest
         _ -> branch l rest
-      Block steps -> let (ast, local2) = block env local steps Void in block env (local2 ++ local) rest ast
+      Block steps -> let (ast, local2) = block env local steps Void in block env (squash $ local2 ++ local) rest ast
       Define name exp -> block ((name, uni exp) : env) local rest Void
-      Assign name exp -> let (ast, local2) = branch exp [] in block ((name, ast) : env) (local2 ++ local) rest ast
-      Update name exp -> let (ast, local2) = branch exp [] in block env ((name, ast) : local2 ++ local) rest ast
+      Assign name exp -> let (ast, local2) = branch exp [] in block ((name, ast) : env) (squash $ local2 ++ local) rest ast
+      Update name exp -> let (ast, local2) = branch exp [] in block env (squash $ (name, ast) : local2 ++ local) rest ast
       ast -> block env local rest ast
+    squash xs = go xs []
+      where
+        go [] acc = reverse acc
+        go ((k, v):xs) acc = case lookup k acc of
+          Just _ -> go xs acc
+          Nothing -> go xs ((k, v) : acc)
 
 apply env argv ast = go (unify env ast)
   where
