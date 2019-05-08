@@ -1,4 +1,4 @@
-module Lab where
+module Main where
 
 import Debug.Trace (trace)
 import AST
@@ -161,22 +161,23 @@ vl_code = unlines [
   , "| \"/\" _ _ = l / r"
   ]
 
-test src tests =  mapM_ (runTest src) tests
-runTest src (expect, exp) = runAssert expect (src ++ "\nmain = " ++ exp) exp
-runAssert expect src exp = if expect == result
+test src tests =  mapM_ (runTest (get_env src) src) tests
+runTest base_env src (expect, exp) = runAssert base_env expect exp
+runAssert base_env expect exp = if expect == result
   then putStr "."
-  else error $ makeMessage ("`" ++ expect ++ " != " ++ result ++ "`\nexp: " ++ exp)
+  else error $ makeMessage env ("`" ++ expect ++ " != " ++ result ++ "`\nexp: " ++ exp)
   where
-    env = get_env src
+    src = "main = " ++ exp
+    env = base_env ++ (get_env src)
     result = case lookup "main" env of
       Just v -> fmt $ eval env v
-      _ -> error $ makeMessage "Not found main"
-    get_env src = case parse src of
-      (env, "") -> env
-      (env, rest) -> error $ makeMessage ("Failed parsing: `" ++ rest ++ "`")
-    makeMessage message = message ++
-      concat (map (\(k, v) -> "\n- " ++ k ++ "\t" ++ show v) env) ++
-      "\n" ++ src ++ "\n"
+      _ -> error $ makeMessage env "Not found main"
 
+get_env src = case parse src of
+  (env, "") -> env
+  (env, "\n") -> env
+  (env, rest) -> error $ makeMessage env ("Failed parsing: `" ++ src ++ "` rest=`" ++ rest ++ "`")
+makeMessage env message = message ++
+  concat (map (\(k, v) -> "\n- " ++ k ++ "\t" ++ show v) env)
 fmt (String s) = s
 fmt ast = to_string ast
