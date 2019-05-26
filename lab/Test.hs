@@ -4,6 +4,7 @@ import Debug.Trace (trace)
 import AST
 import Parser (parse)
 import Evaluator (eval, to_string)
+import System.Process (runCommand)
 
 main = do
   test match_code [
@@ -74,6 +75,9 @@ main = do
     , ("2", "run(\"4/2\")")
     , ("2", "run(\"5/2\")")
     ]
+  testGo [
+    ("hello", "print(\"hello\")")
+    ]
   putStrLn "ok"
 
 struct_code = unlines [
@@ -139,14 +143,14 @@ vl_code = unlines [
   , "    v <- read_one([\"0\" \"1\" \"2\" \"3\" \"4\" \"5\" \"6\" \"7\" \"8\" \"9\"]).many1.fmap(s => s.join(\"\").to_int)"
   , "    ast.int(v)"
   , "  read_one candidates = satisfy(x => candidates.has(x))"
-  , "many1 p1 ="
-  , "  x <- p1"
-  , "  xs <- p1.many"
+  , "many1 p ="
+  , "  x <- p"
+  , "  xs <- p.many"
   , "  [x] ++ xs"
   , "many p = p.many_acc([])"
-  , "many_acc pa acc = pa.fmap(a => pa.many_acc(acc ++ [a])) | acc"
-  , "fmap pf ff ="
-  , "  v <- pf"
+  , "many_acc p acc = p.fmap(a => p.many_acc(acc ++ [a])) | acc"
+  , "fmap p ff ="
+  , "  v <- p"
   , "  ff(v)"
   , "run code = "
   ,"   v <- parser(code).parse_op2"
@@ -172,6 +176,31 @@ runAssert base_env expect exp = if expect == result
     result = case lookup "main" env of
       Just v -> fmt $ eval env v
       _ -> error $ makeMessage env "Not found main"
+
+testGo tests = prepare
+  where
+    prepare = do
+      src <- readFile "go.vl"
+      let env = get_env src
+      go env tests
+    go env [] = return ()
+    go env ((expect, src):rest) = do
+      runTest env expect src
+      go env rest
+    runTest env expect src= do
+      let go_src = to_go env src
+      let go_path = "/tmp/tmp.go"
+      let stdout_path = go_path ++ ".out"
+      let cmd = "go run " ++ go_path ++ " > " ++ stdout_path
+      writeFile go_path $ go_src ++ "\n"
+      runCommand cmd
+      output <- readFile stdout_path
+      if output == expect
+        then putStr "."
+        else putStrLn $ "expect: " ++ expect ++ "\n  fact:" ++ output
+    to_go env src = case eval env (Apply "__compile_to_go" [String src]) of
+      String s -> s
+      ret -> error $ makeMessage env ("invalid the result of compiling" ++ show ret)
 
 get_env src = case parse src of
   (env, "") -> env

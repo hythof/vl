@@ -1,3 +1,15 @@
+__compile_to_go src = `package main
+
+import "fmt"
+
+func main() {
+  fmt.Print("hello")
+}
+`
+print x = x
+
+
+__comment__
 enum ast:
   int value int
   string value string
