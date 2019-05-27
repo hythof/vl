@@ -4,17 +4,9 @@ import Debug.Trace (trace)
 import AST
 import Parser (parse)
 import Evaluator (eval, to_string)
-import System.Process (runCommand)
+import System.Process (runCommand, waitForProcess)
 
 main = do
-  test match_code [
-      ("0", "match(true)")
-    , ("1", "match(0)")
-    , ("2", "match(\"hello\")")
-    , ("3", "match(3)")
-    , ("3", "match2(1 2)")
-    , ("99", "match2(9 9)")
-    ]
   test "id a = a" [
       ("[]", "[]")
     , ("[1]", "[1]")
@@ -32,6 +24,7 @@ main = do
     , ("true", "2 <= 2")
     , ("hello", "\"h\" . \"ello\"")
     , ("e", "\"hello\".at(1)")
+    , ("hello\nworld", "`\nhello\nworld\n`")
     , ("throw:out of index 1 in \"a\"", "\"a\".at(1)")
     , ("z", "\"hello\".at(9) | \"z\"")
     , ("5", "\"hello\".length")
@@ -43,6 +36,14 @@ main = do
     , ("6", "2 * 3")
     --, ("2", "(x => x + 1)(1)")
     , ("3", "\n  a = 1\n  b = a + 1\n  a + b")
+    ]
+  test match_code [
+      ("0", "match(true)")
+    , ("1", "match(0)")
+    , ("2", "match(\"hello\")")
+    , ("3", "match(3)")
+    , ("3", "match2(1 2)")
+    , ("99", "match2(9 9)")
     ]
   test struct_code [
       ("2", "either(1 2).right")
@@ -76,7 +77,7 @@ main = do
     , ("2", "run(\"5/2\")")
     ]
   testGo [
-    ("hello", "print(\"hello\")")
+    ("hello", "printf(\"hello\")")
     ]
   putStrLn "ok"
 
@@ -180,7 +181,7 @@ runAssert base_env expect exp = if expect == result
 testGo tests = prepare
   where
     prepare = do
-      src <- readFile "go.vl"
+      src <- readFile "c.vl"
       let env = get_env src
       go env tests
     go env [] = return ()
@@ -189,11 +190,12 @@ testGo tests = prepare
       go env rest
     runTest env expect src= do
       let go_src = to_go env src
-      let go_path = "/tmp/tmp.go"
-      let stdout_path = go_path ++ ".out"
-      let cmd = "go run " ++ go_path ++ " > " ++ stdout_path
+      let go_path = "/tmp/tmp.c"
+      let stdout_path = "/tmp/out.txt"
+      let cmd = "gcc -std=c17 -Wall -O2 " ++ go_path ++ " -o /tmp/a.out && /tmp/a.out > " ++ stdout_path
       writeFile go_path $ go_src ++ "\n"
-      runCommand cmd
+      pid <- runCommand cmd
+      waitForProcess pid
       output <- readFile stdout_path
       if output == expect
         then putStr "."
