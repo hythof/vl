@@ -67,6 +67,9 @@ dispatch env name argv = go name argv
     dispatch_func "at" [String s, Int index] = if index < length s
       then String $ [(s !! index)]
       else Throw $ "out of index " ++ show index ++ " in \"" ++ s ++ "\""
+    dispatch_func "at" [List s, Int index] = if index < length s
+      then s !! index
+      else Throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
     dispatch_func name argv = error $ "func: " ++ name ++ " " ++ show argv
     dispatch_call name ((Struct fields):argv) = case find ("call by struct " ++ show argv) name fields $ apply (fields ++ env) argv of
       Block steps -> Block $ (map (\(k,v) -> Define k v) (reverse fields)) ++ steps

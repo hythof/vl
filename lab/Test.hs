@@ -23,6 +23,7 @@ main = do
     , ("true", "2 >= 2")
     , ("true", "2 <= 2")
     , ("hello", "\"h\" . \"ello\"")
+    , ("5", "(\"h\" . \"ello\").length")
     , ("e", "\"hello\".at(1)")
     , ("hello\nworld", "`\nhello\nworld\n`")
     , ("throw:out of index 1 in \"a\"", "\"a\".at(1)")
@@ -76,7 +77,7 @@ main = do
     , ("2", "run(\"4/2\")")
     , ("2", "run(\"5/2\")")
     ]
-  testGo [
+  testC [
     ("hello", "printf(\"hello\")")
     ]
   putStrLn "ok"
@@ -178,7 +179,7 @@ runAssert base_env expect exp = if expect == result
       Just v -> fmt $ eval env v
       _ -> error $ makeMessage env "Not found main"
 
-testGo tests = prepare
+testC tests = prepare
   where
     prepare = do
       src <- readFile "c.vl"
@@ -200,14 +201,14 @@ testGo tests = prepare
       if output == expect
         then putStr "."
         else putStrLn $ "expect: " ++ expect ++ "\n  fact:" ++ output
-    to_go env src = case eval env (Apply "__compile_to_go" [String src]) of
+    to_go env src = case eval env (Apply "__compile_to_c" [String src]) of
       String s -> s
       ret -> error $ makeMessage env ("invalid the result of compiling" ++ show ret)
 
 get_env src = case parse src of
   (env, "") -> env
   (env, "\n") -> env
-  (env, rest) -> error $ makeMessage env ("Failed parsing: `" ++ src ++ "` rest=`" ++ rest ++ "`")
+  (env, rest) -> error $ makeMessage env ("Failed parsing: `" ++ src ++ "`\n------------------------------------------------------\n rest=`" ++ rest ++ "`")
 makeMessage env message = message ++
   concat (map (\(k, v) -> "\n- " ++ k ++ "\t" ++ show v) env)
 fmt (String s) = s
