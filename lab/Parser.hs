@@ -250,10 +250,10 @@ indent f = Parser $ \s ->
     Just (a, ss) -> Just (a, ss { indentation = indentation s })
     Nothing -> Nothing
 
-indented_lines f = sepBy1 (indented_line f) next_br
+indented_lines f = fmap concat $ sepBy1 (indented_line f) next_br
 indented_line f = do
   indent <- current_indent
   string (take (2 * indent) (repeat ' '))
-  v <- f
+  v <- sepBy1 f (next $ oneOf ",;")
   look next_br
   return v

@@ -8,14 +8,8 @@ enum ast:
   decl name string, args []args, targs []args, type type
 
 enum op:
-  add
-  sub
-  mul
-  div
-  mod
-  pow
-  and
-  or
+  add, sub, mul, div, mod, pow
+  and, or
   append
 
 struct tv:
@@ -25,20 +19,11 @@ struct tv:
 enum type:
   untyped
   void
-  s8
-  s16
-  s32
-  s64
-  u8
-  u16
-  u32
-  u64
-  f32
-  f64
+  s8, s16, s32, s64
+  u8, u16, u32, u64
+  f32, f64
   string
-  cint
-  cfloat
-  cstring
+  cint, cfloat, cstring
   struct name string, fields []tv
   list generic type
   dict key type, val type
