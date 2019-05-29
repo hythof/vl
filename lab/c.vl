@@ -1,21 +1,98 @@
+__compile_to_c src =
+  c <- compile(src)
+  `#include <stdio.h>
+
+int main() {
+  printf("%d", ` . c . `);
+  return 0;
+}
+`
+
 enum ast:
   int value int
   float value float
-  string value string
   op2 op op, left ast, right ast, type type
-  call ref string, args []ast, type type
-  def name string, args []arg, lines []ast, type type
-  decl name string, args []args, targs []args, type type
 
 enum op:
-  add, sub, mul, div, mod, pow
-  and, or
-  append
+  add, sub, mul, div
 
 struct tv:
   name string
   type type
 
+enum type:
+  untyped
+  int, float
+  cint, cfloat
+
+enum define:
+  dtype name string, fields []tv
+  dfun name string, args []tv, ret type, lines []ast
+
+
+
+compile src =
+  defines <- parse(src).inferent.to_defines
+  defines = [defines]
+  h <- defines.map(x => to_h(x))
+  c <- defines.map(x => to_c(x).to_string)
+  (h ++ c).join("\n")
+parse src = parser(src).parse_op2
+inferent env = env
+to_defines env = env
+to_h def = ""
+to_c def =
+| ast.int = def.value
+| ast.op2 = op2_to_c(def.op to_c(def.left) to_c(def.right))
+op2_to_c op l r =
+| op.add = l + r
+| op.sub = l - r
+| op.mul = l * r
+| op.div = l / r
+
+
+
+flow parser:
+  eof
+  miss reason string
+  input string
+  satisfy f =
+    c <- input.at(0) | eof
+    f(c) || miss
+    input := input.slice(1)
+    c
+  parse_op2 =
+    left <- parse_int
+    parse_op2_remaining(left) | left
+  parse_op2_remaining left =
+    op <- parse_op
+    right <- parse_op2
+    ast.op2(op left right)
+  parse_op =
+    op_text <- read_one(["+" "-" "*" "/" "%" "**" "&&" "||" "++"])
+    to_op(op_text)
+  parse_int =
+    n <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1.fmap(s => s.join("").to_int)
+    ast.int(n)
+  read_one set = satisfy(x => set.has(x))
+many p = p.many_acc([])
+many1 p =
+  x <- p
+  xs <- p.many
+  [x] ++ xs
+many_acc p acc = p.fmap(a => p.many_acc(acc ++ [a])) | acc
+fmap p f =
+  x <- p
+  f(x)
+to_op op_text =
+| "+" = op.add
+| "-" = op.sub
+| "*" = op.mul
+| "/" = op.div
+
+
+
+__comment__
 enum type:
   untyped
   void
@@ -30,28 +107,14 @@ enum type:
   func args []tv, ret type
   exception name string, extra ast
   try type type
-
-enum define:
-  dtype name string, fields []tv
-  dfun name string, args []tv, ret type, lines []ast
-
-compile src =
-  defines <- parser.inferent.to_defines
-  h <- defines.map(x => to_h(x))
-  c <- defines.map(x => to_c(x))
-  (h ++ c).join("\n")
-parser src = ["main" src]
-inferent env = env
-to_defines env = [env.at(1)]
-to_c def = def
-to_h def = ""
-
-__compile_to_c src =
-  c <- compile(src)
-  `#include <stdio.h>
-
-int main() {
-` . c . `;
-  return 0;
-}
-`
+enum ast:
+  int value int
+  float value float
+  op2 op op, left ast, right ast, type type
+  call ref string, args []ast, type type
+  def name string, args []arg, lines []ast, type type
+  decl name string, args []args, targs []args, type type
+enum op:
+  add, sub, mul, div, mod, pow
+  and, or
+  append

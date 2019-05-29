@@ -3,7 +3,7 @@ module Evaluator where
 import Debug.Trace (trace)
 import AST
 
-reserved_func = ["length", "slice", "map", "join", "has", "at", "to_int"]
+reserved_func = ["length", "slice", "map", "join", "has", "at", "to_int", "to_string"]
 reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , "/" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
 
 eval :: Env -> AST -> AST
@@ -61,6 +61,7 @@ dispatch env name argv = go name argv
     dispatch_func "has"  [List xs, ast] = Bool $ elem ast xs
     dispatch_func "join" [List xs, String glue] = String $ string_join glue (map to_string xs)
     dispatch_func "to_int" [String s] = Int (read s :: Int)
+    dispatch_func "to_string" [Int n] = String $ show n
     dispatch_func "length" [String s] = Int $ length s
     dispatch_func "slice"  [String s, Int n] = String $ drop n s
     dispatch_func "slice"  [String s, Int n, Int m] = String $ take m (drop n s)
@@ -75,7 +76,7 @@ dispatch env name argv = go name argv
       Block steps -> Block $ (map (\(k,v) -> Define k v) (reverse fields)) ++ steps
       x -> x
     --dispatch_call name argv = trace_ name $ find ("call by general " ++ show argv) name env (apply env argv)
-    dispatch_call name argv = find ("call by general " ++ show argv) name env (apply env argv)
+    dispatch_call name argv = find ("call with " ++ show argv) name env (apply env argv)
 
 block :: Env -> Env -> [AST] -> AST -> (AST, Env)
 block env local _ ast@(Throw _) = (ast, local)

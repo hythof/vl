@@ -4,6 +4,7 @@ import Debug.Trace (trace)
 import AST
 import Parser (parse)
 import Evaluator (eval, to_string)
+import Control.Monad (when)
 import System.Process (runCommand, waitForProcess)
 
 main = do
@@ -78,9 +79,12 @@ main = do
     , ("2", "run(\"5/2\")")
     ]
   testC [
-    ("hello", "printf(\"hello\")")
+      ("1", "1")
+    , ("5", "2+3")
+    , ("6", "2*3")
+    , ("2", "5/2")
     ]
-  putStrLn "ok"
+  putStrLn "done"
 
 struct_code = unlines [
     "struct either:"
@@ -193,17 +197,17 @@ testC tests = prepare
       let go_src = to_go env src
       let go_path = "/tmp/tmp.c"
       let stdout_path = "/tmp/out.txt"
-      let cmd = "gcc -std=c17 -Wall -O2 " ++ go_path ++ " -o /tmp/a.out && /tmp/a.out > " ++ stdout_path
+      let cmd = "echo 'COMPILE FAILED' > " ++ stdout_path ++ " && gcc -std=c17 -Wall -O2 " ++ go_path ++ " -o /tmp/a.out && /tmp/a.out > " ++ stdout_path
       writeFile go_path $ go_src ++ "\n"
       pid <- runCommand cmd
       waitForProcess pid
       output <- readFile stdout_path
       if output == expect
         then putStr "."
-        else putStrLn $ "expect: " ++ expect ++ "\n  fact:" ++ output
+        else putStrLn $ "expect: " ++ expect ++ "\n  fact: " ++ output
     to_go env src = case eval env (Apply "__compile_to_c" [String src]) of
       String s -> s
-      ret -> error $ makeMessage env ("invalid the result of compiling" ++ show ret)
+      ret -> error $ makeMessage env ("invalid the result of compiling: " ++ show ret)
 
 get_env src = case parse src of
   (env, "") -> env
