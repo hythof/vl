@@ -62,6 +62,7 @@ dispatch env name argv = go name argv
     dispatch_func "join" [List xs, String glue] = String $ string_join glue (map to_string xs)
     dispatch_func "to_int" [String s] = Int (read s :: Int)
     dispatch_func "to_string" [Int n] = String $ show n
+    dispatch_func "to_string" [String s] = String s
     dispatch_func "length" [String s] = Int $ length s
     dispatch_func "slice"  [String s, Int n] = String $ drop n s
     dispatch_func "slice"  [String s, Int n, Int m] = String $ take m (drop n s)
@@ -72,8 +73,11 @@ dispatch env name argv = go name argv
       then s !! index
       else Throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
     dispatch_func name argv = error $ "func: " ++ name ++ " " ++ show argv
-    dispatch_call name ((Struct fields):argv) = case find ("call by struct " ++ show argv) name fields $ apply (fields ++ env) argv of
-      Block steps -> Block $ (map (\(k,v) -> Define k v) (reverse fields)) ++ steps
+    dispatch_call name ((Struct fields):argv) = case find ("call by struct with " ++ show argv) name (fields ++ env) $ apply (fields ++ env) argv of
+      Block steps -> case fields of
+        -- TODO: investigate how to decide the order of fields
+        (_:("__flow__", Void):local) -> fst $ block env fields steps Void
+        _ -> Block $ (map (\(k,v) -> Define k v) (reverse fields)) ++ steps
       x -> x
     --dispatch_call name argv = trace_ name $ find ("call by general " ++ show argv) name env (apply env argv)
     dispatch_call name argv = find ("call with " ++ show argv) name env (apply env argv)

@@ -8,6 +8,11 @@ import Control.Monad (when)
 import System.Process (runCommand, waitForProcess)
 
 main = do
+  testC [
+      ("1", "1")
+   ]
+  putStrLn "done"
+_main = do
   test "id a = a" [
       ("[]", "[]")
     , ("[1]", "[1]")
