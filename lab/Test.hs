@@ -10,7 +10,10 @@ import System.Process (runCommand, waitForProcess)
 main = do
   testC [
       ("1", "1")
-   ]
+    , ("5", "2+3")
+    , ("6", "2*3")
+    , ("2", "5/2")
+    ]
   putStrLn "done"
 _main = do
   test "id a = a" [
@@ -210,7 +213,7 @@ testC tests = prepare
       if output == expect
         then putStr "."
         else putStrLn $ "expect: " ++ expect ++ "\n  fact: " ++ output
-    to_go env src = case eval env (Apply "__compile_to_c" [String src]) of
+    to_go env src = case eval env (Apply "__compile_to_c" [String $ "v_main = " ++ src ++ "\n"]) of
       String s -> s
       ret -> error $ makeMessage env ("invalid the result of compiling: " ++ show ret)
 

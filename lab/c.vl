@@ -1,14 +1,15 @@
 __compile_to_c src =
-  defines <- compile(src)
+  c <- compile(src)
   `#include <stdio.h>
 
-` . defines . `
+` . c . `
 
 int main() {
   printf("%d", v_main());
   return 0;
 }
 `
+
 
 enum ast:
   int value int
@@ -20,6 +21,10 @@ enum ast:
 enum op:
   add, sub, mul, div
 
+struct kv:
+  key string
+  val ast
+
 struct tv:
   name string
   type type
@@ -29,31 +34,22 @@ enum type:
   int, float
   cint, cfloat
 
-struct define:
-  funcs []defun
-  types []detype
-struct detype:
-  name string
-  fields []tv
-struct defun:
-  name string
-  args []tv
-  ret type
-  body []ast
+
 
 compile src =
-  define <- parse(src).inferent.to_define
-  h <- define.types.map(x => x.to_h)
-  c <- define.funcs.map(x => x.to_c.to_string)
+  defines <- parse(src).inferent
+  h <- defines.map(x => x.to_h)
+  c <- defines.map(x => x.to_c.to_string)
   (h ++ c).join("\n")
-parse src = parser(src).parse_op2
+parse src = parser(src).parse_top
 inferent env = env
-to_define env = define([defun("v_main" [] type.untyped [env])] [])
 to_h t = ""
-to_c x = "int " . x.name . "() { return " . x.body.at(0).to_exp.to_string . "; }"
+to_c x = "int " . x.key . "() { return " . x.val.to_exp.to_string . "; }"
 to_exp node =
 | ast.int = node.value
 | ast.op2 = op2_to_c(node.op to_exp(node.left) to_exp(node.right))
+| ast.func = to_exp(node.body)
+| ast.call = 999
 op2_to_c op l r =
 | op.add = l + r
 | op.sub = l - r
@@ -71,14 +67,13 @@ flow parser:
     f(c) || miss
     input := input.slice(1)
     c
-  parse_top = parse_def.many
+  parse_top = parse_def.many1
   parse_def =
     name <- read_id
     args <- read_id.lex.many
     read_string("=").lex
-    body <- parse_exp
-    eol
-    ast.func(name args body)
+    body <- parse_exp.lex
+    kv(name ast.func(args body))
   parse_call =
     name <- read_id
     argv <- between("(" ")" parse_exp.many)
@@ -98,15 +93,14 @@ flow parser:
     n <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1.fmap(s => s.join("").to_int)
     ast.int(n)
   lex f =
-    read_one(" \t").many
+    read_one([" " "\t"]).many
     f
-  eol = read_one(["\r" "\n"]).lex | (input.length == 0 || miss)
   read_string s = satisfy(x => x == s)
   read_one set = satisfy(x => set.has(x))
   read_id =
-    x <- read_one(["A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
-    xs <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many
-    x . xs
+    x <- read_one(["_" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
+    xs <- read_one(["_" "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many
+    x . xs.join("")
 many p = p.many_acc([])
 many1 p =
   x <- p
@@ -118,9 +112,9 @@ fmap p f =
   f(x)
 between l r c =
   l
-  v <- c
+  x <- c
   r
-  v
+  x
 sepby p s = sepby1(p s) | []
 sepby1 p s =
   x <- p
