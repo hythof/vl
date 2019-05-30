@@ -9,10 +9,14 @@ import System.Process (runCommand, waitForProcess)
 
 main = do
   testC [
+    ("3", unlines ["aaa+bbb", "aaa = 1", "bbb = 2"])
+    ]
+  testC [
       ("1", "1")
     , ("5", "2+3")
     , ("6", "2*3")
     , ("2", "5/2")
+    , ("3", unlines ["aaa+bbb", "aaa = 1", "bbb = 2"])
     ]
   putStrLn "done"
 _main = do
@@ -202,7 +206,7 @@ testC tests = prepare
       runTest env expect src
       go env rest
     runTest env expect src= do
-      let go_src = to_go env src
+      let go_src = to_go env ("v_main = " ++ src)
       let go_path = "/tmp/tmp.c"
       let stdout_path = "/tmp/out.txt"
       let cmd = "echo 'COMPILE FAILED' > " ++ stdout_path ++ " && gcc -std=c17 -Wall -O2 " ++ go_path ++ " -o /tmp/a.out && /tmp/a.out > " ++ stdout_path
@@ -213,7 +217,7 @@ testC tests = prepare
       if output == expect
         then putStr "."
         else putStrLn $ "expect: " ++ expect ++ "\n  fact: " ++ output
-    to_go env src = case eval env (Apply "__compile_to_c" [String $ "v_main = " ++ src ++ "\n"]) of
+    to_go env src = case eval env (Apply "__compile_to_c" [String src]) of
       String s -> s
       ret -> error $ makeMessage env ("invalid the result of compiling: " ++ show ret)
 

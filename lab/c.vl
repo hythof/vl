@@ -44,30 +44,35 @@ compile src =
 parse src = parser(src).parse_top
 inferent env = env
 to_h t = ""
-to_c x = "int " . x.key . "() { return " . x.val.to_exp.to_string . "; }"
+to_c x = "int " . x.key . "() { return " . x.val.to_exp . "; }"
 to_exp node =
-| ast.int = node.value
+| ast.int = node.value.to_string
 | ast.op2 = op2_to_c(node.op to_exp(node.left) to_exp(node.right))
 | ast.func = to_exp(node.body)
-| ast.call = 999
+| ast.call = node.name . "()"
 op2_to_c op l r =
-| op.add = l + r
-| op.sub = l - r
-| op.mul = l * r
-| op.div = l / r
+| op.add = l . "+" . r
+| op.sub = l . "-" . r
+| op.mul = l . "*" . r
+| op.div = l . "/" . r
 
 
 
 flow parser:
   eof
   miss reason string
+  bug
   input string
   satisfy f =
     c <- input.at(0) | eof
     f(c) || miss
     input := input.slice(1)
     c
-  parse_top = parse_def.many1
+  parse_top =
+    defs <- parse_def.sepby1(read_br)
+    read_spaces
+    (input.length == 0) || bug
+    defs
   parse_def =
     name <- read_id
     args <- read_id.lex.many
@@ -76,11 +81,11 @@ flow parser:
     kv(name ast.func(args body))
   parse_call =
     name <- read_id
-    argv <- between("(" ")" parse_exp.many)
+    argv <- between("(" ")" parse_exp.many) | []
     ast.call(name argv)
-  parse_exp = parse_call | parse_op2
+  parse_exp = parse_op2.lex
   parse_op2 =
-    left <- parse_int
+    left <- parse_call | parse_int
     parse_op2_remaining(left) | left
   parse_op2_remaining left =
     op <- parse_op
@@ -95,6 +100,10 @@ flow parser:
   lex f =
     read_one([" " "\t"]).many
     f
+  read_br =
+    read_one([" " "\t"]).many
+    read_one(["\r" "\n"])
+  read_spaces = read_one([" " "\t" "\r" "\n"]).many
   read_string s = satisfy(x => x == s)
   read_one set = satisfy(x => set.has(x))
   read_id =
@@ -120,9 +129,9 @@ sepby1 p s =
   x <- p
   xs <- many(combine(s p))
   [x] ++ xs
-combine a b =
-  a
-  b
+combine aa bb =
+  aa
+  bb
 to_op op_text =
 | "+" = op.add
 | "-" = op.sub
