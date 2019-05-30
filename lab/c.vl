@@ -40,16 +40,16 @@ compile src =
   defines <- parse(src).inferent
   h <- defines.map(x => x.to_h)
   c <- defines.map(x => x.to_c.to_string)
-  (h ++ c).join("\n")
+  (h ++ c).join("\n") . "\n#define v_main _v_main"
 parse src = parser(src).parse_top
 inferent env = env
-to_h t = ""
-to_c x = "int " . x.key . "() { return " . x.val.to_exp . "; }"
+to_h x = "int _v_" . x.key . "();"
+to_c x = "int _v_" . x.key . "() { return " . x.val.to_exp . "; }"
 to_exp node =
 | ast.int = node.value.to_string
 | ast.op2 = op2_to_c(node.op to_exp(node.left) to_exp(node.right))
 | ast.func = to_exp(node.body)
-| ast.call = node.name . "()"
+| ast.call = "_v_" . node.name . "()"
 op2_to_c op l r =
 | op.add = l . "+" . r
 | op.sub = l . "-" . r
@@ -115,7 +115,7 @@ many1 p =
   x <- p
   xs <- p.many
   [x] ++ xs
-many_acc p acc = p.fmap(a => p.many_acc(acc ++ [a])) | acc
+many_acc p acc = p.fmap(x => p.many_acc(acc ++ [x])) | acc
 fmap p f =
   x <- p
   f(x)

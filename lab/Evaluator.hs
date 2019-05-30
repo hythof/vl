@@ -73,6 +73,7 @@ dispatch env name argv = go name argv
       then s !! index
       else Throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
     dispatch_func name argv = error $ "func: " ++ name ++ " " ++ show argv
+    dispatch_call "__" [String name, ret] = trace ((show $ lookup name env) ++ " with " ++ (show ret)) ret
     dispatch_call name ((Struct fields):argv) = case find ("call by struct with " ++ show argv) name (fields ++ env) $ apply (fields ++ env) argv of
       Block steps -> case fields of
         -- TODO: investigate how to decide the order of fields

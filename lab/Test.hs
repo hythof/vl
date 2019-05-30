@@ -7,7 +7,8 @@ import Evaluator (eval, to_string)
 import Control.Monad (when)
 import System.Process (runCommand, waitForProcess)
 
-main = do
+main = tmp_tests
+tmp_tests = do
   testC [
     ("3", unlines ["aaa+bbb", "aaa = 1", "bbb = 2"])
     ]
@@ -19,7 +20,7 @@ main = do
     , ("3", unlines ["aaa+bbb", "aaa = 1", "bbb = 2"])
     ]
   putStrLn "done"
-_main = do
+normal_tests = do
   test "id a = a" [
       ("[]", "[]")
     , ("[1]", "[1]")
@@ -206,7 +207,7 @@ testC tests = prepare
       runTest env expect src
       go env rest
     runTest env expect src= do
-      let go_src = to_go env ("v_main = " ++ src)
+      let go_src = to_go env ("main = " ++ src)
       let go_path = "/tmp/tmp.c"
       let stdout_path = "/tmp/out.txt"
       let cmd = "echo 'COMPILE FAILED' > " ++ stdout_path ++ " && gcc -std=c17 -Wall -O2 " ++ go_path ++ " -o /tmp/a.out && /tmp/a.out > " ++ stdout_path
