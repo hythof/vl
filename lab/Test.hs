@@ -7,19 +7,9 @@ import Evaluator (eval, to_string)
 import Control.Monad (when)
 import System.Process (runCommand, waitForProcess)
 
-main = tmp_tests
+main = normal_tests
 tmp_tests = do
-  testC [
-    ("3", unlines ["aaa+bbb", "aaa = 1", "bbb = 2"])
-    ]
-  testC [
-      ("1", "1")
-    , ("5", "2+3")
-    , ("6", "2*3")
-    , ("2", "5/2")
-    , ("3", unlines ["aaa+bbb", "aaa = 1", "bbb = 2"])
-    ]
-  putStrLn "done"
+  putStrLn "done of tmp test"
 normal_tests = do
   test "id a = a" [
       ("[]", "[]")
@@ -96,6 +86,7 @@ normal_tests = do
     , ("5", "2+3")
     , ("6", "2*3")
     , ("2", "5/2")
+    , ("3", unlines ["aaa+bbb", "aaa = 1", "bbb = 2"])
     ]
   putStrLn "done"
 
@@ -210,7 +201,7 @@ testC tests = prepare
       let go_src = to_go env ("main = " ++ src)
       let go_path = "/tmp/tmp.c"
       let stdout_path = "/tmp/out.txt"
-      let cmd = "echo 'COMPILE FAILED' > " ++ stdout_path ++ " && gcc -std=c17 -Wall -O2 " ++ go_path ++ " -o /tmp/a.out && /tmp/a.out > " ++ stdout_path
+      let cmd = "echo 'COMPILE FAILED' > " ++ stdout_path ++ " && gcc -std=c11 -Wall -O2 " ++ go_path ++ " -o /tmp/a.out && /tmp/a.out > " ++ stdout_path
       writeFile go_path $ go_src ++ "\n"
       pid <- runCommand cmd
       waitForProcess pid
