@@ -129,16 +129,20 @@ apply env argv ast = go (unify env ast)
       result -> result
     go v = if length argv == 0 then v else error $ "bug:" ++ show v ++ " with " ++ show argv
     match :: [String] -> [([AST], AST)] -> AST
-    match args all_conds = match_ args all_conds
+    match args all_conds = if (length argv) == (length args)
+      then match_ args all_conds
+      else error $ "Unmatch " ++ show args ++ " != " ++ show argv
       where
-        match_ args [] = Throw $ "miss match\ntarget: " ++ show argv ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
-        match_ args ((conds,branch):rest) = if all id (zipWith is argv (map (unify env) conds))
-          then unify ((zip args (map unwrap argv)) ++ env) branch
-          else match_ args rest
+        match_ args [] = Throw $ "miss match\ntarget: " ++ show args ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
+        match_ args ((conds,branch):rest) = if (length argv) == (length conds)
+          then if all id (zipWith is argv (map (unify env) conds))
+            then unify ((zip args (map unwrap argv)) ++ env) branch
+            else match_ args rest
+          else error $ "Unmatch " ++ show args ++ " have " ++ show argv ++ " != " ++ show conds ++ " => " ++ show branch
     unwrap (Enum _ v) = v
     unwrap v = v
     is _ Void = True
-    is (Enum t1 v) (Enum t2 _) = t1 == t2
+    is (Enum t1 _) (Enum t2 _) = t1 == t2
     is v1 v2 = v1 == v2
 
 -- utility
