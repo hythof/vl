@@ -14,6 +14,7 @@ data AST =
   | Apply String [AST]
   | Match [([AST], AST)]
 -- define
+  | Flow [String] Env Env -- props, throws, methods
   | Struct Env
   | Enum String AST
   | Func [String] AST

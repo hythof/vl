@@ -68,8 +68,8 @@ parse_define = go
       props <- indented_lines next_property
       next_br
       methods <- indented_lines def_func
-      let env = methods ++ map to_throw tags
-      return $ Func props $ Struct (("__flow__", Void) : (map (\name -> (name, Void)) props) ++ env)
+      let throws = map to_throw tags
+      return $ Flow props throws methods
     switch kind = error $ "unsupported parse " ++ kind
     to_enum x [] = Enum x Void
     to_enum x ys = make_func ys (Enum x Void)

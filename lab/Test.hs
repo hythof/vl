@@ -60,18 +60,18 @@ normal_tests = do
     , ("value:1", "to_integer(maybe.just(1))")
     ]
   test flow_code [
-      ("h", "parser(\"hello\").satisfy(x => x == \"h\")")
-    , ("01", "parser(\"01\").zero_one")
-    , ("throw:miss", "parser(\"Hello\").satisfy(x => x == \"h\")")
-    , ("throw:eof", "parser(\"\").satisfy(x => x == \"h\")")
-    , ("throw:eof", "parser(\"\").eof")
-    , ("throw:miss", "parser(\"\").miss")
+      ("h", "parser.satisfy(\"hello\" x => x == \"h\")")
+    , ("01", "parser.zero_one(\"01\")")
+    , ("throw:miss", "parser.satisfy(\"Hello\" x => x == \"h\")")
+    , ("throw:eof", "parser.satisfy(\"\" x => x == \"h\")")
+    , ("throw:eof", "parser.eof")
+    , ("throw:miss", "parser.miss")
     ]
   test vl_code [
-      ("1", "parser(\"1\").read_one([\"1\"])")
-    , ("int(value:1)", "parser(\"1\").parse_int")
-    , ("int(value:123)", "parser(\"123\").parse_int")
-    , ("op2(op:+\nleft:int(value:1)\nright:int(value:2))", "parser(\"1+2\").parse_op2")
+      ("1", "parser.read_one(\"1\" [\"1\"])")
+    , ("int(value:1)", "parser.parse_int(\"1\")")
+    , ("int(value:123)", "parser.parse_int(\"123\")")
+    , ("op2(op:+\nleft:int(value:1)\nright:int(value:2))", "parser.parse_op2(\"1+2\")")
     , ("1", "run(\"1\")")
     , ("3", "run(\"1+2\")")
     , ("-1", "run(\"1-2\")")
@@ -163,7 +163,7 @@ vl_code = unlines [
   , "  v <- p"
   , "  ff(v)"
   , "run code = "
-  ,"   v <- parser(code).parse_op2"
+  ,"   v <- parser.parse_op2(code)"
   ,"   eval(v)"
   , "eval v ="
   , "| ast.int = v.value"

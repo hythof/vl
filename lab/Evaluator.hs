@@ -9,7 +9,7 @@ reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , "/" , ">" , ">=" , "<"
 eval :: Env -> AST -> AST
 eval env input = affect env (unify env input)
 
-affect env (Apply name argv) = dispatch env name (map (unify env) argv)
+affect env (Apply name argv) = affect env $ dispatch env name (map (unify env) argv)
 affect env (Block steps) = fst $ block env [] steps Void
 affect env ast = ast
 
@@ -73,15 +73,22 @@ dispatch env name argv = go name argv
       then s !! index
       else Throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
     dispatch_func name argv = error $ "func: " ++ name ++ " " ++ show argv
-    dispatch_call "__" [String name, ret] = trace ((show $ lookup name env) ++ " with " ++ (show ret)) ret
-    dispatch_call name ((Struct fields):argv) = case find ("call by struct with " ++ show argv) name (fields ++ env) $ apply (fields ++ env) argv of
-      Block steps -> case fields of
-        -- TODO: investigate how to decide the order of fields
-        (_:("__flow__", Void):local) -> fst $ block env fields steps Void
-        _ -> Block $ (map (\(k,v) -> Define k v) (reverse fields)) ++ steps
-      x -> x
-    --dispatch_call name argv = trace_ name $ find ("call by general " ++ show argv) name env (apply env argv)
-    dispatch_call name argv = find ("call with " ++ show argv) name env (apply env argv)
+    dispatch_call name ((Flow props throws fields):argv) = go
+      where
+        local = (zip props argv) ++ throws ++ fields ++ env
+        go = if elem name (map fst throws) then go_throw else go_method
+        go_throw = find name throws
+        go_method = if (length props) <= (length argv)
+          then case find name local of
+            Func args body -> if (length args) == (length argv) - (length props)
+              then affect ((zip args (drop (length props) argv)) ++ local) body
+              else error $ "Too many arguments " ++ name ++ " have " ++ show props ++ " but args " ++ show argv
+            x -> if (length props) == (length argv)
+              then affect local x
+              else error $ "Too many arguments '" ++ name ++ "' have " ++ show props ++ " but args " ++ show argv
+          else error $ "Few arguments " ++ name ++ " have " ++ show props ++ " but args " ++ show argv
+    dispatch_call name ((Struct fields):argv) = apply (fields ++ env) argv $ find name (fields ++ env)
+    dispatch_call name argv = apply env argv $ find name env
 
 block :: Env -> Env -> [AST] -> AST -> (AST, Env)
 block env local _ ast@(Throw _) = (ast, local)
@@ -101,6 +108,13 @@ block env local (head_ast:rest) last = branch head_ast rest
       Assign name exp -> let (ast, local2) = branch exp [] in block ((name, ast) : env) (local2 ++ local) rest ast
       Update name exp -> let (ast, local2) = branch exp [] in block env ((name, ast) : local2 ++ local) rest ast
       ast -> block env local rest ast
+
+find name env = case lookup name env of
+  Just (Apply name' []) -> if name == name'
+    then error $ "Circle reference " ++ name ++ " in " ++ (show $ map fst env)
+    else find name' env
+  Just v -> v
+  _ -> error $ "Not found '" ++ name ++ "' in " ++ (show $ map fst env)
 
 apply env argv ast = go (unify env ast)
   where
@@ -126,15 +140,6 @@ apply env argv ast = go (unify env ast)
     is _ Void = True
     is (Enum t1 v) (Enum t2 _) = t1 == t2
     is v1 v2 = v1 == v2
-
-find debug_mark name env f = case lookup name env of
-  Just (Apply name' []) -> if name == name'
-    then error $ debug_mark ++ " circle reference " ++ name ++ " in " ++ (show env)
-    else find debug_mark name' env f
-  Just v -> f v
-  _ -> error $ debug_mark ++ " " ++ message
-    where
-      message = "not found '" ++ name ++ "' in " ++ (show $ map fst env)
 
 -- utility
 to_strings xs = string_join " " (map to_string xs)

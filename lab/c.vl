@@ -31,20 +31,22 @@ struct tv:
 
 enum type:
   untyped
-  int, float
-  cint, cfloat
-
-
+  int
+  float
 
 compile src =
   defines <- parse(src).inferent
-  h <- defines.map(x => x.to_h)
-  c <- defines.map(x => x.to_c.to_string)
+  h <- defines.map(x => to_h(x))
+  c <- defines.map(x => to_c(x))
   (h ++ c).join("\n") . "\n#define v_main _v_main"
-parse src = parser(src).parse_top
+parse src = parser.parse_top(src)
 inferent env = env
-to_h x = "int _v_" . x.key . "();"
-to_c x = "int _v_" . x.key . "() { return " . x.val.to_exp . "; }"
+to_h x = to_t(x.type) . " _v_" . x.key . "();"
+to_c x = to_t(x.type) . " _v_" . x.key . "() { return " . x.val.to_exp . "; }"
+to_t x =
+| type.untyped = "int"
+| type.int = "int"
+| type.float = "float*"
 to_exp node =
 | ast.int = node.value.to_string
 | ast.op2 = op2_to_c(node.op to_exp(node.left) to_exp(node.right))
