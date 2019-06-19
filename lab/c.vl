@@ -35,12 +35,24 @@ enum type:
   float
 
 compile src =
-  defines <- parse(src).inferent
+  defines <- parse(src).infer_env
   h <- defines.map(x => x.to_h)
   c <- defines.map(x => x.to_c)
   (h ++ c).join("\n") . "\n#define v_main _v_main"
 parse src = parser.parse_top(src)
-inferent env = env
+infer_env env = env.map(x => kv(x.key x.val.infer_ast(env)))
+infer_ast x env =
+| ast.int _ = x
+| ast.float _ = x
+| ast.op2 _ = ast.op2(x.op x.left x.right infer_type(x.left env))
+| ast.func _ = ast.func(x.args x.body infer_type(x.body env))
+| ast.call _ = ast.call(x.name x.argv infer_type(env.find(y => y.key == x.name) env))
+infer_type x env =
+| ast.int _ = type.int
+| ast.float _ = type.float
+| ast.op2 _ = x.left.infer_type(env)
+| ast.func _ = x.body.infer_type(env)
+| ast.call _ = env.find(y => y.key == x.name).val.infer_type(env)
 to_h x = x.val.v_type . " _v_" . x.key . "();"
 to_c x = x.val.v_type . " _v_" . x.key . "() { return " . x.val.to_exp . "; }"
 v_type t =
@@ -59,10 +71,10 @@ to_exp node =
 | ast.func = to_exp(node.body)
 | ast.call = "_v_" . node.name . "()"
 op2_to_c op l r =
-| op.add _ _ = l . "+" . r
-| op.sub _ _ = l . "-" . r
-| op.mul _ _ = l . "*" . r
-| op.div _ _ = l . "/" . r
+| op.add _ _ = l . " + " . r
+| op.sub _ _ = l . " - " . r
+| op.mul _ _ = l . " * " . r
+| op.div _ _ = l . " / " . r
 
 
 

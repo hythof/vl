@@ -131,10 +131,15 @@ parse_match = Match <$> many1 go
     go = do
       next_br
       next_string "|"
-      conds <- many1 parse_exp
+      conds <- many1 (match_enum <|> parse_exp)
       next_string "="
       body <- parse_exp
       return (conds, body)
+    match_enum = do
+      next_token
+      string "."
+      name <- token
+      return $ Enum name Void
 parse_block = Block <$> (next_br >> (indent go))
   where
     go = indented_lines step

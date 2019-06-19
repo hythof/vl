@@ -3,7 +3,7 @@ module Evaluator where
 import Debug.Trace (trace)
 import AST
 
-reserved_func = ["length", "slice", "map", "join", "has", "at", "to_int", "to_string"]
+reserved_func = ["length", "slice", "find", "map", "join", "has", "at", "to_int", "to_string"]
 reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , "/" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
 
 eval :: Env -> AST -> AST
@@ -57,7 +57,8 @@ dispatch env name argv = go name argv
     dispatch_eq a@(Throw _) b@(Throw _) = show a == show b
     dispatch_eq a b = error $ "equal: " ++ show a ++ " == " ++ show b
     dispatch_func _ (a@(Throw _):_) = a
-    dispatch_func "map"  [List xs, ast] = List $ map (\arg -> unify env $ apply env [arg] ast) xs
+    dispatch_func "map"  [List xs, ast] = List $ map (\arg -> unify env $ apply "" env [arg] ast) xs
+    dispatch_func "find"  [List xs, ast] = (filter (\x -> (apply "__find__" env [x] ast) == Bool True) xs) !! 0
     dispatch_func "has"  [List xs, ast] = Bool $ elem ast xs
     dispatch_func "join" [List xs, String glue] = String $ string_join glue (map to_string xs)
     dispatch_func "to_int" [String s] = Int (read s :: Int)
@@ -87,8 +88,10 @@ dispatch env name argv = go name argv
               then affect local x
               else error $ "Too many arguments '" ++ name ++ "' have " ++ show props ++ " but args " ++ show argv
           else error $ "Few arguments " ++ name ++ " have " ++ show props ++ " but args " ++ show argv
-    dispatch_call name ((Struct fields):argv) = apply (fields ++ env) argv $ find name (fields ++ env)
-    dispatch_call name argv = apply env argv $ find name env
+    dispatch_call name (s@(Struct fields):argv) = case lookup name fields of
+      Just body -> apply name (fields ++ env) argv body
+      _ -> apply name env (s : argv) $ find name env
+    dispatch_call name argv = apply name env argv $ find name env
 
 block :: Env -> Env -> [AST] -> AST -> (AST, Env)
 block env local _ ast@(Throw _) = (ast, local)
@@ -116,29 +119,33 @@ find name env = case lookup name env of
   Just v -> v
   _ -> error $ "Not found '" ++ name ++ "' in " ++ (show $ map fst env)
 
-apply env argv ast = go (unify env ast)
+apply name env argv ast = go (unify env ast)
   where
-    go (Func args Void) = Struct $ zip args argv
-    go (Func args (Enum name Void)) = Enum name (Struct $ zip args argv)
-    go (Func args (Struct kvs)) = Struct $ (zip args argv) ++ kvs
-    go (Func args (Match matches)) = match args matches
-    go (Func args (Block steps)) = Block $ (map (\(k, v) -> Define k v) (zip args argv)) ++ steps
-    go (Func args body) = case unify ((zip args argv) ++ env) body of
+    go (Func args body) = if (length argv) == (length args)
+      then run args body
+      else error $ "Miss match " ++ name ++ " (" ++ (show $ length args) ++ " != " ++ (show $ length argv) ++
+        " in " ++ show args ++ " != " ++ show argv ++ " => " ++ show body
+    go v = if length argv == 0 then v else error $ "APPLY: " ++ name ++ " " ++ show v ++ "\nwith " ++ show argv
+    run args Void = Struct $ zip args argv
+    run args (Enum name Void) = Enum name (Struct $ zip args argv)
+    run args (Struct kvs) = Struct $ (zip args argv) ++ kvs
+    run args (Match matches) = match args matches
+    run args (Block steps) = Block $ (map (\(k, v) -> Define k v) (zip args argv)) ++ steps
+    run args body = case unify ((zip args argv) ++ env) body of
       Block steps -> Block $ (zipWith Define args argv) ++ steps
       Func args2 body2 -> Func args2 (Apply "_apply" [Struct (("_apply", body2) : (zip args argv))])
       result -> result
-    go v = if length argv == 0 then v else error $ "bug:" ++ show v ++ " with " ++ show argv
     match :: [String] -> [([AST], AST)] -> AST
     match args all_conds = if (length argv) == (length args)
       then match_ args all_conds
-      else error $ "Unmatch " ++ show args ++ " != " ++ show argv
+      else error $ "Unmatch " ++ name ++ " " ++ show args ++ " != " ++ show argv
       where
-        match_ args [] = Throw $ "miss match\ntarget: " ++ show args ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
+        match_ args [] = error $ "miss match\ntarget: " ++ show argv ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
         match_ args ((conds,branch):rest) = if (length argv) == (length conds)
           then if all id (zipWith is argv (map (unify env) conds))
             then unify ((zip args (map unwrap argv)) ++ env) branch
             else match_ args rest
-          else error $ "Unmatch " ++ show args ++ " have " ++ show argv ++ " != " ++ show conds ++ " => " ++ show branch
+          else error $ "Unmatch " ++ name ++ " " ++ show args ++ " have " ++ show argv ++ " != " ++ show conds ++ " => " ++ show branch
     unwrap (Enum _ v) = v
     unwrap v = v
     is _ Void = True

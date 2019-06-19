@@ -9,6 +9,9 @@ import System.Process (runCommand, waitForProcess)
 
 main = normal_tests
 tmp_tests = do
+  testC [
+    ("3", unlines ["aaa+bbb", "aaa = 1", "bbb = 2"])
+    ]
   putStrLn "done of tmp test"
 normal_tests = do
   test "id a = a" [
