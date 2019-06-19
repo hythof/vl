@@ -42,7 +42,12 @@ compile src =
   type_ret = `const char v_ret[] = "` . defines.find(x => x.key == "main").val.v_type . `";`
   extras = [alias_main type_ret]
   (h ++ extras ++ c).join("\n")
+
 parse src = parser.parse_top(src)
+
+to_h x = x.val.v_type . " _v_" . x.key . "();"
+to_c x = x.val.v_type . " _v_" . x.key . "() { return " . x.val.to_exp . "; }"
+
 infer_env env = env.map(x => kv(x.key x.val.infer_ast(env)))
 infer_ast x env =
 | ast.int _ = x
@@ -56,8 +61,6 @@ infer_type x env =
 | ast.op2 _ = x.left.infer_type(env)
 | ast.func _ = x.body.infer_type(env)
 | ast.call _ = env.find(y => y.key == x.name).val.infer_type(env)
-to_h x = x.val.v_type . " _v_" . x.key . "();"
-to_c x = x.val.v_type . " _v_" . x.key . "() { return " . x.val.to_exp . "; }"
 v_type t =
 | ast.int = "int"
 | ast.float = "float"
