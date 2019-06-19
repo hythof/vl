@@ -5,7 +5,7 @@ __compile_to_c src =
 ` . c . `
 
 int main() {
-  printf("%d", v_main());
+  printf(v_ret[0] == 'i' ? "%d" : "%g", v_main());
   return 0;
 }
 `
@@ -38,7 +38,10 @@ compile src =
   defines <- parse(src).infer_env
   h <- defines.map(x => x.to_h)
   c <- defines.map(x => x.to_c)
-  (h ++ c).join("\n") . "\n#define v_main _v_main"
+  alias_main = "#define v_main _v_main"
+  type_ret = `const char v_ret[] = "` . defines.find(x => x.key == "main").val.v_type . `";`
+  extras = [alias_main type_ret]
+  (h ++ extras ++ c).join("\n")
 parse src = parser.parse_top(src)
 infer_env env = env.map(x => kv(x.key x.val.infer_ast(env)))
 infer_ast x env =
@@ -67,6 +70,7 @@ c_type t =
 | type.float = "float"
 to_exp node =
 | ast.int = node.value.to_string
+| ast.float = node.value.to_string
 | ast.op2 = op2_to_c(node.op to_exp(node.left) to_exp(node.right))
 | ast.func = to_exp(node.body)
 | ast.call = "_v_" . node.name . "()"
@@ -105,7 +109,7 @@ flow parser:
     ast.call(name argv type.untyped)
   parse_exp = parse_op2.lex
   parse_op2 =
-    left <- parse_call | parse_int
+    left <- parse_call | parse_float | parse_int
     parse_op2_remaining(left) | left
   parse_op2_remaining left =
     op <- parse_op
@@ -114,6 +118,12 @@ flow parser:
   parse_op =
     op_text <- read_one(["+" "-" "*" "/" "%" "**" "&&" "||" "++"])
     to_op(op_text)
+  parse_float =
+    n1 <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1
+    read_string(".")
+    n2 <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1
+    n = (n1 ++ ["."] ++ n2).join("").to_float
+    ast.float(n)
   parse_int =
     n <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1.fmap(s => s.join("").to_int)
     ast.int(n)

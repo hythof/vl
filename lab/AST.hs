@@ -7,6 +7,7 @@ data AST =
     Void
   | Bool Bool
   | Int Int
+  | Float Double
   | String String
 -- container
   | List [AST]

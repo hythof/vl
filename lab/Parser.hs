@@ -83,14 +83,19 @@ parse_define = go
       props <- sepBy next_property (next_string ",")
       return $ tag : props
 -- value
-parse_value = parse_string <|> parse_int <|> parse_void <|> parse_bool <|> parse_list
+parse_value = parse_string <|> parse_float <|> parse_int <|> parse_void <|> parse_bool <|> parse_list
 parse_void = (next_string "()") >> (return Void)
 parse_bool = ((next_string "true") >> (return (Bool True))) <|>
              ((next_string "false") >> (return (Bool False)))
+parse_float = do
+  s1 <- next $ many1 $ oneOf "0123456789"
+  string "."
+  s2 <- next $ many1 $ oneOf "0123456789"
+  return $ Float (read (s1 ++ s2) :: Double)
 parse_int = do
   s <- next $ many1 $ oneOf "0123456789"
   return $ Int (read s :: Int)
-parse_string = (String <$> (fmap trim1 $ next_between "`" "`" (many $ noneOf "`")))
+parse_string = (String <$> (fmap (unescape . trim1) $ next_between "`" "`" (many $ noneOf "`")))
   <|> (String <$> (fmap unescape $ between (next_string "\"") (string "\"") (many $ noneOf "\"")))
  where
   trim1 s = reverse $ _trim1 $ reverse $ _trim1 s
@@ -214,7 +219,7 @@ next_between l r m = between (next_string l) (next_string r) m
 between l r m = do
   l
   ret <- m
-  r <|> (bug "between")
+  r <|> (bug $ "between: not terminated")
   return ret
 
 spaces = many $ oneOf " \t\r\n"

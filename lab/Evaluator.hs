@@ -3,7 +3,7 @@ module Evaluator where
 import Debug.Trace (trace)
 import AST
 
-reserved_func = ["length", "slice", "find", "map", "join", "has", "at", "to_int", "to_string"]
+reserved_func = ["length", "slice", "find", "map", "join", "has", "at", "to_int", "to_float", "to_string"]
 reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , "/" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
 
 eval :: Env -> AST -> AST
@@ -62,7 +62,9 @@ dispatch env name argv = go name argv
     dispatch_func "has"  [List xs, ast] = Bool $ elem ast xs
     dispatch_func "join" [List xs, String glue] = String $ string_join glue (map to_string xs)
     dispatch_func "to_int" [String s] = Int (read s :: Int)
+    dispatch_func "to_float" [String s] = Float (read s :: Double)
     dispatch_func "to_string" [Int n] = String $ show n
+    dispatch_func "to_string" [Float n] = String $ show n
     dispatch_func "to_string" [String s] = String s
     dispatch_func "length" [String s] = Int $ length s
     dispatch_func "slice"  [String s, Int n] = String $ drop n s
@@ -158,6 +160,7 @@ to_string Void = "_"
 to_string (Bool True) = "true"
 to_string (Bool False) = "false"
 to_string (Int n) = show n
+to_string (Float n) = show n
 to_string (String s) = s
 to_string (List xs) = '[' : (to_strings xs) ++ "]"
 to_string (Apply name args) = name ++ "(" ++ to_strings args ++ ")"
