@@ -3,7 +3,7 @@ module Evaluator where
 import Debug.Trace (trace)
 import AST
 
-reserved_func = ["length", "slice", "find", "map", "join", "has", "at", "to_int", "to_float", "to_string"]
+reserved_func = ["trace", "not", "length", "slice", "find", "map", "join", "has", "at", "to_int", "to_float", "to_string"]
 reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , "/" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
 
 eval :: Env -> AST -> AST
@@ -57,6 +57,7 @@ dispatch env name argv = go name argv
     dispatch_eq a@(Throw _) b@(Throw _) = show a == show b
     dispatch_eq a b = error $ "equal: " ++ show a ++ " == " ++ show b
     dispatch_func _ (a@(Throw _):_) = a
+    dispatch_func "trace" args = trace ("TRACE: " ++ show args) Void
     dispatch_func "map"  [List xs, ast] = List $ map (\arg -> unify env $ apply "" env [arg] ast) xs
     dispatch_func "find"  [List xs, ast] = (filter (\x -> (apply "__find__" env [x] ast) == Bool True) xs) !! 0
     dispatch_func "has"  [List xs, ast] = Bool $ elem ast xs
@@ -65,7 +66,8 @@ dispatch env name argv = go name argv
     dispatch_func "to_float" [String s] = Float (read s :: Double)
     dispatch_func "to_string" [Int n] = String $ show n
     dispatch_func "to_string" [Float n] = String $ show n
-    dispatch_func "to_string" [String s] = String s
+    dispatch_func "to_string" [String s] = String $ '"' :  s ++ "\""
+    dispatch_func "not" [Bool b] = Bool $ not b
     dispatch_func "length" [String s] = Int $ length s
     dispatch_func "slice"  [String s, Int n] = String $ drop n s
     dispatch_func "slice"  [String s, Int n, Int m] = String $ take m (drop n s)
@@ -118,6 +120,7 @@ find name env = case lookup name env of
   Just (Apply name' []) -> if name == name'
     then error $ "Circle reference " ++ name ++ " in " ++ (show $ map fst env)
     else find name' env
+  --Just v@(Throw x) -> trace ("throw: " ++ name ++ show env) $ v
   Just v -> v
   _ -> error $ "Not found '" ++ name ++ "' in " ++ (show $ map fst env)
 

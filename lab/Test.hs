@@ -7,13 +7,12 @@ import Evaluator (eval, to_string)
 import Control.Monad (when)
 import System.Process (runCommand, waitForProcess)
 
-main = normal_tests
-tmp_tests = do
+main = tests
+_tests = do
   testC [
-    ("3", unlines ["aaa+bbb", "aaa = 1", "bbb = 2"])
     ]
   putStrLn "done of tmp test"
-normal_tests = do
+tests = do
   test "id a = a" [
       ("[]", "[]")
     , ("[1]", "[1]")
@@ -87,14 +86,16 @@ normal_tests = do
   testC [
       ("1", "1")
     , ("1.1", "1.1")
-    , ("5", "2+3")
-    , ("5.2", "2.1+3.1")
-    , ("6", "2*3")
-    , ("6.51", "2.1*3.1")
-    , ("2", "5/2")
-    , ("2.5", "5.0/2.0")
-    , ("3", unlines ["aaa+bbb", "aaa = 1", "bbb = 2"])
-    , ("3.2", unlines ["aaa+bbb", "aaa = 1.1", "bbb = 2.1"])
+    , ("5", "2 + 3")
+    , ("5.2", "2.1 + 3.1")
+    , ("6", "2 * 3")
+    , ("6.51", "2.1 * 3.1")
+    , ("2", "5 / 2")
+    , ("2.5", "5.0 / 2.0")
+    , ("3", unlines ["aaa + bbb", "aaa = 1", "bbb = 2"])
+    , ("3.2", unlines ["aaa + bbb", "aaa = 1.1", "bbb = 2.1"])
+    , ("hello", "\"hello\"")
+    , ("hello", "\"he\" . \"llo\"")
     ]
   putStrLn "done"
 
@@ -216,7 +217,7 @@ testC tests = prepare
       output <- readFile stdout_path
       if output == expect
         then putStr "."
-        else putStrLn $ "expect: " ++ expect ++ "\n  fact: " ++ output
+        else error $ "expect: " ++ expect ++ "\n  fact: " ++ output
     to_go env src = case eval env (Apply "__compile_to_c" [String src]) of
       String s -> s
       ret -> error $ makeMessage env ("invalid the result of compiling: " ++ show ret)
@@ -225,7 +226,7 @@ get_env src = case parse src of
   (env, "") -> env
   (env, "\n") -> env
   (env, rest) -> error $ makeMessage env ("Failed parsing: `" ++ src ++ "`\n------------------------------------------------------\n rest=`" ++ rest ++ "`")
-makeMessage env message = message ++
-  concat (map (\(k, v) -> "\n- " ++ k ++ "\t" ++ show v) env)
+makeMessage env message = message
+  --concat (map (\(k, v) -> "\n- " ++ k ++ "\t" ++ show v) env)
 fmt (String s) = s
 fmt ast = to_string ast

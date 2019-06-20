@@ -1,11 +1,26 @@
 __compile_to_c src =
   c <- compile(src)
-  `#include <stdio.h>
+  `//
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+const char* _v_string_concat(const char* a, const char* b) {
+  // TODO: memory management such as free, pool
+  size_t len1 = strlen(a);
+  size_t len2 = strlen(b);
+  size_t len = len1 + len2 + 1;
+  char* buf = (char*)malloc(len);
+  memcpy(buf, a, len1);
+  memcpy(buf + len1, b, len2);
+  buf[len - 1] = '\0';
+  return buf;
+}
 
 ` . c . `
 
 int main() {
-  printf(v_ret[0] == 'i' ? "%d" : "%g", v_main());
+  printf(v_ret[0] == 'i' ? "%d" : v_ret[0] == 'f' ? "%g" : "%s", v_main());
   return 0;
 }
 `
@@ -14,12 +29,14 @@ int main() {
 enum ast:
   int value int
   float value float
+  string value string
   op2 op op, left ast, right ast, type type
   func args []tv, body ast, type type
   call name string, argv []ast, type type
 
 enum op:
   add, sub, mul, div
+  glue
 
 struct kv:
   key string
@@ -33,6 +50,7 @@ enum type:
   untyped
   int
   float
+  string
 
 compile src =
   defines <- parse(src).infer_env
@@ -52,18 +70,21 @@ infer_env env = env.map(x => kv(x.key x.val.infer_ast(env)))
 infer_ast x env =
 | ast.int _ = x
 | ast.float _ = x
+| ast.string _ = x
 | ast.op2 _ = ast.op2(x.op x.left x.right infer_type(x.left env))
 | ast.func _ = ast.func(x.args x.body infer_type(x.body env))
 | ast.call _ = ast.call(x.name x.argv infer_type(env.find(y => y.key == x.name) env))
 infer_type x env =
 | ast.int _ = type.int
 | ast.float _ = type.float
+| ast.string _ = type.string
 | ast.op2 _ = x.left.infer_type(env)
 | ast.func _ = x.body.infer_type(env)
 | ast.call _ = env.find(y => y.key == x.name).val.infer_type(env)
 v_type t =
 | ast.int = "int"
 | ast.float = "float"
+| ast.string = "string"
 | ast.op2 = t.type.c_type
 | ast.func = t.type.c_type
 | ast.call = t.type.c_type
@@ -71,9 +92,11 @@ c_type t =
 | type.untyped = "void*"
 | type.int = "int"
 | type.float = "float"
+| type.string = "const char*"
 to_exp node =
 | ast.int = node.value.to_string
 | ast.float = node.value.to_string
+| ast.string = node.value.to_string
 | ast.op2 = op2_to_c(node.op to_exp(node.left) to_exp(node.right))
 | ast.func = to_exp(node.body)
 | ast.call = "_v_" . node.name . "()"
@@ -82,13 +105,14 @@ op2_to_c op l r =
 | op.sub _ _ = l . " - " . r
 | op.mul _ _ = l . " * " . r
 | op.div _ _ = l . " / " . r
+| op.glue _ _ = "_v_string_concat(" . l . ", " . r . ")"
 
 
 
 flow parser:
   eof
   miss reason string
-  bug
+  bug_of_c_parser
   input string
   satisfy f =
     c <- input.at(0) | eof
@@ -98,7 +122,7 @@ flow parser:
   parse_top =
     defs <- parse_def.sepby1(read_br)
     read_spaces
-    (input.length == 0) || bug
+    (input.length == 0) || bug_of_c_parser
     defs
   parse_def =
     name <- read_id
@@ -108,18 +132,20 @@ flow parser:
     kv(name ast.func(args body type.untyped))
   parse_call =
     name <- read_id
-    argv <- between("(" ")" parse_exp.many) | []
+    argv <- between(read_string("(") read_string(")").lex parse_exp.many) | []
     ast.call(name argv type.untyped)
   parse_exp = parse_op2.lex
   parse_op2 =
-    left <- parse_call | parse_float | parse_int
+    left <- parse_call | parse_float | parse_int | parse_string
     parse_op2_remaining(left) | left
   parse_op2_remaining left =
     op <- parse_op
-    right <- parse_op2
+    right <- parse_exp
     ast.op2(op left right type.untyped)
   parse_op =
-    op_text <- read_one(["+" "-" "*" "/" "%" "**" "&&" "||" "++"])
+    read_string(" ")
+    op_text <- read_one(["." "+" "-" "*" "/" "%" "**" "&&" "||" "++"])
+    read_string(" ")
     to_op(op_text)
   parse_float =
     n1 <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1
@@ -130,6 +156,9 @@ flow parser:
   parse_int =
     n <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1.fmap(s => s.join("").to_int)
     ast.int(n)
+  parse_string =
+    s <- between(read_string(`"`) read_string(`"`) read_none([`"`]).many)
+    ast.string(s.join(""))
   lex f =
     read_one([" " "\t"]).many
     f
@@ -139,6 +168,7 @@ flow parser:
   read_spaces = read_one([" " "\t" "\r" "\n"]).many
   read_string s = satisfy(x => x == s)
   read_one set = satisfy(x => set.has(x))
+  read_none set = satisfy(x => set.has(x).not)
   read_id =
     x <- read_one(["_" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
     xs <- read_one(["_" "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many
@@ -170,6 +200,7 @@ to_op op_text =
 | "-" = op.sub
 | "*" = op.mul
 | "/" = op.div
+| "." = op.glue
 
 
 
