@@ -3,7 +3,7 @@ module Evaluator where
 import Debug.Trace (trace)
 import AST
 
-reserved_func = ["trace", "not", "length", "slice", "find", "map", "join", "has", "at", "to_int", "to_float", "to_string"]
+reserved_func = ["if", "trace", "not", "length", "slice", "find", "map", "join", "has", "at", "to_int", "to_float", "to_string"]
 reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , "/" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
 
 eval :: Env -> AST -> AST
@@ -58,8 +58,11 @@ dispatch env name argv = go name argv
     dispatch_eq a b = error $ "equal: " ++ show a ++ " == " ++ show b
     dispatch_func _ (a@(Throw _):_) = a
     dispatch_func "trace" args = trace ("TRACE: " ++ show args) Void
+    dispatch_func "if"  [Bool a, b, c] = if a then b else c
     dispatch_func "map"  [List xs, ast] = List $ map (\arg -> unify env $ apply "" env [arg] ast) xs
-    dispatch_func "find"  [List xs, ast] = (filter (\x -> (apply "__find__" env [x] ast) == Bool True) xs) !! 0
+    dispatch_func "find"  [List xs, ast] = case (filter (\x -> (apply "__find__" env [x] ast) == Bool True) xs) of
+      [] -> error $ "not found " ++ show ast ++ "\n  in " ++ show xs
+      (x:_) -> x
     dispatch_func "has"  [List xs, ast] = Bool $ elem ast xs
     dispatch_func "join" [List xs, String glue] = String $ string_join glue (map to_string xs)
     dispatch_func "to_int" [String s] = Int (read s :: Int)
@@ -68,6 +71,7 @@ dispatch env name argv = go name argv
     dispatch_func "to_string" [Float n] = String $ show n
     dispatch_func "to_string" [String s] = String $ '"' :  s ++ "\""
     dispatch_func "not" [Bool b] = Bool $ not b
+    dispatch_func "length" [List s] = Int $ length s
     dispatch_func "length" [String s] = Int $ length s
     dispatch_func "slice"  [String s, Int n] = String $ drop n s
     dispatch_func "slice"  [String s, Int n, Int m] = String $ take m (drop n s)
@@ -130,7 +134,7 @@ apply name env argv ast = go (unify env ast)
       then run args body
       else error $ "Miss match " ++ name ++ " (" ++ (show $ length args) ++ " != " ++ (show $ length argv) ++
         " in " ++ show args ++ " != " ++ show argv ++ " => " ++ show body
-    go v = if length argv == 0 then v else error $ "APPLY: " ++ name ++ " " ++ show v ++ "\nwith " ++ show argv
+    go v = if length argv == 0 then v else error $ "can't apply: " ++ name ++ " " ++ show v ++ "\nwith " ++ show argv
     run args Void = Struct $ zip args argv
     run args (Enum name Void) = Enum name (Struct $ zip args argv)
     run args (Struct kvs) = Struct $ (zip args argv) ++ kvs
@@ -150,7 +154,7 @@ apply name env argv ast = go (unify env ast)
           then if all id (zipWith is argv (map (unify env) conds))
             then unify ((zip args (map unwrap argv)) ++ env) branch
             else match_ args rest
-          else error $ "Unmatch " ++ name ++ " " ++ show args ++ " have " ++ show argv ++ " != " ++ show conds ++ " => " ++ show branch
+          else error $ "Unmatch " ++ name ++ " " ++ show args ++ " where " ++ show argv ++ " != " ++ show conds ++ " => " ++ show branch
     unwrap (Enum _ v) = v
     unwrap v = v
     is _ Void = True

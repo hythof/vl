@@ -10,6 +10,7 @@ import System.Process (runCommand, waitForProcess)
 main = tests
 _tests = do
   testC [
+    ("2", unlines ["inc(1)", "inc x = 1 + x"])
     ]
   putStrLn "done of tmp test"
 tests = do
@@ -92,10 +93,11 @@ tests = do
     , ("6.51", "2.1 * 3.1")
     , ("2", "5 / 2")
     , ("2.5", "5.0 / 2.0")
-    , ("3", unlines ["aaa + bbb", "aaa = 1", "bbb = 2"])
-    , ("3.2", unlines ["aaa + bbb", "aaa = 1.1", "bbb = 2.1"])
     , ("hello", "\"hello\"")
     , ("hello", "\"he\" . \"llo\"")
+    , ("3", unlines ["a + b", "a = 1", "b = 2"])
+    , ("3.2", unlines ["a + b", "a = 1.1", "b = 2.1"])
+    , ("2", unlines ["inc(1)", "inc x = 1 + x"])
     ]
   putStrLn "done"
 

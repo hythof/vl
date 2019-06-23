@@ -5,12 +5,27 @@ __compile_to_c src =
 #include <string.h>
 #include <stdlib.h>
 
-const char* _v_string_concat(const char* a, const char* b) {
+typedef struct {
+} v_thread_t;
+
+void v_thread_init(v_thread_t* t) {
+}
+
+void* v_thread_malloc(v_thread_t* t, size_t size) {
   // TODO: memory management such as free, pool
+  return malloc(size);
+}
+
+void v_thread_free(v_thread_t* t, void* v) {
+  // TODO: memory management such as free, pool
+  free(v);
+}
+
+const char* v_string_concat(v_thread_t* t, const char* a, const char* b) {
   size_t len1 = strlen(a);
   size_t len2 = strlen(b);
   size_t len = len1 + len2 + 1;
-  char* buf = (char*)malloc(len);
+  char* buf = (char*)v_thread_malloc(t, len);
   memcpy(buf, a, len1);
   memcpy(buf + len1, b, len2);
   buf[len - 1] = '\0';
@@ -20,11 +35,12 @@ const char* _v_string_concat(const char* a, const char* b) {
 ` . c . `
 
 int main() {
-  printf(v_ret[0] == 'i' ? "%d" : v_ret[0] == 'f' ? "%g" : "%s", v_main());
+  v_thread_t t;
+  v_thread_init(&t);
+  printf(v_ret[0] == 'i' ? "%d" : v_ret[0] == 'f' ? "%g" : "%s", v_main(&t));
   return 0;
 }
 `
-
 
 enum ast:
   int value int
@@ -56,15 +72,14 @@ compile src =
   defines <- parse(src).infer_env
   h <- defines.map(x => x.to_h)
   c <- defines.map(x => x.to_c)
-  alias_main = "#define v_main _v_main"
   type_ret = `const char v_ret[] = "` . defines.find(x => x.key == "main").val.v_type . `";`
-  extras = [alias_main type_ret]
+  extras = [type_ret]
   (h ++ extras ++ c).join("\n")
 
 parse src = parser.parse_top(src)
 
-to_h x = x.val.v_type . " _v_" . x.key . "();"
-to_c x = x.val.v_type . " _v_" . x.key . "() { return " . x.val.to_exp . "; }"
+to_h x = x.val.v_type . " v_" . x.key . "(v_thread_t* t" . x.val.c_args . ");"
+to_c x = x.val.v_type . " v_" . x.key . "(v_thread_t* t" . x.val.c_args . ") { return " . x.val.to_exp([]) . "; }"
 
 infer_env env = env.map(x => kv(x.key x.val.infer_ast(env)))
 infer_ast x env =
@@ -80,7 +95,7 @@ infer_type x env =
 | ast.string _ = type.string
 | ast.op2 _ = x.left.infer_type(env)
 | ast.func _ = x.body.infer_type(env)
-| ast.call _ = env.find(y => y.key == x.name).val.infer_type(env)
+| ast.call _ = env.find(e => e.key == x.name).val.infer_type(env)
 v_type t =
 | ast.int = "int"
 | ast.float = "float"
@@ -93,19 +108,23 @@ c_type t =
 | type.int = "int"
 | type.float = "float"
 | type.string = "const char*"
-to_exp node =
-| ast.int = node.value.to_string
-| ast.float = node.value.to_string
-| ast.string = node.value.to_string
-| ast.op2 = op2_to_c(node.op to_exp(node.left) to_exp(node.right))
-| ast.func = to_exp(node.body)
-| ast.call = "_v_" . node.name . "()"
+c_args x =
+| ast.func = x.args.map(y => ", " . y.c_arg).join("")
+| _ = ""
+c_arg x = x.type.c_type . " " . x.name
+to_exp node names =
+| ast.int _ = node.value.to_string
+| ast.float _ = node.value.to_string
+| ast.string _ = node.value.to_string
+| ast.op2 _ = op2_to_c(node.op to_exp(node.left names) to_exp(node.right names))
+| ast.func _ = to_exp(node.body node.args.map(y => y.name))
+| ast.call _ = names.has(node.name).if(node.name "v_" . node.name . "(t" . node.argv.map(y => ", " . y.to_exp(names)).join("") . ")")
 op2_to_c op l r =
 | op.add _ _ = l . " + " . r
 | op.sub _ _ = l . " - " . r
 | op.mul _ _ = l . " * " . r
 | op.div _ _ = l . " / " . r
-| op.glue _ _ = "_v_string_concat(" . l . ", " . r . ")"
+| op.glue _ _ = "v_string_concat(t, " . l . ", " . r . ")"
 
 
 
@@ -127,12 +146,13 @@ flow parser:
   parse_def =
     name <- read_id
     args <- read_id.lex.many
+    args = args.map(x => tv(x type.int))
     read_string("=").lex
     body <- parse_exp.lex
     kv(name ast.func(args body type.untyped))
   parse_call =
     name <- read_id
-    argv <- between(read_string("(") read_string(")").lex parse_exp.many) | []
+    argv <- between(read_string("(").lex read_string(")").lex parse_exp.many) | []
     ast.call(name argv type.untyped)
   parse_exp = parse_op2.lex
   parse_op2 =
@@ -173,6 +193,7 @@ flow parser:
     x <- read_one(["_" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
     xs <- read_one(["_" "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many
     x . xs.join("")
+
 many p = p.many_acc([])
 many1 p =
   x <- p
