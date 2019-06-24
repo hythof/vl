@@ -3,7 +3,7 @@ module Evaluator where
 import Debug.Trace (trace)
 import AST
 
-reserved_func = ["if", "trace", "not", "length", "slice", "find", "map", "join", "has", "at", "to_int", "to_float", "to_string"]
+reserved_func = ["sub", "rsub1", "if", "trace", "not", "length", "slice", "find", "map", "mapi", "join", "has", "at", "to_int", "to_float", "to_string"]
 reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , "/" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
 
 eval :: Env -> AST -> AST
@@ -60,11 +60,15 @@ dispatch env name argv = go name argv
     dispatch_func "trace" args = trace ("TRACE: " ++ show args) Void
     dispatch_func "if"  [Bool a, b, c] = if a then b else c
     dispatch_func "map"  [List xs, ast] = List $ map (\arg -> unify env $ apply "" env [arg] ast) xs
+    dispatch_func "mapi"  [List xs, ast] = List $ map (\(i, arg) -> unify (("i", Int i) : env) $ apply "" (("i", Int i) : env) [arg] ast) (zip [0..] xs)
     dispatch_func "find"  [List xs, ast] = case (filter (\x -> (apply "__find__" env [x] ast) == Bool True) xs) of
       [] -> error $ "not found " ++ show ast ++ "\n  in " ++ show xs
       (x:_) -> x
     dispatch_func "has"  [List xs, ast] = Bool $ elem ast xs
+    dispatch_func "has"  [String xs, String x] = Bool $ string_contains xs x
     dispatch_func "join" [List xs, String glue] = String $ string_join glue (map to_string xs)
+    dispatch_func "sub"  [String a, String b, String c] = String $ string_replace (length a) a b c
+    dispatch_func "rsub1"  [String a, String b, String c] = String $ reverse $ string_replace 1 (reverse a) (reverse b) (reverse c)
     dispatch_func "to_int" [String s] = Int (read s :: Int)
     dispatch_func "to_float" [String s] = Float (read s :: Double)
     dispatch_func "to_string" [Int n] = String $ show n
@@ -132,7 +136,7 @@ apply name env argv ast = go (unify env ast)
   where
     go (Func args body) = if (length argv) == (length args)
       then run args body
-      else error $ "Miss match " ++ name ++ " (" ++ (show $ length args) ++ " != " ++ (show $ length argv) ++
+      else error $ "Miss match " ++ name ++ " " ++ (show $ length args) ++ " != " ++ (show $ length argv) ++
         " in " ++ show args ++ " != " ++ show argv ++ " => " ++ show body
     go v = if length argv == 0 then v else error $ "can't apply: " ++ name ++ " " ++ show v ++ "\nwith " ++ show argv
     run args Void = Struct $ zip args argv
@@ -162,6 +166,28 @@ apply name env argv ast = go (unify env ast)
     is v1 v2 = v1 == v2
 
 -- utility
+string_contains :: String -> String -> Bool
+string_contains target y = go target
+  where
+    n = length y
+    go [] = False
+    go str@(x:xs) = (take n str == y) || go xs
+string_replace :: Int -> String -> String -> String -> String
+string_replace n a b c = string_join c (string_split n a b)
+string_split :: Int -> String -> String -> [String]
+string_split limit str delim = go limit str [] []
+  where
+    n = length delim
+    go 0 str _ acc2 = acc2 ++ [str]
+    go m [] _ acc2 = acc2
+    go m str@(x:xs) acc1 acc2 = if delim == (take n str)
+      then go (m - 1) (drop n str) [] (if length acc1 == 0 then acc2 else (reverse acc1) : acc2)
+      else go m xs (x : acc1) acc2
+string_join :: String -> [String] -> String
+string_join glue [] = ""
+string_join glue [x] = x
+string_join glue (x:xs) = x ++ glue ++ (string_join glue xs)
+
 to_strings xs = string_join " " (map to_string xs)
 to_string Void = "_"
 to_string (Bool True) = "true"
@@ -188,8 +214,4 @@ to_string (Update name ast) = name ++ " := " ++ to_string ast
 escape [] = ""
 escape ('"':xs) = "\\\"" ++ escape xs
 escape (x:xs) = x : escape xs
-string_join :: String -> [String] -> String
-string_join glue [] = ""
-string_join glue [x] = x
-string_join glue (x:xs) = x ++ glue ++ (string_join glue xs)
 trace_ mark x = trace ("* " ++ (show mark) ++ " " ++ show x) x
