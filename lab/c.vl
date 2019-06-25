@@ -27,25 +27,25 @@ void v_thread_free(v_thread_t* t, void* v) {
 
 typedef struct {
   size_t len;
-  int head[];
-} v_list_int_t;
+  int64_t head[];
+} v_list_int64_t;
 
 #define v_out(X) _Generic((X), \
-  int: v_out_int, \
+  int: v_out_int64, \
   double: v_out_float, \
   const char*: v_out_char, \
-  v_list_int_t*: v_out_list_int)(X)
-void v_out_int(int x) { printf("%d", x); }
+  v_list_int64_t*: v_out_list_int64)(X)
+void v_out_int64(int64_t x) { printf("%lld", x); }
 void v_out_float(double x) { printf("%g", x); }
 void v_out_char(const char* x) { printf("%s", x); }
-void v_out_list_int(v_list_int_t* l) {
+void v_out_list_int64(v_list_int64_t* l) {
   size_t len = l->len;
   if (len > 0) {
     printf("[");
     for(size_t i = 0; i < len - 1; ++i) {
-      printf("%d ", l->head[i]);
+      printf("%lld ", l->head[i]);
     }
-    printf("%d", l->head[len - 1]);
+    printf("%lld", l->head[len - 1]);
     // TODO: show body
     printf("]");
   } else {
@@ -133,7 +133,7 @@ infer_type x env =
 | ast.func _ = x.body.infer_type(env)
 | ast.call _ = env.find(e => e.key == x.name).val.infer_type(env)
 v_type t =
-| ast.int = "int"
+| ast.int = "int64_t"
 | ast.float = "float"
 | ast.string = "string"
 | ast.list = "list"
@@ -145,7 +145,7 @@ c_type t =
 | type.int = "int"
 | type.float = "double"
 | type.string = "const char*"
-| type.list = "v_list_int_t*"
+| type.list = "v_list_int64_t*"
 c_args x =
 | ast.func = x.args.map(y => ", " . y.c_arg).join("")
 | _ = ""
@@ -154,7 +154,7 @@ to_exp node names =
 | ast.int _ = node.value.to_string
 | ast.float _ = node.value.to_string
 | ast.string _ = node.value.to_string
-| ast.list _ = "v_list_int_t* l = (v_list_int_t*)v_thread_malloc(t, sizeof(v_list_int_t) + sizeof(int) * " . node.values.length.to_string . ");l->len = " . node.values.length.to_string . "; " . node.values.mapi(y => "l->head[" . i.to_string . "] = " . y.to_exp(names)).join(";") . "; l"
+| ast.list _ = "v_list_int64_t* l = (v_list_int64_t*)v_thread_malloc(t, sizeof(v_list_int64_t) + sizeof(int64_t) * " . node.values.length.to_string . ");l->len = " . node.values.length.to_string . "; " . node.values.mapi(y => "l->head[" . i.to_string . "] = " . y.to_exp(names)).join(";") . "; l"
 | ast.op2 _ = op2_to_c(node.op to_exp(node.left names) to_exp(node.right names))
 | ast.func _ = to_exp(node.body node.args.map(y => y.name))
 | ast.call _ = names.has(node.name).if(node.name "v_" . node.name . "(t" . node.argv.map(y => ", " . y.to_exp(names)).join("") . ")")
