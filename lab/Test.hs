@@ -99,7 +99,7 @@ tests = do
     , ("hello", "\"he\" . \"llo\"")
     , ("3", unlines ["a + b", "a = 1", "b = 2"])
     , ("3.2", unlines ["a + b", "a = 1.1", "b = 2.1"])
-    , ("2", unlines ["inc(1)", "inc x:int = 1 + x"])
+    , ("2", unlines ["inc(1)", "inc x:i64 = 1 + x"])
     , ("[]", unlines ["[]"])
     , ("[1]", unlines ["[1]"])
     , ("[1 2 3]", unlines ["[1 2 3]"])
@@ -108,8 +108,8 @@ tests = do
 
 struct_code = unlines [
     "struct either:"
-  , "  left int"
-  , "  right int"
+  , "  left i64"
+  , "  right i64"
   ]
 enum_code = unlines [
     "enum maybe a:"
@@ -147,7 +147,7 @@ match_code = unlines [
   ]
 vl_code = unlines [
     "enum ast:"
-  , "  int value int"
+  , "  int value i64"
   , "  op2 op string, left ast, right ast"
   , "flow parser a:"
   , "  eof"
@@ -193,10 +193,11 @@ vl_code = unlines [
 
 test src tests =  mapM_ (runTest (get_env src) src) tests
 runTest base_env src (expect, exp) = runAssert base_env expect exp
-runAssert base_env expect exp = if expect == result
-  then putStr "."
-  else error $ makeMessage env ("`" ++ expect ++ " != " ++ result ++ "`\nexp: " ++ exp)
+runAssert base_env expect exp = go
   where
+    go = if expect == result
+      then putStr "."
+      else error $ makeMessage env ("`" ++ expect ++ " != " ++ result ++ "`\nexp: " ++ exp)
     src = "main = " ++ exp
     env = base_env ++ (get_env src)
     result = case lookup "main" env of

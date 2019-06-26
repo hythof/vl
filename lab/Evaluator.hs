@@ -46,7 +46,7 @@ dispatch env name argv = go name argv
     dispatch_op2 "++" [(List l), (List r)] = List $ l ++ r
     dispatch_op2 "==" [l, r] = Bool $ dispatch_eq l r
     dispatch_op2 "!=" [l, r] = Bool $ not $ dispatch_eq l r
-    dispatch_op2 op argv = error $ "op2: " ++ op ++ " " ++ show argv
+    dispatch_op2 op argv = error $ "Operator not found: " ++ op ++ " " ++ show argv
     dispatch_eq Void Void = True
     dispatch_eq (Bool a) (Bool b) = a == b
     dispatch_eq (Int a) (Int b) = a == b
@@ -55,14 +55,14 @@ dispatch env name argv = go name argv
     dispatch_eq (Struct a) (Struct b) = show a == show b
     dispatch_eq a@(Enum _ _) b@(Enum _ _) = show a == show b
     dispatch_eq a@(Throw _) b@(Throw _) = show a == show b
-    dispatch_eq a b = error $ "equal: " ++ show a ++ " == " ++ show b
+    dispatch_eq a b = error $ "Invalid equal: " ++ show a ++ " == " ++ show b
     dispatch_func _ (a@(Throw _):_) = a
     dispatch_func "trace" args = trace ("TRACE: " ++ show args) Void
     dispatch_func "if"  [Bool a, b, c] = if a then b else c
     dispatch_func "map"  [List xs, ast] = List $ map (\arg -> unify env $ apply "" env [arg] ast) xs
     dispatch_func "mapi"  [List xs, ast] = List $ map (\(i, arg) -> unify (("i", Int i) : env) $ apply "" (("i", Int i) : env) [arg] ast) (zip [0..] xs)
     dispatch_func "find"  [List xs, ast] = case (filter (\x -> (apply "__find__" env [x] ast) == Bool True) xs) of
-      [] -> error $ "not found " ++ show ast ++ "\n  in " ++ show xs
+      [] -> error $ "Finding element not found " ++ show ast ++ "\n  in " ++ show xs
       (x:_) -> x
     dispatch_func "has"  [List xs, ast] = Bool $ elem ast xs
     dispatch_func "has"  [String xs, String x] = Bool $ string_contains xs x
@@ -85,7 +85,7 @@ dispatch env name argv = go name argv
     dispatch_func "at" [List s, Int index] = if index < length s
       then s !! index
       else Throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
-    dispatch_func name argv = error $ "func: " ++ name ++ " " ++ show argv
+    dispatch_func name argv = error $ "Undefined function: " ++ name ++ " " ++ show argv
     dispatch_call name ((Flow props throws fields):argv) = go
       where
         local = (zip props argv) ++ throws ++ fields ++ env
@@ -138,7 +138,7 @@ apply name env argv ast = go (unify env ast)
       then run args body
       else error $ "Miss match " ++ name ++ " " ++ (show $ length args) ++ " != " ++ (show $ length argv) ++
         " in " ++ show args ++ " != " ++ show argv ++ " => " ++ show body
-    go v = if length argv == 0 then v else error $ "can't apply: " ++ name ++ " " ++ show v ++ "\nwith " ++ show argv
+    go v = if length argv == 0 then v else error $ "Can't apply: " ++ name ++ " " ++ show v ++ "\nwith " ++ show argv
     run args Void = Struct $ zip args argv
     run args (Enum name Void) = Enum name (Struct $ zip args argv)
     run args (Struct kvs) = Struct $ (zip args argv) ++ kvs
@@ -153,7 +153,7 @@ apply name env argv ast = go (unify env ast)
       then match_ args all_conds
       else error $ "Unmatch " ++ name ++ " " ++ show args ++ " != " ++ show argv
       where
-        match_ args [] = error $ "miss match\ntarget: " ++ show argv ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
+        match_ args [] = error $ "Miss match\ntarget: " ++ show argv ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
         match_ args ((conds,branch):rest) = if (length argv) == (length conds)
           then if all id (zipWith is argv (map (unify env) conds))
             then unify ((zip args (map unwrap argv)) ++ env) branch
