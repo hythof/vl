@@ -4,7 +4,7 @@ import Debug.Trace (trace)
 import AST
 
 parse :: String -> (Env, String)
-parse input = case runParser parse_root (Source {source = input, indentation = 0}) of
+parse input = case runParser parse_root (Source {original = input, source = input, indentation = 0, line = 1, column = 1}) of
   Just (a, s) -> (a, source s)
   Nothing -> ([], input)
 
@@ -15,7 +15,7 @@ parse_root = do
   return $ defines
 parse_top = do
   many $ oneOf " \t"
-  v <- parse_match <|> parse_block <|> parse_exp <|> (bug "top")
+  v <- parse_match <|> parse_block <|> parse_exp <|> (miss "top")
   eol
   return v
 parse_exp = parse_op2
@@ -70,7 +70,7 @@ parse_define = go
       methods <- indented_lines def_func
       let throws = map to_throw tags
       return $ Flow props throws methods
-    switch kind = error $ "unsupported parse " ++ kind
+    switch kind = miss $ "unsupported parse " ++ kind
     to_enum x [] = Enum x Void
     to_enum x ys = make_func ys (Enum x Void)
     to_throw (x:_) = (x, Throw x)
@@ -165,9 +165,8 @@ parse_tail_comment = do
   string "__comment__"
   Parser $ \s -> Just ((), s { source = "" })
 -- utility
-bug message = Parser $ \s -> error $ "BUG " ++ message ++ " \n" ++ show s
 eof = Parser $ \s -> if 0 == (length $ source s) then Just ((), s) else Nothing
-eol = (look next_br) <|> (bug "eol")
+eol = (look next_br) <|> (miss "eol")
 debug mark = Parser $ \s -> trace ("@ " ++ show mark ++ " | " ++ show s) (return ((), s))
 current_indent = Parser $ \s -> return (indentation s, s)
 
@@ -179,7 +178,9 @@ satisfy f = Parser $ \s -> do
   guard ((length src) > 0)
   let c = src !! 0
   guard (f c)
-  Just (c, s { source = drop 1 src })
+  let newLine = (line s) + if c == '\n' then 1 else 0
+  let newColumn = if c == '\n' then 1 else (column s) + 1
+  Just (c, s { source = drop 1 src, line = newLine, column = newColumn })
 
 look f = Parser $ \s -> case runParser f s of
   Just (a, _) -> Just (a, s)
@@ -219,7 +220,7 @@ next_between l r m = between (next_string l) (next_string r) m
 between l r m = do
   l
   ret <- m
-  r <|> (bug $ "between: not terminated")
+  r <|> (miss $ "between: not terminated")
   return ret
 
 spaces = many $ oneOf " \t\r\n"
@@ -267,3 +268,11 @@ indented_line f = do
   v <- sepBy1 f (next $ oneOf ",;")
   look next_br
   return v
+
+miss message = Parser $ \s ->
+  let
+    l = line s
+    c = column s
+    n = lines (original s) !! (l - 1)
+    m = take (c - 1) $ repeat ' '
+  in error $ message ++ "\n" ++ n ++ "\n" ++ m ++ "^ " ++ (show l) ++ ":" ++ (show c) ++ message

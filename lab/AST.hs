@@ -27,7 +27,7 @@ data AST =
   | Update String AST
   deriving (Show, Eq)
 
-data Source = Source { source :: String, indentation :: Int } deriving (Show)
+data Source = Source { original :: String, source :: String, indentation :: Int, line :: Int, column :: Int } deriving (Show)
 
 data Parser a = Parser { runParser :: Source -> Maybe (a, Source) }
 

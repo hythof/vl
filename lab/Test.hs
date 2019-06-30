@@ -233,7 +233,7 @@ testC tests = prepare
 get_env src = case parse src of
   (env, "") -> env
   (env, "\n") -> env
-  (env, rest) -> error $ makeMessage env ("Failed parsing: `" ++ src ++ "`\n------------------------------------------------------\n rest=`" ++ rest ++ "`")
+  (env, rest) -> error $ makeMessage env ("Failed parsing: " ++ (unlines $ take 10 $ lines rest) ++ "`")
 makeMessage env message = message
   --concat (map (\(k, v) -> "\n- " ++ k ++ "\t" ++ show v) env)
 fmt (String s) = s
