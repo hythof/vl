@@ -1,0 +1,41 @@
+package "vl"
+
+struct person:
+  name string
+  age int # int is alias to i64
+
+enum ast:
+  ast_int int
+  ast_float float
+  ast_string string
+  ast_op2 op string, left ast, right ast
+
+parse original = parse_top
+  eof                # exception
+  miss reason string # exception
+  input original     # variable
+  line 1             # variable, int64
+  column 1           # variable, int64
+# methods
+  satisfy f =
+    c = input.0 | eof
+    f(c) || miss(f.to_s)
+    input := input.slice(1)
+    c
+  parse_top = define.many
+  define =
+    name <- read_id
+    read "="
+    exp <- parse_exp
+    (name, exp) # make struct like {name string, exp ast}
+  one xs = satisfy(xs.has)
+  read_id = one("a".."z" ++ "0..9").many
+  parse_exp = parse_op2
+  parse_op2 =
+    left <- parse_float | parse_int | parse_string
+    op <- read_op2
+    right <- parse_op2
+    ast_op2(op left right)
+macro: # arguments are not evaulation
+  many p = p.many_acc([])
+  many_acc p acc = p.fmap(x => p.many_acc(acc ++ x)) | acc

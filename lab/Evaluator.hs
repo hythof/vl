@@ -6,20 +6,44 @@ import AST
 reserved_func = ["sub", "rsub1", "if", "trace", "not", "length", "slice", "find", "map", "mapi", "join", "has", "at", "to_int", "to_float", "to_string"]
 reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , "/" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
 
+data Scope = Scope {
+    global :: Env
+  , local :: Env
+  , stack :: [String]
+} deriving (Show, Eq)
+
+whole :: Scope -> Env
+whole scope = (local scope) ++ (global scope)
+
+push :: Scope -> String -> AST -> Scope
+push scope name ast = scope { local = (name, ast) : (local scope) }
+
+pushs :: Scope -> Env -> Scope
+pushs scope env = scope { local = env ++ (local scope) }
+
+into :: Scope -> String -> Scope
+into scope name = scope { stack = name : (stack scope) }
+
 eval :: Env -> AST -> AST
-eval env input = affect env (unify env input)
-
-affect env (Apply name argv) = affect env $ dispatch env name (map (unify env) argv)
-affect env (Block steps) = fst $ block env [] steps Void
-affect env ast = ast
-
-unify env ast = unify_ env ast
-unify_ env (List xs) = List $ map (unify env) xs
-unify_ env (Apply name argv) = dispatch env name (map (unify env) argv)
-unify_ env x = x
-
-dispatch env name argv = go name argv
+eval env input = affect scope (unify scope input)
   where
+    scope = Scope env [] ["main"]
+
+miss :: Scope -> String -> a
+miss scope message = error $ message ++ "\nStack: " ++ (string_join " <- " $ stack scope)
+
+affect scope (Apply name argv) = affect scope $ dispatch scope name (map (unify scope) argv)
+affect scope (Block steps) = fst $ block scope [] steps Void
+affect scope ast = ast
+
+unify scope ast = unify_ scope ast
+unify_ scope (List xs) = List $ map (unify scope) xs
+unify_ scope (Apply name argv) = dispatch scope name (map (unify scope) argv)
+unify_ scope x = x
+
+dispatch scope_ name argv = go name argv
+  where
+    scope = into scope_ name
     go name argv
       | elem name reserved_op2 = dispatch_op name argv
       | elem name reserved_func = dispatch_func name argv
@@ -46,7 +70,7 @@ dispatch env name argv = go name argv
     dispatch_op2 "++" [(List l), (List r)] = List $ l ++ r
     dispatch_op2 "==" [l, r] = Bool $ dispatch_eq l r
     dispatch_op2 "!=" [l, r] = Bool $ not $ dispatch_eq l r
-    dispatch_op2 op argv = error $ "Operator not found: " ++ op ++ " " ++ show argv
+    dispatch_op2 op argv = miss scope $ "Operator not found: " ++ op ++ " " ++ show argv
     dispatch_eq Void Void = True
     dispatch_eq (Bool a) (Bool b) = a == b
     dispatch_eq (Int a) (Int b) = a == b
@@ -55,14 +79,14 @@ dispatch env name argv = go name argv
     dispatch_eq (Struct a) (Struct b) = show a == show b
     dispatch_eq a@(Enum _ _) b@(Enum _ _) = show a == show b
     dispatch_eq a@(Throw _) b@(Throw _) = show a == show b
-    dispatch_eq a b = error $ "Invalid equal: " ++ show a ++ " == " ++ show b
+    dispatch_eq a b = miss scope $ "Invalid equal: " ++ show a ++ " == " ++ show b
     dispatch_func _ (a@(Throw _):_) = a
     dispatch_func "trace" args = trace ("TRACE: " ++ show args) Void
     dispatch_func "if"  [Bool a, b, c] = if a then b else c
-    dispatch_func "map"  [List xs, ast] = List $ map (\arg -> unify env $ apply "" env [arg] ast) xs
-    dispatch_func "mapi"  [List xs, ast] = List $ map (\(i, arg) -> unify (("i", Int i) : env) $ apply "" (("i", Int i) : env) [arg] ast) (zip [0..] xs)
-    dispatch_func "find"  [List xs, ast] = case (filter (\x -> (apply "__find__" env [x] ast) == Bool True) xs) of
-      [] -> error $ "Finding element not found " ++ show ast ++ "\n  in " ++ show xs
+    dispatch_func "map"  [List xs, ast] = List $ map (\arg -> unify scope $ apply "" scope [arg] ast) xs
+    dispatch_func "mapi"  [List xs, ast] = List $ map (\(i, arg) -> unify (push scope "i" (Int i)) $ apply "" (push scope "i" (Int i)) [arg] ast) (zip [0..] xs)
+    dispatch_func "find"  [List xs, ast] = case (filter (\x -> (apply "__find__" scope [x] ast) == Bool True) xs) of
+      [] -> miss scope $ "Finding element not found " ++ show ast ++ "\n  in " ++ show xs
       (x:_) -> x
     dispatch_func "has"  [List xs, ast] = Bool $ elem ast xs
     dispatch_func "has"  [String xs, String x] = Bool $ string_contains xs x
@@ -85,80 +109,82 @@ dispatch env name argv = go name argv
     dispatch_func "at" [List s, Int index] = if index < length s
       then s !! index
       else Throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
-    dispatch_func name argv = error $ "Undefined function: " ++ name ++ " " ++ show argv
+    dispatch_func name argv = miss scope $ "Undefined function: " ++ name ++ " " ++ show argv
     dispatch_call name ((Flow props throws fields):argv) = go
       where
-        local = (zip props argv) ++ throws ++ fields ++ env
+        local = pushs scope $ (zip props argv) ++ throws ++ fields
         go = if elem name (map fst throws) then go_throw else go_method
-        go_throw = find name throws
+        go_throw = find name (Scope [] throws [])
         go_method = if (length props) <= (length argv)
           then case find name local of
             Func args body -> if (length args) == (length argv) - (length props)
-              then affect ((zip args (drop (length props) argv)) ++ local) body
-              else error $ "Too many arguments " ++ name ++ " have " ++ show props ++ " but args " ++ show argv
+              then affect (pushs local $ (zip args (drop (length props) argv))) body
+              else miss scope $ "Too many arguments " ++ name ++ " have " ++ show props ++ " but args " ++ show argv
             x -> if (length props) == (length argv)
               then affect local x
-              else error $ "Too many arguments '" ++ name ++ "' have " ++ show props ++ " but args " ++ show argv
-          else error $ "Few arguments " ++ name ++ " have " ++ show props ++ " but args " ++ show argv
+              else miss scope $ "Too many arguments '" ++ name ++ "' have " ++ show props ++ " but args " ++ show argv
+          else miss scope $ "Few arguments " ++ name ++ " have " ++ show props ++ " but args " ++ show argv
     dispatch_call name (s@(Struct fields):argv) = case lookup name fields of
-      Just body -> apply name (fields ++ env) argv body
-      _ -> apply name env (s : argv) $ find name env
-    dispatch_call name argv = apply name env argv $ find name env
+      Just body -> apply name (pushs scope fields) argv body
+      _ -> apply name scope (s : argv) $ find name scope
+    dispatch_call name argv = apply name scope argv $ find name scope
 
-block :: Env -> Env -> [AST] -> AST -> (AST, Env)
-block env local _ ast@(Throw _) = (ast, local)
-block env local [] ast = (ast, local)
-block env local (head_ast:rest) last = branch head_ast rest
+block :: Scope -> Env -> [AST] -> AST -> (AST, Env)
+block scope local _ ast@(Throw _) = (ast, local)
+block scope local [] ast = (ast, local)
+block scope local (head_ast:rest) last = branch head_ast rest
   where
     uni :: AST -> AST
-    uni ast = unify (local ++ env) ast
+    uni ast = unify (pushs scope local) ast
     branch :: AST -> [AST] -> (AST, Env)
     branch ast rest = case uni ast of
       a@(Throw _) -> (a, local)
       Block [Apply "|" [l, r]] -> case branch l [] of
         (Throw _, _) -> branch r rest
         _ -> branch l rest
-      Block steps -> let (ast, local2) = block (local ++ env) [] steps Void in block env (local2 ++ local) rest ast
-      Define name exp -> block ((name, uni exp) : env) local rest Void
-      Assign name exp -> let (ast, local2) = branch exp [] in block ((name, ast) : env) (local2 ++ local) rest ast
-      Update name exp -> let (ast, local2) = branch exp [] in block env ((name, ast) : local2 ++ local) rest ast
-      ast -> block env local rest ast
+      Block steps -> let (ast, local2) = block (pushs scope local) [] steps Void in block scope (local2 ++ local) rest ast
+      Define name exp -> block (push scope name (uni exp)) local rest Void
+      Assign name exp -> let (ast, local2) = branch exp [] in block (push scope name ast) (local2 ++ local) rest ast
+      Update name exp -> let (ast, local2) = branch exp [] in block scope ((name, ast) : local2 ++ local) rest ast
+      ast -> block scope local rest ast
 
-find name env = case lookup name env of
+find name scope = case lookup name (whole scope) of
   Just (Apply name' []) -> if name == name'
-    then error $ "Circle reference " ++ name ++ " in " ++ (show $ map fst env)
-    else find name' env
+    then miss scope $ "Circle reference " ++ name ++ " in " ++ (show $ map fst (whole scope))
+    else find name' scope
   --Just v@(Throw x) -> trace ("throw: " ++ name ++ show env) $ v
   Just v -> v
-  _ -> error $ "Not found '" ++ name ++ "' in " ++ (show $ map fst env)
+  _ -> miss scope $ "Not found '" ++ name ++ "' in " ++
+        "\n   local: " ++ (show $ map fst (local scope)) ++
+        "\n  global: " ++ (show $ map fst (global scope))
 
-apply name env argv ast = go (unify env ast)
+apply name scope argv ast = go (unify scope ast)
   where
     go (Func args body) = if (length argv) == (length args)
       then run args body
-      else error $ "Miss match " ++ name ++ " " ++ (show $ length args) ++ " != " ++ (show $ length argv) ++
+      else miss scope $ "Miss match " ++ name ++ " " ++ (show $ length args) ++ " != " ++ (show $ length argv) ++
         " in " ++ show args ++ " != " ++ show argv ++ " => " ++ show body
-    go v = if length argv == 0 then v else error $ "Can't apply: " ++ name ++ " " ++ show v ++ "\nwith " ++ show argv
+    go v = if length argv == 0 then v else miss scope $ "Can't apply: " ++ name ++ " " ++ show v ++ "\nwith " ++ show argv
     run args Void = Struct $ zip args argv
     run args (Enum name Void) = Enum name (Struct $ zip args argv)
     run args (Struct kvs) = Struct $ (zip args argv) ++ kvs
     run args (Match matches) = match args matches
     run args (Block steps) = Block $ (map (\(k, v) -> Define k v) (zip args argv)) ++ steps
-    run args body = case unify ((zip args argv) ++ env) body of
+    run args body = case unify (pushs scope (zip args argv)) body of
       Block steps -> Block $ (zipWith Define args argv) ++ steps
       Func args2 body2 -> Func args2 (Apply "_apply" [Struct (("_apply", body2) : (zip args argv))])
       result -> result
     match :: [String] -> [([AST], AST)] -> AST
     match args all_conds = if (length argv) == (length args)
       then match_ args all_conds
-      else error $ "Unmatch " ++ name ++ " " ++ show args ++ " != " ++ show argv
+      else miss scope $ "Unmatch " ++ name ++ " " ++ show args ++ " != " ++ show argv
       where
-        match_ args [] = error $ "Miss match\ntarget: " ++ show argv ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
+        match_ args [] = miss scope $ "Miss match\ntarget: " ++ show argv ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
         match_ args ((conds,branch):rest) = if (length argv) == (length conds)
-          then if all id (zipWith is argv (map (unify env) conds))
-            then unify ((zip args (map unwrap argv)) ++ env) branch
+          then if all id (zipWith is argv (map (unify scope) conds))
+            then unify (pushs scope (zip args (map unwrap argv))) branch
             else match_ args rest
-          else error $ "Unmatch " ++ name ++ " " ++ show args ++ " where " ++ show argv ++ " != " ++ show conds ++ " => " ++ show branch
+          else miss scope $ "Unmatch " ++ name ++ " " ++ show args ++ " where " ++ show argv ++ " != " ++ show conds ++ " => " ++ show branch
     unwrap (Enum _ v) = v
     unwrap v = v
     is _ Void = True
