@@ -29,7 +29,7 @@ parse_bottom = go
       switch op unit
     switch '.' unit = do
       name <- token <|> (many1 $ oneOf "0123456789")
-      args <- option [] (between (string "(") (next_string ")") (many1 parse_exp))
+      args <- option [] (between (string "(") (spaces >> string ")") read_args1)
       chain $ Apply name (unit : args)
     switch '(' unit = do
       args <- many1 (spaces >> parse_exp)
@@ -38,6 +38,7 @@ parse_bottom = go
       let (Apply name []) = unit
       chain $ Apply name args
     switch _ unit = return unit
+    read_args1 = many1 (spaces >> parse_exp)
 -- define
 parse_define = go
   where
@@ -246,7 +247,11 @@ token = go
       remaining <- many $ oneOf (sym ++ az ++ num)
       return $ prefix : remaining
 
-next_op = next $ select op
+next_op = do
+    many $ oneOf " \t"
+    o <- select op
+    spaces
+    return o
   where
     op = op2 ++ op1
     op2 = ["==", "!=", ">=", "<=", "||", "&&", "=>", "++"]
@@ -273,6 +278,6 @@ miss message = Parser $ \s ->
   let
     l = line s
     c = column s
-    n = lines (original s) !! (l - 1)
+    code = unlines $ take 3 $ drop (l - 3) $ lines (original s)
     m = take (c - 1) $ repeat ' '
-  in error $ message ++ "\n" ++ n ++ "\n" ++ m ++ "^ " ++ (show l) ++ ":" ++ (show c) ++ message
+  in error $ message ++ "\n" ++ code ++ m ++ "^ " ++ (show l) ++ ":" ++ (show c) ++ " " ++ message

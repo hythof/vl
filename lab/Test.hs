@@ -72,7 +72,7 @@ tests = do
     , ("throw:eof", "parser.eof")
     , ("throw:miss", "parser.miss")
     ]
-  test vl_code [
+  test flow2_code [
       ("1", "parser.read_one(\"1\" [\"1\"])")
     , ("int(value:1)", "parser.parse_int(\"1\")")
     , ("int(value:123)", "parser.parse_int(\"123\")")
@@ -85,6 +85,9 @@ tests = do
     , ("1", "run(\"3/2\")")
     , ("2", "run(\"4/2\")")
     , ("2", "run(\"5/2\")")
+    ]
+  test top_block_code [
+      ("6", "calc(1 2)")
     ]
   testC [
       ("1", "1")
@@ -145,7 +148,12 @@ match_code = unlines [
   , "| 9 9 = 99"
   , "| _ _ = a + b"
   ]
-vl_code = unlines [
+top_block_code = unlines [
+    "calc a b ="
+  , "  c = a + b"
+  , "  a + b + c"
+  ]
+flow2_code = unlines [
     "enum ast:"
   , "  int value i64"
   , "  op2 op string, left ast, right ast"

@@ -106,14 +106,18 @@ compile src =
   defines <- parse(src).infer_env
   h <- defines.map(to_h)
   c <- defines.map(to_c)
-  type_ret = `const char v_ret[] = "` . defines.find(x => x.key == "main").val.v_type . `";`
-  extras = [type_ret]
-  (h ++ extras ++ c).join("\n")
+  type_ret = `const char v_ret[] = "` .
+    defines.find(x => x.key == "main").val.v_type .  `";\n`
+  h.join(";\n") . ";\n" . type_ret . c.join("\n")
 
 parse src = parser.parse_top(src)
 
-to_h x = x.val.v_type . " v_" . x.key . "(v_thread_t* t" . x.val.c_args . ");"
-to_c x = x.val.v_type . " v_" . x.key . "(v_thread_t* t" . x.val.c_args . ") { " . x.val.to_exp([]).has(";").if(x.val.to_exp([]).rsub1(";" "; return ") "return " . x.val.to_exp([])) . "; }"
+to_h x = x.val.v_type .
+  " v_" . x.key . "(v_thread_t* t" . x.val.c_args . ")"
+to_c x = to_h(x) . " { " .
+  x.val.to_exp([]).has(";").if(
+    x.val.to_exp([]).rsub1(";" "; return ")
+    "return " . x.val.to_exp([])) . "; }"
 
 infer_env env = env.map(x => kv(x.key x.val.infer_ast(env)))
 infer_ast x env =
@@ -123,7 +127,8 @@ infer_ast x env =
 | ast.list _ = x
 | ast.op2 _ = ast.op2(x.op x.left x.right infer_type(x.left env))
 | ast.func _ = ast.func(x.args x.body infer_type(x.body env))
-| ast.call _ = ast.call(x.name x.argv infer_type(env.find(y => y.key == x.name) env))
+| ast.call _ = ast.call(x.name x.argv infer_type(
+  env.find(y => y.key == x.name) env))
 infer_type x env =
 | ast.i64 _ = type.i64
 | ast.f64 _ = type.f64
@@ -154,10 +159,17 @@ to_exp node names =
 | ast.i64 _ = node.value.to_string
 | ast.f64 _ = node.value.to_string
 | ast.string _ = node.value.to_string
-| ast.list _ = "v_list_int64_t* l = (v_list_int64_t*)v_thread_malloc(t, sizeof(v_list_int64_t) + sizeof(int64_t) * " . node.values.length.to_string . ");l->len = " . node.values.length.to_string . "; " . node.values.mapi(y => "l->head[" . i.to_string . "] = " . y.to_exp(names)).join(";") . "; l"
-| ast.op2 _ = op2_to_c(node.op to_exp(node.left names) to_exp(node.right names))
+| ast.list _ = "v_list_int64_t* l = (v_list_int64_t*)v_thread_malloc(t, sizeof(v_list_int64_t) + sizeof(int64_t) * " .
+  node.values.length.to_string . ");" .
+  "l->len = " . node.values.length.to_string . "; " .
+  node.values.mapi(y => "l->head[" . i.to_string . "] = " . y.to_exp(names)).join(";") . "; l"
+| ast.op2 _ = op2_to_c(node.op
+  to_exp(node.left names)
+  to_exp(node.right names))
 | ast.func _ = to_exp(node.body node.args.map(y => y.name))
-| ast.call _ = names.has(node.name).if(node.name "v_" . node.name . "(t" . node.argv.map(y => ", " . y.to_exp(names)).join("") . ")")
+| ast.call _ = names.has(node.name).if(
+  node.name
+  "v_" . node.name . "(t" . node.argv.map(y => ", " . y.to_exp(names)).join("") . ")")
 op2_to_c op l r =
 | op.add _ _ = l . " + " . r
 | op.sub _ _ = l . " - " . r
@@ -195,11 +207,18 @@ flow parser:
     tv(name t.to_type)
   parse_call =
     name <- read_id
-    argv <- between(read_string("(").lex read_string(")").lex parse_exp.many) | []
+    argv <- between(
+      read_string("(").lex
+      read_string(")").lex
+      parse_exp.many) | []
     ast.call(name argv type.untyped)
   parse_exp = parse_op2.lex
   parse_op2 =
-    left <- parse_call | parse_float | parse_int | parse_string | parse_list
+    left <- parse_call |
+      parse_float |
+      parse_int |
+      parse_string |
+      parse_list
     parse_op2_remaining(left) | left
   parse_op2_remaining left =
     op <- parse_op
@@ -223,7 +242,10 @@ flow parser:
     s <- between(read_string(`"`) read_string(`"`) read_none([`"`]).many)
     ast.string(s.join(""))
   parse_list =
-    xs <- between(read_string(`[`).lex read_string(`]`).lex parse_exp.many)
+    xs <- between(
+      read_string(`[`).lex
+      read_string(`]`).lex
+      parse_exp.many)
     ast.list(xs type.list(type.untyped))
   lex f =
     read_one([" " "\t"]).many
