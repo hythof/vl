@@ -160,9 +160,11 @@ find name scope = case lookup name (whole scope) of
 
 apply name scope argv ast = go (unify scope ast)
   where
-    go (Func args body) = if (length argv) == (length args)
-      then run args body
-      else miss scope $ "Miss match " ++ name ++ " " ++ (show $ length args) ++ " != " ++ (show $ length argv) ++
+    go (Func args body)
+      | length argv == 0 && length args == 0 = body
+      | length argv == 0 = Func args body
+      | length argv == length args = run args body
+      | otherwise = miss scope $ "Miss match " ++ name ++ " " ++ (show $ length args) ++ " != " ++ (show $ length argv) ++
         " in " ++ show args ++ " != " ++ show argv ++ " => " ++ show body
     go v = if length argv == 0 then v else miss scope $ "Can't apply: " ++ name ++ " " ++ show v ++ "\nwith " ++ show argv
     run args Void = Struct $ zip args argv

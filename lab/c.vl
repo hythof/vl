@@ -104,8 +104,8 @@ enum type:
 
 compile src =
   defines <- parse(src).infer_env
-  h <- defines.map(x => x.to_h)
-  c <- defines.map(x => x.to_c)
+  h <- defines.map(to_h)
+  c <- defines.map(to_c)
   type_ret = `const char v_ret[] = "` . defines.find(x => x.key == "main").val.v_type . `";`
   extras = [type_ret]
   (h ++ extras ++ c).join("\n")
