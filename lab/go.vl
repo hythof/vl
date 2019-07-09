@@ -1,125 +1,232 @@
-__compile_to_go src = `package main
+__compile_to_go src =
+  go <- compile(src)
+  `package main
+/*
+` . src . `
+*/
 
 import "fmt"
 
+` . go . `
+
 func main() {
-  fmt.Print("hello")
+  fmt.Printf("%v", v_main())
 }
 `
-print x = x
 
-
-__comment__
 enum ast:
-  int value int
+  i64 value i64
+  f64 value f64
   string value string
-  ref name string
-  op2 type string, op string, left ast, right ast
-  func type string, name string, args [param], body ast
-  call name string, args [ast]
-  stmt lines [ast]
-  struct params [param]
+  op2 op op, left ast, right ast, type type
+  func args []tv, body ast, type type
+  call name string, argv []ast, type type
+  list values []ast, type type
 
-struct param:
+enum op:
+  add, sub, mul, div
+  glue
+
+struct kv:
+  key string
+  val ast
+
+struct tv:
   name string
-  type string
+  type type
 
-struct define:
-  name string
-  ast ast
+enum type:
+  untyped
+  i64
+  f64
+  string
+  list generic type
 
-flow parser a:
+compile src =
+  defines <- parse(src).infer_env
+  defines.map(to_go).join("\n")
+
+parse src = parser.parse_top(src)
+
+to_go x = "func v_" . x.key . "(" . x.val.c_args . ") " . x.val.v_type . " {" .
+  x.val.to_exp([]).has("\n").if(
+    x.val.to_exp([]).rsub1("\n" "\n  return ")
+    "return " . x.val.to_exp([])) .
+  "}"
+
+infer_env env = env.map(x => kv(x.key x.val.infer_ast(env)))
+infer_ast x env =
+| ast.i64 _ = x
+| ast.f64 _ = x
+| ast.string _ = x
+| ast.list _ = x
+| ast.op2 _ = ast.op2(x.op x.left x.right infer_type(x.left env))
+| ast.func _ = ast.func(x.args x.body infer_type(x.body env))
+| ast.call _ = ast.call(x.name x.argv infer_type(
+  env.find(y => y.key == x.name) env))
+infer_type x env =
+| ast.i64 _ = type.i64
+| ast.f64 _ = type.f64
+| ast.string _ = type.string
+| ast.list _ = x.type
+| ast.op2 _ = x.left.infer_type(env)
+| ast.func _ = x.body.infer_type(env)
+| ast.call _ = env.find(e => e.key == x.name).val.infer_type(env)
+v_type t =
+| ast.i64 = "i64"
+| ast.f64 = "f64"
+| ast.string = "string"
+| ast.list = "list"
+| ast.op2 = t.type.c_type
+| ast.func = t.type.c_type
+| ast.call = t.type.c_type
+c_type t =
+| type.untyped = "interface{}"
+| type.i64 = "int64"
+| type.f64 = "float64"
+| type.string = "string"
+| type.list = "[]interface{}"
+c_args x =
+| ast.func = x.args.map(y => y.c_arg).join(",")
+| _ = ""
+c_arg x = x.name . " " . x.type.c_type
+to_exp node names =
+| ast.i64 _ = node.value.to_string
+| ast.f64 _ = node.value.to_string
+| ast.string _ = node.value.to_string
+| ast.list _ = "[]interface{}{" . node.values.mapi(y => y.to_exp(names)).join(", ") . "}"
+| ast.op2 _ = op2_to_c(node.op
+  to_exp(node.left names)
+  to_exp(node.right names))
+| ast.func _ = to_exp(node.body node.args.map(y => y.name))
+| ast.call _ = names.has(node.name).if(
+  node.name
+  "v_" . node.name . "(" . node.argv.map(y => y.to_exp(names)).join(", ") . ")")
+op2_to_c op l r =
+| op.add _ _ = l . " + " . r
+| op.sub _ _ = l . " - " . r
+| op.mul _ _ = l . " * " . r
+| op.div _ _ = l . " / " . r
+| op.glue _ _ = l . " + " . r
+
+
+
+flow parser:
   eof
   miss reason string
+  bug_of_c_parser
   input string
   satisfy f =
-    c = input.0 | eof
-    f(c) || miss("miss match")
+    c <- input.at(0) | eof
+    f(c) || miss
     input := input.slice(1)
     c
+  parse_top =
+    defs <- parse_def.sepby1(read_br)
+    read_spaces
+    (input.length == 0) || bug_of_c_parser
+    defs
+  parse_def =
+    name <- read_id
+    args <- parse_arg.lex.many
+    read_string("=").lex
+    body <- parse_exp.lex
+    kv(name ast.func(args body type.untyped))
+  parse_arg =
+    name <- read_id
+    read_string(":")
+    t <- read_type
+    tv(name t.to_type)
+  parse_call =
+    name <- read_id
+    argv <- between(
+      read_string("(").lex
+      read_string(")").lex
+      parse_exp.many) | []
+    ast.call(name argv type.untyped)
+  parse_exp = parse_op2.lex
+  parse_op2 =
+    left <- parse_call |
+      parse_float |
+      parse_int |
+      parse_string |
+      parse_list
+    parse_op2_remaining(left) | left
+  parse_op2_remaining left =
+    op <- parse_op
+    right <- parse_exp
+    ast.op2(op left right type.untyped)
+  parse_op =
+    read_string(" ")
+    op_text <- read_one(["." "+" "-" "*" "/" "%" "**" "&&" "||" "++"])
+    read_string(" ")
+    to_op(op_text)
+  parse_float =
+    n1 <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1
+    read_string(".")
+    n2 <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1
+    n = (n1 ++ ["."] ++ n2).join("").to_float
+    ast.f64(n)
+  parse_int =
+    n <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1.fmap(s => s.join("").to_int)
+    ast.i64(n)
+  parse_string =
+    s <- between(read_string(`"`) read_string(`"`) read_none([`"`]).many)
+    ast.string(s.join(""))
+  parse_list =
+    xs <- between(
+      read_string(`[`).lex
+      read_string(`]`).lex
+      parse_exp.many)
+    ast.list(xs type.list(type.untyped))
+  lex f =
+    read_one([" " "\t"]).many
+    f
+  read_br =
+    read_one([" " "\t"]).many
+    read_one(["\r" "\n"])
+  read_spaces = read_one([" " "\t" "\r" "\n"]).many
+  read_string s = satisfy(x => x == s)
+  read_one set = satisfy(x => set.has(x))
+  read_none set = satisfy(x => set.has(x).not)
+  read_id =
+    x <- read_one(["_" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
+    xs <- read_one(["_" "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many
+    x . xs.join("")
+  read_type =
+    x <- read_one(["[" "_" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
+    xs <- read_one(["]" "_" "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many
+    x . xs.join("")
 
-compile s =
-  defines = dummy_parse(s)
-  types = defines.map(x => param(x.name x.ast.type))
-  defines.map(define => c_go(types define.ast)).join("\n")
-
-parse s = parser(s).satisfy(c => c == "h")
-
-dummy_parse s = [
-  define("main"
-    ast.func(
-      "string"
-      "main"
-      []
-      ast.op2(
-        "string"
-        "."
-        ast.string("hello go world 1 + 2 = ")
-        ast.call("add" [ast.int(1) ast.int(2)])
-      )
-    )
-  )
-  define("add"
-    ast.func(
-      "int"
-      "add"
-      [param("x" "int") param("y" "int")]
-      ast.op2("int" "+" ast.ref("x") ast.ref("y"))
-    )
-  )
-]
-
-c_go types target =
-  c_type t =
-  | "string" = "string"
-  | "int" = "int"
-  | "void" = ""
-  | ast.func = c_type(t.type)
-  | ast.int = "int"
-  | ast.string = "string"
-  | _ = "BUG1"
-  v_type t =
-  | ast.int = "int"
-  | ast.string = "string"
-  | ast.ref = types.filter(x => x.name == t.name).0.type
-  | ast.op2 = op2.type
-  | ast.func = t.type
-  | ast.call = types.filter(x => x.name == t.name).0.type
-  | ast.struct = "BUG1: struct"
-  | _ = "BUG3"
-  c_ast x =
-  | ast.int = x.value.string
-  | ast.string = `"` . x.value . `"`
-  | ast.ref = x.name
-  | ast.op2 = c_op(x.op x.left x.right)
-  | ast.call = "v." . x.name . "(" . x.args.map(c_ast).join(", ") . ")"
-  | ast.func = "func (v *vt)" . x.name . "(" . c_args(x.args) . ") " . c_type(x.type) .  " { return " . c_go((types ++ x.args) x.body) . "}"
-  | ast.stmt = x.lines.map(c_ast).join("\n")
-  c_args args = args.map(c_arg).join(",")
-  c_arg x = x.name . " " . x.type
-  c_op op l r =
-  | "." _ _ = c_cast(l "string") . "+" . c_cast(r "string")
-  | "+" _ _ = c_cast(l "int") . "+" . c_cast(r "int")
-  | _ _ _ = op
-  c_cast value to = c_cast_to(value v_type(value) to)
-  c_cast_to v from to v =
-  | _ "int" "string" = "strconv.Itoa(" . c_ast(v) . ")"
-  | _ "int" "int" = c_ast(v)
-  | _ "string" "string" = c_ast(v)
-  | _ _ _ = from
-  c_ast(target)
-
-__comment__
-parse s = parser(s).satisfy(c => c == "h")
-state parser:
-  src string
-  miss
-  satisfy : int (string bool) string
-  satisfy n f =
-    s = src.slice(0 n)
-    if f(s)
-      src := src.slice(n)
-      return s
-    else
-      throw miss
-    end
+many p = p.many_acc([])
+many1 p =
+  x <- p
+  xs <- p.many
+  [x] ++ xs
+many_acc p acc = p.fmap(x => p.many_acc(acc ++ [x])) | acc
+fmap p f =
+  x <- p
+  f(x)
+between l r c =
+  l
+  x <- c
+  r
+  x
+sepby p s = sepby1(p s) | []
+sepby1 p s =
+  x <- p
+  xs <- many(combine(s p))
+  [x] ++ xs
+combine aa bb =
+  aa
+  bb
+to_op op_text =
+| "+" = op.add
+| "-" = op.sub
+| "*" = op.mul
+| "/" = op.div
+| "." = op.glue
+to_type x =
+| "i64" = type.i64
+| "f64" = type.f64
+| "string" = type.string

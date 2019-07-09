@@ -24,7 +24,9 @@ syn sync minlines=500
 " -- vl syntax
 syn case match
 
+syn match vlRegion /^[a-zA-Z_0-9]\+\%([^=]*\)\@=/
 syn match vlFunction /^[a-zA-Z_0-9]\+\%([^=]* =[ \n]\)\@=/
+syn match vlType /:[\[\]a-zA-Z0-9_]\+/
 syn match vlType /:[\[\]a-zA-Z0-9_]\+/
 syn match vlNumber / [0-9][0-9]\+\(\.[0-9]\+\)\?/
 syn region vlString start='"' end='"' skip='\\"'
@@ -40,6 +42,7 @@ syn match  vlComment / *#.*$/
 
 hi def link vlFunction Function
 hi def link vlType Type
+hi def link vlRegion Keyword
 hi def link vlNumber Number
 hi def link vlString String
 hi def link vlKeyword Keyword

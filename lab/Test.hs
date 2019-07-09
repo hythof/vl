@@ -215,7 +215,7 @@ runAssert base_env expect exp = go
 testC tests = prepare
   where
     prepare = do
-      src <- readFile "c.vl"
+      src <- readFile "go.vl"
       let env = get_env src
       go env tests
     go env [] = return ()
@@ -224,9 +224,9 @@ testC tests = prepare
       go env rest
     runTest env expect src= do
       let go_src = to_go env ("main = " ++ src)
-      let go_path = "/tmp/tmp.c"
+      let go_path = "/tmp/tmp.go"
       let stdout_path = "/tmp/out.txt"
-      let cmd = "echo 'COMPILE FAILED' > " ++ stdout_path ++ " && gcc -std=c11 -Wall -O2 " ++ go_path ++ " -o /tmp/a.out && /tmp/a.out > " ++ stdout_path
+      let cmd = "echo 'COMPILE FAILED' > " ++ stdout_path ++ " && go run " ++ go_path ++ " > " ++ stdout_path
       writeFile go_path $ go_src ++ "\n"
       pid <- runCommand cmd
       waitForProcess pid
@@ -234,7 +234,7 @@ testC tests = prepare
       if output == expect
         then putStr "."
         else error $ "expect: " ++ expect ++ "\n  fact: " ++ output
-    to_go env src = case eval env (Apply "__compile_to_c" [String src]) of
+    to_go env src = case eval env (Apply "__compile_to_go" [String src]) of
       String s -> s
       ret -> error $ makeMessage env ("invalid the result of compiling: " ++ show ret)
 

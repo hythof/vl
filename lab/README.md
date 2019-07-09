@@ -33,15 +33,12 @@ Only for first version.
 2. compile compiler.vl by before step generated binary
 
 Later versions.
-1. get previous version compiler.c
-2. build compiler.c by clang and get compiler executable file
-3. compile compiler.vl to compiler by compiler
+1. get previous version c.go
+2. run `go run c.go < c.go` and get executable file
+3. run developing compiler by previous one
 
 Development dependency
-- clang
-- pthread
-- epoll | queue | async/await
-- ICU for utf8
+- go lang
 
 Features
 ========
