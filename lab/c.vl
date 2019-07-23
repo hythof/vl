@@ -178,6 +178,23 @@ op2_to_c op l r =
 | op.glue _ _ = "v_string_concat(t, " . l . ", " . r . ")"
 
 
+flow inference:
+  env any
+  funcs []any
+  infer =
+    main = env.find(x => x.name == "main")
+    walk(main)
+    funcs
+  walk ast =
+  | ast.i64 _ = x
+  | ast.f64 _ = x
+  | ast.string _ = x
+  | ast.list _ = x
+  | ast.op2 _ = ast.op2(x.op x.left x.right infer_type(x.left env))
+  | ast.func _ = fatalError
+  | ast.call _ = ast.call(x.name x.argv infer_type(
+    env.find(y => y.key == x.name) env))
+ 
 
 flow parser:
   eof

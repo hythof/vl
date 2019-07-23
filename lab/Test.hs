@@ -7,10 +7,23 @@ import Evaluator (eval, to_string)
 import Control.Monad (when)
 import System.Process (runCommand, waitForProcess)
 
-main = tests
+main = _tests
 _tests = do
-  testC [
-      ("[]", unlines ["[]"])
+  testGo [
+      ("1", "1")
+    , ("1.1", "1.1")
+    , ("5", "2 + 3")
+    , ("5.2", "2.1 + 3.1")
+    , ("6", "2 * 3")
+    , ("6.51", "2.1 * 3.1")
+    , ("2", "5 / 2")
+    , ("2.5", "5.0 / 2.0")
+    , ("hello", "\"hello\"")
+    , ("hello", "\"he\" . \"llo\"")
+    , ("3", unlines ["a + b", "a = 1", "b = 2"])
+    , ("3.2", unlines ["a + b", "a = 1.1", "b = 2.1"])
+    , ("2", unlines ["inc(1)", "inc x:i64 = 1 + x"])
+    , ("[]", unlines ["[]"])
     , ("[1]", unlines ["[1]"])
     , ("[1 2 3]", unlines ["[1 2 3]"])
     ]
@@ -89,7 +102,7 @@ tests = do
   test top_block_code [
       ("6", "calc(1 2)")
     ]
-  testC [
+  testGo [
       ("1", "1")
     , ("1.1", "1.1")
     , ("5", "2 + 3")
@@ -212,7 +225,7 @@ runAssert base_env expect exp = go
       Just v -> fmt $ eval env v
       _ -> error $ makeMessage env "Not found main"
 
-testC tests = prepare
+testGo tests = prepare
   where
     prepare = do
       src <- readFile "go.vl"

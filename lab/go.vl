@@ -27,8 +27,8 @@ enum op:
   add, sub, mul, div
   glue
 
-struct kv:
-  key string
+struct def:
+  name string
   val ast
 
 struct tv:
@@ -43,44 +43,25 @@ enum type:
   list generic type
 
 compile src =
-  defines <- parse(src).infer_env
-  defines.map(to_go).join("\n")
+  defs = parser.parse_top(src)
+  defs = inference.infer(defs)
+  defs.map(to_go).join("\n")
 
-parse src = parser.parse_top(src)
-
-to_go x = "func v_" . x.key . "(" . x.val.c_args . ") " . x.val.v_type . " {" .
+to_go x = "func v_" . x.name . "(" . x.val.c_args . ") " . x.val.v_type . " {" .
   x.val.to_exp([]).has("\n").if(
     x.val.to_exp([]).rsub1("\n" "\n  return ")
     "return " . x.val.to_exp([])) .
   "}"
 
-infer_env env = env.map(x => kv(x.key x.val.infer_ast(env)))
-infer_ast x env =
-| ast.i64 _ = x
-| ast.f64 _ = x
-| ast.string _ = x
-| ast.list _ = x
-| ast.op2 _ = ast.op2(x.op x.left x.right infer_type(x.left env))
-| ast.func _ = ast.func(x.args x.body infer_type(x.body env))
-| ast.call _ = ast.call(x.name x.argv infer_type(
-  env.find(y => y.key == x.name) env))
-infer_type x env =
-| ast.i64 _ = type.i64
-| ast.f64 _ = type.f64
-| ast.string _ = type.string
-| ast.list _ = x.type
-| ast.op2 _ = x.left.infer_type(env)
-| ast.func _ = x.body.infer_type(env)
-| ast.call _ = env.find(e => e.key == x.name).val.infer_type(env)
 v_type t =
 | ast.i64 = "i64"
 | ast.f64 = "f64"
 | ast.string = "string"
 | ast.list = "list"
-| ast.op2 = t.type.c_type
-| ast.func = t.type.c_type
-| ast.call = t.type.c_type
-c_type t =
+| ast.op2 = t.type.go_type
+| ast.func = t.type.go_type
+| ast.call = t.type.go_type
+go_type t =
 | type.untyped = "interface{}"
 | type.i64 = "int64"
 | type.f64 = "float64"
@@ -89,7 +70,7 @@ c_type t =
 c_args x =
 | ast.func = x.args.map(y => y.c_arg).join(",")
 | _ = ""
-c_arg x = x.name . " " . x.type.c_type
+c_arg x = x.name . " " . x.type.go_type
 to_exp node names =
 | ast.i64 _ = node.value.to_string
 | ast.f64 _ = node.value.to_string
@@ -108,7 +89,6 @@ op2_to_c op l r =
 | op.mul _ _ = l . " * " . r
 | op.div _ _ = l . " / " . r
 | op.glue _ _ = l . " + " . r
-
 
 
 flow parser:
@@ -131,7 +111,7 @@ flow parser:
     args <- parse_arg.lex.many
     read_string("=").lex
     body <- parse_exp.lex
-    kv(name ast.func(args body type.untyped))
+    def(name ast.func(args body type.untyped))
   parse_arg =
     name <- read_id
     read_string(":")
@@ -197,7 +177,6 @@ flow parser:
     x <- read_one(["[" "_" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
     xs <- read_one(["]" "_" "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many
     x . xs.join("")
-
 many p = p.many_acc([])
 many1 p =
   x <- p
@@ -230,3 +209,30 @@ to_type x =
 | "i64" = type.i64
 | "f64" = type.f64
 | "string" = type.string
+
+flow inference:
+  fail
+  defs []define
+  infer =
+    main = "main".look
+    infer_ast(main.val)
+    defs
+  infer_ast x =
+  | ast.i64 = x
+  | ast.f64 = x
+  | ast.string = x
+  | ast.list = x
+  | ast.op2 = ast.op2(x.op x.left x.right x.left.infer_type)
+  | ast.func = assign(ast.func(x.args x.body x.body.infer_type))
+  | ast.call = ast.call(x.name x.argv x.name.look.infer_type)
+  infer_type x =
+  | ast.i64 = type.i64
+  | ast.f64 = type.f64
+  | ast.string = type.string
+  | ast.list = x.type
+  | ast.op2 = x.left.infer_type
+  | ast.func = x.body.infer_type
+  | ast.call = x.name.look.val.infer_type
+  look target = defs.find(x => x.__name == target)
+  assign item =
+    defs := defs ++ [item]

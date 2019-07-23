@@ -47,3 +47,7 @@ op2:
 op1:
   [+-*!~]
 ```
+
+# Dependency
+- ICU 64.2: for utf8 operations
+
