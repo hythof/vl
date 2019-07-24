@@ -2,6 +2,8 @@ module Evaluator where
 
 import Debug.Trace (trace)
 import AST
+import Parser (parseAST)
+import System.IO.Unsafe
 
 reserved_func = ["sub", "rsub1", "if", "trace", "not", "length", "slice", "find", "map", "mapi", "join", "has", "at", "to_int", "to_float", "to_string"]
 reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , "/" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
@@ -30,7 +32,22 @@ eval env input = affect scope (unify scope input)
     scope = Scope env [] ["main"]
 
 miss :: Scope -> String -> a
-miss scope message = error $ message ++ "\nStack: " ++ (string_join " <- " $ stack scope)
+--miss scope message = error $ message ++ "\nStack: " ++ (string_join " <- " $ stack scope)
+miss scope message = unsafePerformIO $ do
+  putStrLn $ message ++ "\nStack: " ++ (string_join " <- " $ stack scope)
+  replLoop
+  where
+    replLoop = do
+      putStr "> "
+      line <- getLine
+      case line of
+        "" -> replLoop
+        "q" -> error "exit REPL"
+        _ -> do
+          let ast = parseAST line
+          let ret = unify scope ast
+          print ret
+          replLoop
 
 affect scope (Apply name argv) = affect scope $ dispatch scope name (map (unify scope) argv)
 affect scope (Block steps) = fst $ block scope [] steps Void

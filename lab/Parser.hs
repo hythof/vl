@@ -8,6 +8,11 @@ parse input = case runParser parse_root (Source {original = input, source = inpu
   Just (a, s) -> (a, source s)
   Nothing -> ([], input)
 
+parseAST :: String -> AST
+parseAST input = case runParser parse_exp (Source {original = input, source = input, indentation = 0, line = 1, column = 1}) of
+  Just (a, s) -> a
+  Nothing -> String "ERROR: parse failed"
+
 -- parser combination
 parse_root = do
   defines <- many (spaces >> parse_define)
