@@ -156,7 +156,8 @@ find name scope = case lookup name (whole scope) of
   Just v -> v
   _ -> miss scope $ "Not found '" ++ name ++ "' in " ++
         "\n   local: " ++ (show $ map fst (local scope)) ++
-        "\n  global: " ++ (show $ map fst (global scope))
+        "\n  global: " ++ (show $ map fst (global scope)) ++
+        "\n" ++ show (lookup "x" (local scope))
 
 apply name scope argv ast = go (unify scope ast)
   where

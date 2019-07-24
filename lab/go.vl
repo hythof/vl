@@ -19,7 +19,7 @@ enum ast:
   f64 value f64
   string value string
   op2 op op, left ast, right ast, type type
-  func args []tv, body ast, type type
+  func name string, args []tv, body ast, type type
   call name string, argv []ast, type type
   list values []ast, type type
 
@@ -44,7 +44,7 @@ enum type:
 
 compile src =
   defs = parser.parse_top(src)
-  defs = inference.infer(defs)
+  defs = inference.infer(defs [])
   defs.map(to_go).join("\n")
 
 to_go x = "func v_" . x.name . "(" . x.val.c_args . ") " . x.val.v_type . " {" .
@@ -67,6 +67,7 @@ go_type t =
 | type.f64 = "float64"
 | type.string = "string"
 | type.list = "[]interface{}"
+| _ = "interface{}"
 c_args x =
 | ast.func = x.args.map(y => y.c_arg).join(",")
 | _ = ""
@@ -111,7 +112,7 @@ flow parser:
     args <- parse_arg.lex.many
     read_string("=").lex
     body <- parse_exp.lex
-    def(name ast.func(args body type.untyped))
+    def(name ast.func(name args body type.untyped))
   parse_arg =
     name <- read_id
     read_string(":")
@@ -213,18 +214,18 @@ to_type x =
 flow inference:
   fail
   defs []define
+  infered []define
   infer =
-    main = "main".look
-    infer_ast(main.val)
-    defs
+    "main".lookup
+    infered
   infer_ast x =
   | ast.i64 = x
   | ast.f64 = x
   | ast.string = x
   | ast.list = x
   | ast.op2 = ast.op2(x.op x.left x.right x.left.infer_type)
-  | ast.func = assign(ast.func(x.args x.body x.body.infer_type))
-  | ast.call = ast.call(x.name x.argv x.name.look.infer_type)
+  | ast.func = ast.func(x.name x.args x.body x.body.infer_type)
+  | ast.call = ast.call(x.name x.argv x.name.lookup.infer_type)
   infer_type x =
   | ast.i64 = type.i64
   | ast.f64 = type.f64
@@ -232,7 +233,20 @@ flow inference:
   | ast.list = x.type
   | ast.op2 = x.left.infer_type
   | ast.func = x.body.infer_type
-  | ast.call = x.name.look.val.infer_type
-  look target = defs.find(x => x.__name == target)
-  assign item =
-    defs := defs ++ [item]
+  | ast.call = x.name.lookup.val.infer_ast
+  lookup target = try_val_assign(defs.find(x => x.name == target))
+  assign name args body type =
+    f = ast.func(name args body type)
+    infered := infered ++ [def(name f)]
+    f
+  try_val_assign x =
+    try_assign(x.val)
+    x
+  try_assign x =
+  | ast.i64 = x
+  | ast.f64 = x
+  | ast.string = x
+  | ast.list = x
+  | ast.op2 = x
+  | ast.func = assign(x.name x.args x.body x.body.infer_type)
+  | ast.call = x
