@@ -41,13 +41,16 @@ miss scope message = unsafePerformIO $ do
       putStr "> "
       line <- getLine
       case line of
-        "" -> replLoop
+        "" -> return ()
+        "show stack" -> print $ stack scope
+        "show local" -> putStr $ foldr (\(k, v) a -> a ++ k ++ ":\t" ++ (show v) ++ "\n") "" $ local scope
+        "show global" -> print $ map fst $ global scope
         "q" -> error "exit REPL"
         _ -> do
           let ast = parseAST line
           let ret = unify scope ast
           print ret
-          replLoop
+      replLoop
 
 affect scope (Apply name argv) = affect scope $ dispatch scope name (map (unify scope) argv)
 affect scope (Block steps) = fst $ block scope [] steps Void
@@ -198,7 +201,7 @@ apply name scope argv ast = go (unify scope ast)
       then match_ args all_conds
       else miss scope $ "Unmatch " ++ name ++ " " ++ show args ++ " != " ++ show argv
       where
-        match_ args [] = miss scope $ "Miss match\ntarget: " ++ show argv ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
+        match_ args [] = miss scope $ "Miss match\ntarget: " ++ show args ++ " => " ++ show argv ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
         match_ args ((conds,branch):rest) = if (length argv) == (length conds)
           then if all id (zipWith is argv (map (unify scope) conds))
             then unify (pushs scope (zip args (map unwrap argv))) branch
