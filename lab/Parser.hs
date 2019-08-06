@@ -37,11 +37,12 @@ parse_bottom = go
       args <- option [] (between (string "(") (spaces >> string ")") read_args1)
       chain $ Apply name (unit : args)
     switch '(' unit = do
-      args <- many1 (spaces >> parse_exp)
+      args <- many (spaces >> parse_exp)
       spaces
       string ")"
-      let (Apply name []) = unit
-      chain $ Apply name args
+      case unit of
+        Apply name [] -> chain $ Apply name args
+        _ -> error $ show unit
     switch _ unit = return unit
     read_args1 = many1 (spaces >> parse_exp)
 -- define
@@ -151,8 +152,10 @@ parse_match = Match <$> many1 go
       string "."
       name <- token
       return $ Enum name Void
-parse_block = Block <$> (next_br >> (indent go))
+parse_block = Block <$> (block_top1 <|> block_top2)
   where
+    block_top1 = (next_string "() =>") >> next_br >> (indent go)
+    block_top2 = next_br >> (indent go)
     go = indented_lines step
     step = read_throw <|> read_assign <|> parse_exp
     read_throw = (next_string "throw ") >> (Throw <$> next_token)

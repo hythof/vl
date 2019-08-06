@@ -52,14 +52,16 @@ miss scope message = unsafePerformIO $ do
           print ret
       replLoop
 
-affect scope (Apply name argv) = affect scope $ dispatch scope name (map (unify scope) argv)
+affect scope (Apply name argv) = dispatch scope name (map (unify scope) argv)
 affect scope (Block steps) = fst $ block scope [] steps Void
+affect scope (List xs) = List $ map (unify scope) xs
 affect scope ast = ast
 
-unify scope ast = unify_ scope ast
-unify_ scope (List xs) = List $ map (unify scope) xs
-unify_ scope (Apply name argv) = dispatch scope name (map (unify scope) argv)
-unify_ scope x = x
+unify = affect
+--unify scope ast = unify_ scope ast
+--unify_ scope (List xs) = List $ map (unify scope) xs
+--unify_ scope (Apply name argv) = dispatch scope name (map (unify scope) argv)
+--unify_ scope x = x
 
 dispatch scope_ name argv = go name argv
   where
