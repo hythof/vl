@@ -235,9 +235,9 @@ testGo tests = prepare
     go env ((expect, src):rest) = do
       runTest env expect src
       go env rest
-    runTest env expect src= do
+    runTest env expect src = do
       let go_src = to_go env ("main = " ++ src)
-      let go_path = "/tmp/tmp.go"
+      let go_path = "/tmp/v.go"
       let stdout_path = "/tmp/out.txt"
       let cmd = "echo 'COMPILE FAILED' > " ++ stdout_path ++ " && go run " ++ go_path ++ " > " ++ stdout_path
       writeFile go_path $ go_src ++ "\n"
@@ -247,14 +247,14 @@ testGo tests = prepare
       if output == expect
         then putStr "."
         else error $ "expect: " ++ expect ++ "\n  fact: " ++ output
-    to_go env src = case eval env (Apply "__compile_to_go" [String src]) of
+    to_go env src = case eval env (Call "__compile_to_go" [String src]) of
       String s -> s
       ret -> error $ makeMessage env ("invalid the result of compiling: " ++ show ret)
 
 get_env src = case parse src of
   (env, "") -> env
   (env, "\n") -> env
-  (env, rest) -> error $ makeMessage env ("Failed parsing: " ++ (unlines $ take 10 $ lines rest) ++ "`")
+  (env, rest) -> error $ makeMessage env ("Failed parsing: remaining code is the below" ++ (unlines $ take 10 $ lines rest) ++ "`")
 makeMessage env message = message
   --concat (map (\(k, v) -> "\n- " ++ k ++ "\t" ++ show v) env)
 fmt (String s) = s

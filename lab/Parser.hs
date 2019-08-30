@@ -20,10 +20,9 @@ parse_root = do
   return $ defines
 parse_top = do
   many $ oneOf " \t"
-  v <- parse_match <|> parse_block <|> parse_exp <|> (miss "top")
+  v <- parse_match <|> parse_block <|> parse_lazy <|> parse_exp <|> (miss "top")
   eol
   return v
-parse_exp = parse_op2
 parse_bottom = go
   where
     go = do
@@ -35,13 +34,13 @@ parse_bottom = go
     switch '.' unit = do
       name <- token <|> (many1 $ oneOf "0123456789")
       args <- option [] (between (string "(") (spaces >> string ")") read_args1)
-      chain $ Apply name (unit : args)
+      chain $ Call name (unit : args)
     switch '(' unit = do
       args <- many1 (spaces >> parse_exp)
       spaces
       string ")"
-      let (Apply name []) = unit
-      chain $ Apply name args
+      let (Call name []) = unit
+      chain $ Call name args
     switch _ unit = return unit
     read_args1 = many1 (spaces >> parse_exp)
 -- define
@@ -60,26 +59,24 @@ parse_define = go
       many next_type -- drop generic types
       next_string ":"
       next_br
-      body <- indent $ switch kind
+      body <- indent $ switch kind name
       return $ (name, body)
-    switch "enum" = do
+    switch "enum" name = do
       tags <- indented_lines next_tag
-      return $ Struct (map (\(x:xs) -> (x, to_enum x xs)) tags)
-    switch "struct" = do
+      let methods = map (\(x:xs) -> (x, make_class (name ++ ":" ++ x) xs [])) tags
+      return $ make_class name [] methods
+    switch "struct" name = do
       props <- indented_lines next_property
-      return $ Func props Void
-    switch "flow" = do
+      return $ make_class name props []
+    switch "flow" name = do
       tags <- indented_lines next_tag
       next_br
       props <- indented_lines next_property
       next_br
       methods <- indented_lines def_func
-      let throws = map to_throw tags
-      return $ Flow props throws methods
-    switch kind = miss $ "unsupported parse " ++ kind
-    to_enum x [] = Enum x Void
-    to_enum x ys = make_func ys (Enum x Void)
-    to_throw (x:_) = (x, Throw x)
+      let throws = map (\(x:xs) -> (x, make_throw (name ++ ":" ++ x) xs)) tags
+      return $ make_class name props (methods ++ throws)
+    switch kind name = miss $ "unknown " ++ kind
     next_property = do
       name <- next_token
       next_type
@@ -120,51 +117,46 @@ parse_list = List <$> (between
 -- expression
 parse_ref = do
   v <- next_token
-  return $ Apply v []
+  return $ Call v []
+parse_exp = parse_op2
 parse_op2 = go
   where
     go = do
       l <- parse_bottom
       op <- option "" next_op
-      ret <- consume l op
-      return ret
-    consume l op = case op of
-      "" -> return l
-      "=>" -> do
-        let (Apply name []) = l
-        body <- parse_exp
-        return $ Func [name] body
-      _ -> do
-        r <- go
-        return $ Apply op [l, r]
+      case op of
+        "" -> return l
+        "=>" -> func l
+        "=" -> assign l
+        _ -> op2 op l
+    func Void = Func [] <$> parse_exp
+    func (Call name []) = Func [(name, Void)] <$> parse_exp
+    assign (Call name []) = Assign name <$> parse_exp
+    op2 op l = do
+      r <- parse_op2
+      return $ Call op [l, r]
 parse_match = Match <$> many1 go
   where
     go = do
       next_br
-      next_string "|"
-      conds <- many1 (match_enum <|> parse_exp)
-      next_string "="
+      next_string "| "
+      conds <- many1 (match_enum <|> parse_bottom <|> match_all)
+      next_string "= "
       body <- parse_exp
       return (conds, body)
     match_enum = do
-      next_token
+      name1 <- next_token
       string "."
-      name <- token
-      return $ Enum name Void
-parse_block = Block <$> (next_br >> (indent go))
+      name2 <- token
+      let name = name1 ++ ":" ++ name2
+      return $ Call name []
+    match_all = do
+      next_string "_"
+      return Void
+parse_block = next_br >> (indent (go <|> miss "block"))
   where
-    go = indented_lines step
-    step = read_throw <|> read_assign <|> parse_exp
-    read_throw = (next_string "throw ") >> (Throw <$> next_token)
-    read_assign = do
-      name <- next_token
-      args <- many next_token
-      op <- next $ select ["=", ":=", "<-"]
-      body <- parse_top
-      return $ case op of
-        "=" -> Define name (make_func args body)
-        ":=" -> Update name (make_func args body)
-        "<-" -> Assign name (make_func args body)
+    go = Block <$> indented_lines parse_exp
+parse_lazy = next_string "() =>" >> fmap (Func []) parse_block
 -- comments
 parse_tail_comment = do
   spaces1
@@ -177,7 +169,10 @@ debug mark = Parser $ \s -> trace ("@ " ++ show mark ++ " | " ++ show s) (return
 current_indent = Parser $ \s -> return (indentation s, s)
 
 make_func [] body = body
-make_func args body = Func args body
+make_func args body = Func (map (\x -> (x, Void)) args) body
+
+make_class name props methods = Class $ (map (\x -> (x, Void)) props) ++ methods ++ [("__name", (String name))]
+make_throw name props = make_class name props [("__throw", Void)]
 
 satisfy f = Parser $ \s -> do
   let src = source s
@@ -226,7 +221,7 @@ next_between l r m = between (next_string l) (next_string r) m
 between l r m = do
   l
   ret <- m
-  r <|> (miss $ "between: not terminated")
+  r <|> (miss "between: not terminated")
   return ret
 
 spaces = many $ oneOf " \t\r\n"
@@ -259,8 +254,8 @@ next_op = do
     return o
   where
     op = op2 ++ op1
-    op2 = ["==", "!=", ">=", "<=", "||", "&&", "=>", "++"]
-    op1 = map (\x -> [x]) ".+-*/%|<>"
+    op2 = ["<-",  ":=", "==", "!=", ">=", "<=", "||", "&&", "=>", "++"]
+    op1 = map (\x -> [x]) ".+-*/%|<>="
 
 next_br = do
   next (eof <|> ((oneOf ";\n") >> return ()))
@@ -273,8 +268,8 @@ indent f = Parser $ \s ->
 
 indented_lines f = fmap concat $ sepBy1 (indented_line f) next_br
 indented_line f = do
-  indent <- current_indent
-  string (take (2 * indent) (repeat ' '))
+  n <- current_indent
+  string (take (2 * n) (repeat ' '))
   v <- sepBy1 f (next $ oneOf ",;")
   look next_br
   return v
@@ -283,6 +278,7 @@ miss message = Parser $ \s ->
   let
     l = line s
     c = column s
-    code = unlines $ take 3 $ drop (l - 3) $ lines (original s)
+    i = indentation s
+    code = unlines $ take (min l 3) $ drop (l - 3) $ lines (original s)
     m = take (c - 1) $ repeat ' '
-  in error $ message ++ "\n" ++ code ++ m ++ "^ " ++ (show l) ++ ":" ++ (show c) ++ " " ++ message
+  in error $ "failed parse at `" ++ message ++ "`\n" ++ code ++ m ++ "^ " ++ (show l) ++ ":" ++ (show c) ++ "\nindent: " ++ show i

@@ -3,28 +3,20 @@ module AST where
 type Env = [(String, AST)]
 
 data AST =
--- value
+-- simple value
     Void
   | Bool Bool
   | Int Int
   | Float Double
   | String String
--- container
+  | Func Env AST
   | List [AST]
+  | Class Env
 -- expression
-  | Apply String [AST]
-  | Match [([AST], AST)]
--- define
-  | Flow [String] Env Env -- props, throws, methods
-  | Struct Env
-  | Enum String AST
-  | Func [String] AST
--- flow
   | Block [AST]
-  | Throw String
-  | Define String AST
   | Assign String AST
-  | Update String AST
+  | Call String [AST] -- ref, exp, assign and update
+  | Match [([AST], AST)]
   deriving (Show, Eq)
 
 data Source = Source { original :: String, source :: String, indentation :: Int, line :: Int, column :: Int } deriving (Show)

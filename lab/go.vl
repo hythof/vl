@@ -1,5 +1,5 @@
 __compile_to_go src =
-  go <- compile(src)
+  go = compile(src)
   `package main
 /*
 ` . src . `
@@ -97,65 +97,66 @@ flow parser:
   miss reason string
   bug_of_c_parser
   input string
-  satisfy f =
-    c <- input.at(0) | eof
-    f(c) || miss
+  satisfy f = () =>
+    c = input.at(0) | eof
+    j = f(c)
+    j || miss
     input := input.slice(1)
     c
   parse_top =
-    defs <- parse_def.sepby1(read_br)
+    defs = parse_def.sepby1(read_br)
     read_spaces
     (input.length == 0) || bug_of_c_parser
     defs
   parse_def =
-    name <- read_id
-    args <- parse_arg.lex.many
+    name = read_id
+    args = parse_arg.lex.many
     read_string("=").lex
-    body <- parse_exp.lex
+    body = parse_exp.lex
     def(name ast.func(name args body type.untyped))
   parse_arg =
-    name <- read_id
+    name = read_id
     read_string(":")
-    t <- read_type
+    t = read_type
     tv(name t.to_type)
   parse_call =
-    name <- read_id
-    argv <- between(
+    name = read_id
+    argv = between(
       read_string("(").lex
       read_string(")").lex
       parse_exp.many) | []
     ast.call(name argv type.untyped)
   parse_exp = parse_op2.lex
   parse_op2 =
-    left <- parse_call |
+    left = parse_call |
       parse_float |
       parse_int |
       parse_string |
       parse_list
     parse_op2_remaining(left) | left
   parse_op2_remaining left =
-    op <- parse_op
-    right <- parse_exp
+    op = parse_op
+    right = parse_exp
     ast.op2(op left right type.untyped)
   parse_op =
     read_string(" ")
-    op_text <- read_one(["." "+" "-" "*" "/" "%" "**" "&&" "||" "++"])
+    op_text = read_one(["." "+" "-" "*" "/" "%" "**" "&&" "||" "++"])
     read_string(" ")
     to_op(op_text)
   parse_float =
-    n1 <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1
+    n1 = read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1
     read_string(".")
-    n2 <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1
+    n2 = read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1
     n = (n1 ++ ["."] ++ n2).join("").to_float
     ast.f64(n)
   parse_int =
-    n <- read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1.fmap(s => s.join("").to_int)
+    n = read_one(["0" "1" "2" "3" "4" "5" "6" "7" "8" "9"]).many1.fmap(s => s.join("").to_int)
     ast.i64(n)
   parse_string =
-    s <- between(read_string(`"`) read_string(`"`) read_none([`"`]).many)
+    s = between(read_string(`"`) read_string(`"`) read_none([`"`]).many)
     ast.string(s.join(""))
   parse_list =
-    xs <- between(
+    xs = between(
       read_string(`[`).lex
       read_string(`]`).lex
       parse_exp.many)
@@ -171,31 +172,31 @@ flow parser:
   read_one set = satisfy(x => set.has(x))
   read_none set = satisfy(x => set.has(x).not)
   read_id =
-    x <- read_one(["_" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
-    xs <- read_one(["_" "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many
+    x = read_one(["_" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
+    xs = read_one(["_" "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many
     x . xs.join("")
   read_type =
-    x <- read_one(["[" "_" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
-    xs <- read_one(["]" "_" "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many
+    x = read_one(["[" "_" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
+    xs = read_one(["]" "_" "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many
     x . xs.join("")
 many p = p.many_acc([])
 many1 p =
-  x <- p
-  xs <- p.many
+  x = p
+  xs = p.many
   [x] ++ xs
 many_acc p acc = p.fmap(x => p.many_acc(acc ++ [x])) | acc
 fmap p f =
-  x <- p
+  x = p
   f(x)
 between l r c =
   l
-  x <- c
+  x = c
   r
   x
 sepby p s = sepby1(p s) | []
 sepby1 p s =
-  x <- p
-  xs <- many(combine(s p))
+  x = p
+  xs = many(combine(s p))
   [x] ++ xs
 combine aa bb =
   aa

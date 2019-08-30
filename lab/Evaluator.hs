@@ -3,223 +3,163 @@ module Evaluator where
 import Debug.Trace (trace)
 import AST
 import Parser (parseAST)
-import System.IO.Unsafe
+import Control.Applicative ((<|>))
+import Control.Monad.State
+import Data.Foldable (find)
 
-reserved_func = ["sub", "rsub1", "if", "trace", "not", "length", "slice", "find", "map", "mapi", "join", "has", "at", "to_int", "to_float", "to_string"]
-reserved_op2 = ["_", "|", "&&" , "||" , "+" , "-" , "*" , "/" , ">" , ">=" , "<" , "<=" , "." , "++" , "==" , "!="]
+eval :: Env -> AST -> AST
+eval env input = evalState (unify input) (Scope env [] [] [])
+
+-- private functions
 
 data Scope = Scope {
     global :: Env
+  , share :: Env
   , local :: Env
-  , stack :: [String]
+  , stack :: [(String, Scope)]
 } deriving (Show, Eq)
 
-whole :: Scope -> Env
-whole scope = (local scope) ++ (global scope)
+type Runtime = State Scope
 
-push :: Scope -> String -> AST -> Scope
-push scope name ast = scope { local = (name, ast) : (local scope) }
+unify :: AST -> Runtime AST
+unify (List xs) = List <$> mapM unify xs
+unify (Block lines) = fmap last $ mapM unify lines
+unify (Assign name body) = do
+  ret <- unify body
+  ret <- unwrap ret
+  modify (\s -> s { local = (name, ret) : local s })
+  return ret
+unify (Call name argv) = do
+  argv <- mapM unify argv
+  case find is_throw argv of
+    Just x -> return x
+    Nothing -> callWithStack name argv
+unify f@(Func args body) = if elem ("__captured", Void) args then return f else do
+  s <- get
+  return $ Func (args ++ (local s) ++ [("__captured", Void)]) body
+unify ast = return ast
 
-pushs :: Scope -> Env -> Scope
-pushs scope env = scope { local = env ++ (local scope) }
+unwrap (Func args body) = do
+  s <- get
+  put $ s { local = local s ++ args }
+  ret <- unify body
+  put s
+  return ret
+unwrap ast = return ast
 
-into :: Scope -> String -> Scope
-into scope name = scope { stack = name : (stack scope) }
+callWithStack :: String -> [AST] -> Runtime AST
+callWithStack name argv = do
+  s1 <- get
+  put $ s1 { stack = (name ++ " : " ++ (keys $ local s1), s1) : stack s1 }
+  ret <- call name argv
+  s2 <- get
+  put $ s2 { stack = stack s1 }
+  return ret
+call :: String -> [AST] -> Runtime AST
+call "_" [] = return Void
+call "|" [l, r] = return $ if is_throw l then l else r
+call "||" [(Bool True), _] = return $ Bool True
+call "||" [(Bool False), r] = return r
+call "&&" [(Bool True), r] = return r
+call "&&" [(Bool False), _] = return $ Bool False
+call "+" [(Int l), (Int r)] = return $ Int $ l + r
+call "-" [(Int l), (Int r)] = return $ Int $ l - r
+call "*" [(Int l), (Int r)] = return $ Int $ l * r
+call "/" [(Int l), (Int r)] = return $ Int $ div l r
+call ">" [(Int l), (Int r)] = return $ Bool (l > r)
+call ">=" [(Int l), (Int r)] = return $ Bool (l >= r)
+call "<" [(Int l), (Int r)] = return $ Bool (l < r)
+call "<=" [(Int l), (Int r)] = return $ Bool (l <= r)
+call "." [(String l), (String r)] = return $ String (l ++ r)
+call "++" [(List l), (List r)] = return $ List (l ++ r)
+call "==" [l, r] = return $ Bool (show l == show r)
+call "!=" [l, r] = return $ Bool (not $ (show l == show r))
+call "trace" args = trace ("TRACE: " ++ (take 100 $ show args)) (return Void)
+call "if"  [Bool a, b, c] = return $ if a then b else c
+call "map"  [List xs, ast] = do { x <- mapM (\x -> apply ast [x]) xs; return $ List x }
+call "mapi"  [List xs, ast] = List <$> mapM (\(i, arg) -> apply ast [Int i, arg]) (zip [0..] xs)
+call "find"  [List xs, ast] = do
+  hits <- filterM (\x -> do { y <- apply ast [x]; return (y == Bool True)}) xs
+  case hits of
+    [] -> miss $ "Finding element not found " ++ show ast ++ "\n  in " ++ show xs
+    (x:_) -> return x
+call "has"  [List xs, ast] = return $ Bool (elem ast xs)
+call "has"  [String xs, String x] = return $ Bool (string_contains xs x)
+call "join" [List xs, String glue] = return $ String (string_join glue (map to_string xs))
+call "sub"  [String a, String b, String c] = return $ String (string_replace (length a) a b c)
+call "rsub1"  [String a, String b, String c] = return $ String (reverse $ string_replace 1 (reverse a) (reverse b) (reverse c))
+call "to_int" [String s] = return $ Int (read s :: Int)
+call "to_float" [String s] = return $ Float (read s :: Double)
+call "to_string" [Int n] = return $ String $ show n
+call "to_string" [Float n] = return $ String $ show n
+call "to_string" [String s] = return $ String $ '"' :  s ++ "\""
+call "not" [Bool b] = return $ Bool $ not b
+call "length" [List s] = return $ Int $ length s
+call "length" [String s] = return $ Int $ length s
+call "slice"  [String s, Int n] = return $ String $ drop n s
+call "slice"  [String s, Int n, Int m] = return $ String $ take m (drop n s)
+call "at" [String s, Int index] = return $ if index < length s
+  then String $ [(s !! index)]
+  else throw $ "out of index " ++ show index ++ " in \"" ++ s ++ "\""
+call "at" [List s, Int index] = return $ if index < length s
+  then s !! index
+  else throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
+call name [] = ref name
+call name ((Class env):argv) = do
+  s1 <- get
+  put $ s1 { share = new env argv }
+  ret <- call name argv
+  s2 <- get
+  put $ s2 { share = share s1 }
+  return $ ret
+call name argv = do
+  ast <- ref name
+  apply ast argv
 
-eval :: Env -> AST -> AST
-eval env input = affect scope (unify scope input)
+apply :: AST -> [AST] -> Runtime AST
+apply ast [] = return ast
+apply (String s) [Int n] = return $ String [s !! n]
+apply (List l) [Int n] = return $ l !! n
+apply (Class env) argv = return $ Class $ (zip (map fst env) argv) ++ (drop (length argv) env)
+apply (Match conds) argv = miss "no implement"
+apply (Func args body) argv = go args
   where
-    scope = Scope env [] ["main"]
+    go [] = return body -- keep pointer for lazy evaluation
+    go _ = do
+      s <- get
+      put $ s { local = new args argv }
+      ret <- unify body
+      put $ s { local = local s }
+      return ret
+apply ast argv = miss $ show ast ++ " with " ++ show argv
 
-miss :: Scope -> String -> a
---miss scope message = error $ message ++ "\nStack: " ++ (string_join " <- " $ stack scope)
-miss scope message = unsafePerformIO $ do
-  putStrLn $ message ++ "\nStack: " ++ (string_join " <- " $ stack scope)
-  replLoop
-  where
-    replLoop = do
-      putStr "> "
-      line <- getLine
-      case line of
-        "" -> return ()
-        "show stack" -> print $ stack scope
-        "show local" -> putStr $ foldr (\(k, v) a -> a ++ k ++ ":\t" ++ (show v) ++ "\n") "" $ local scope
-        "show global" -> print $ map fst $ global scope
-        "q" -> error "exit REPL"
-        _ -> do
-          let ast = parseAST line
-          let ret = unify scope ast
-          print ret
-      replLoop
+ref :: String -> Runtime AST
+ref name = do
+  s <- get
+  case lookup name $ (local s) ++ (share s) ++ (global s) of
+    Just x -> unify x
+    Nothing -> miss $ "Not found: " ++ name
 
-affect scope (Apply name argv) = affect scope $ dispatch scope name (map (unify scope) argv)
-affect scope (Block steps) = fst $ block scope [] steps Void
-affect scope ast = ast
+new :: Env -> [AST] -> Env
+new env argv = (zip (map fst env) argv) ++ (drop (length argv) env)
 
-unify scope ast = unify_ scope ast
-unify_ scope (List xs) = List $ map (unify scope) xs
-unify_ scope (Apply name argv) = dispatch scope name (map (unify scope) argv)
-unify_ scope x = x
-
-dispatch scope_ name argv = go name argv
-  where
-    scope = into scope_ name
-    go name argv
-      | elem name reserved_op2 = dispatch_op name argv
-      | elem name reserved_func = dispatch_func name argv
-      | otherwise = dispatch_call name argv
-    dispatch_op "_" [] = Void
-    dispatch_op "|" [Throw _, r] = r
-    dispatch_op "|" [l, r] = Block [Apply "|" [l, r]]
-    dispatch_op "||" [(Bool True), _] = Bool True
-    dispatch_op "||" [(Bool False), r] = r
-    dispatch_op op [l@(Throw _), _] = l
-    dispatch_op op [_, r@(Throw _)] = r
-    dispatch_op op [l, r] = dispatch_op2 op [l, r]
-    dispatch_op2 "&&" [(Bool True), r] = r
-    dispatch_op2 "&&" [(Bool False), _] = Bool False
-    dispatch_op2 "+" [(Int l), (Int r)] = Int $ l + r
-    dispatch_op2 "-" [(Int l), (Int r)] = Int $ l - r
-    dispatch_op2 "*" [(Int l), (Int r)] = Int $ l * r
-    dispatch_op2 "/" [(Int l), (Int r)] = Int $ div l r
-    dispatch_op2 ">" [(Int l), (Int r)] = Bool $ l > r
-    dispatch_op2 ">=" [(Int l), (Int r)] = Bool $ l >= r
-    dispatch_op2 "<" [(Int l), (Int r)] = Bool $ l < r
-    dispatch_op2 "<=" [(Int l), (Int r)] = Bool $ l <= r
-    dispatch_op2 "." [(String l), (String r)] = String $ l ++ r
-    dispatch_op2 "++" [(List l), (List r)] = List $ l ++ r
-    dispatch_op2 "==" [l, r] = Bool $ dispatch_eq l r
-    dispatch_op2 "!=" [l, r] = Bool $ not $ dispatch_eq l r
-    dispatch_op2 op argv = miss scope $ "Operator not found: " ++ op ++ " " ++ show argv
-    dispatch_eq Void Void = True
-    dispatch_eq (Bool a) (Bool b) = a == b
-    dispatch_eq (Int a) (Int b) = a == b
-    dispatch_eq (String a) (String b) = a == b
-    dispatch_eq (List a) (List b) = all id (zipWith dispatch_eq a b)
-    dispatch_eq (Struct a) (Struct b) = show a == show b
-    dispatch_eq a@(Enum _ _) b@(Enum _ _) = show a == show b
-    dispatch_eq a@(Throw _) b@(Throw _) = show a == show b
-    dispatch_eq a b = miss scope $ "Invalid equal: " ++ show a ++ " == " ++ show b
-    dispatch_func _ (a@(Throw _):_) = a
-    dispatch_func "trace" args = trace ("TRACE: " ++ show args) Void
-    dispatch_func "if"  [Bool a, b, c] = if a then b else c
-    dispatch_func "map"  [List xs, ast] = List $ map (\arg -> unify scope $ apply "" scope [arg] ast) xs
-    dispatch_func "mapi"  [List xs, ast] = List $ map (\(i, arg) -> unify (push scope "i" (Int i)) $ apply "" (push scope "i" (Int i)) [arg] ast) (zip [0..] xs)
-    dispatch_func "find"  [List xs, ast] = case (filter (\x -> (apply "__find__" scope [x] ast) == Bool True) xs) of
-      [] -> miss scope $ "Finding element not found " ++ show ast ++ "\n  in " ++ show xs
-      (x:_) -> x
-    dispatch_func "has"  [List xs, ast] = Bool $ elem ast xs
-    dispatch_func "has"  [String xs, String x] = Bool $ string_contains xs x
-    dispatch_func "join" [List xs, String glue] = String $ string_join glue (map to_string xs)
-    dispatch_func "sub"  [String a, String b, String c] = String $ string_replace (length a) a b c
-    dispatch_func "rsub1"  [String a, String b, String c] = String $ reverse $ string_replace 1 (reverse a) (reverse b) (reverse c)
-    dispatch_func "to_int" [String s] = Int (read s :: Int)
-    dispatch_func "to_float" [String s] = Float (read s :: Double)
-    dispatch_func "to_string" [Int n] = String $ show n
-    dispatch_func "to_string" [Float n] = String $ show n
-    dispatch_func "to_string" [String s] = String $ '"' :  s ++ "\""
-    dispatch_func "not" [Bool b] = Bool $ not b
-    dispatch_func "length" [List s] = Int $ length s
-    dispatch_func "length" [String s] = Int $ length s
-    dispatch_func "slice"  [String s, Int n] = String $ drop n s
-    dispatch_func "slice"  [String s, Int n, Int m] = String $ take m (drop n s)
-    dispatch_func "at" [String s, Int index] = if index < length s
-      then String $ [(s !! index)]
-      else Throw $ "out of index " ++ show index ++ " in \"" ++ s ++ "\""
-    dispatch_func "at" [List s, Int index] = if index < length s
-      then s !! index
-      else Throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
-    dispatch_func name argv = miss scope $ "Undefined function: " ++ name ++ " " ++ show argv
-    dispatch_call name ((Flow props throws fields):argv) = go
-      where
-        local = pushs scope $ (zip props argv) ++ throws ++ fields
-        go = if elem name (map fst throws) then go_throw else go_method
-        go_throw = find name (Scope [] throws [])
-        go_method = if (length props) <= (length argv)
-          then case find name local of
-            Func args body -> if (length args) == (length argv) - (length props)
-              then affect (pushs local $ (zip args (drop (length props) argv))) body
-              else miss scope $ "Too many arguments " ++ name ++ " have " ++ show props ++ " but args " ++ show argv
-            x -> if (length props) == (length argv)
-              then affect local x
-              else miss scope $ "Too many arguments '" ++ name ++ "' have " ++ show props ++ " but args " ++ show argv
-          else miss scope $ "Few arguments " ++ name ++ " have " ++ show props ++ " but args " ++ show argv
-    dispatch_call name (s@(Struct fields):argv) = case lookup name fields of
-      Just body -> apply name (pushs scope fields) argv body
-      _ -> apply name scope (s : argv) $ find name scope
-    dispatch_call name argv = apply name scope argv $ find name scope
-
-block :: Scope -> Env -> [AST] -> AST -> (AST, Env)
-block scope local _ ast@(Throw _) = (ast, local)
-block scope local [] ast = (ast, local)
-block scope local (head_ast:rest) last = branch head_ast rest
-  where
-    uni :: AST -> AST
-    uni ast = unify (pushs scope local) ast
-    branch :: AST -> [AST] -> (AST, Env)
-    branch ast rest = case uni ast of
-      a@(Throw _) -> (a, local)
-      Block [Apply "|" [l, r]] -> case branch l [] of
-        (Throw _, _) -> branch r rest
-        _ -> branch l rest
-      Block steps -> let (ast, local2) = block (pushs scope local) [] steps Void in block scope (local2 ++ local) rest ast
-      Define name exp -> block (push scope name (uni exp)) local rest Void
-      Assign name exp -> let (ast, local2) = branch exp [] in block (push scope name ast) (local2 ++ local) rest ast
-      Update name exp -> let (ast, local2) = branch exp [] in block scope ((name, ast) : local2 ++ local) rest ast
-      ast -> block scope local rest ast
-
-find name scope = case lookup name (whole scope) of
-  Just (Apply name' []) -> if name == name'
-    then miss scope $ "Circle reference " ++ name ++ " in " ++ (show $ map fst (whole scope))
-    else find name' scope
-  --Just v@(Throw x) -> trace ("throw: " ++ name ++ show env) $ v
-  Just v -> v
-  _ -> miss scope $ "Not found '" ++ name ++ "' in " ++
-        "\n   local: " ++ (show $ map fst (local scope)) ++
-        "\n  global: " ++ (show $ map fst (global scope)) ++
-        "\n" ++ show (lookup "x" (local scope))
-
-apply name scope argv ast = go (unify scope ast)
-  where
-    go (Func args body)
-      | length argv == 0 = Func args body
-      | length argv == length args = run args body
-      | otherwise = miss scope $ "Miss match " ++ name ++ " " ++ (show $ length args) ++ " != " ++ (show $ length argv) ++
-        " in " ++ show args ++ " != " ++ show argv ++ " => " ++ show body
-    go v = if length argv == 0 then v else miss scope $ "Can't apply: " ++ name ++ " " ++ show v ++ "\nwith " ++ show argv
-    run args Void = Struct $ zip args argv
-    run args (Enum name Void) = Enum name (Struct $ zip args argv)
-    run args (Struct kvs) = Struct $ (zip args argv) ++ kvs
-    run args (Match matches) = match args matches
-    run args (Block steps) = Block $ (map (\(k, v) -> Define k v) (zip args argv)) ++ steps
-    run args body = case unify (pushs scope (zip args argv)) body of
-      Block steps -> Block $ (zipWith Define args argv) ++ steps
-      Func args2 body2 -> Func args2 (Apply "_apply" [Struct (("_apply", body2) : (zip args argv))])
-      result -> result
-    match :: [String] -> [([AST], AST)] -> AST
-    match args all_conds = if (length argv) == (length args)
-      then match_ args all_conds
-      else miss scope $ "Unmatch " ++ name ++ " " ++ show args ++ " != " ++ show argv
-      where
-        match_ args [] = miss scope $ "Miss match\ntarget: " ++ show args ++ " => " ++ show argv ++ "\ncase: " ++ string_join "\ncase: " (map (show . fst) all_conds)
-        match_ args ((conds,branch):rest) = if (length argv) == (length conds)
-          then if all id (zipWith is argv (map (unify scope) conds))
-            then unify (pushs scope (zip args (map unwrap argv))) branch
-            else match_ args rest
-          else miss scope $ "Unmatch " ++ name ++ " " ++ show args ++ " where " ++ show argv ++ " != " ++ show conds ++ " => " ++ show branch
-    unwrap (Enum _ v) = v
-    unwrap v = v
-    is _ Void = True
-    is (Enum t1 _) (Enum t2 _) = t1 == t2
-    is v1 v2 = v1 == v2
+throw message = Class [("__throw", String message)]
 
 -- utility
+debug name = trace name (return ())
+
+is_throw (Class xs)
+  | any (\(k, _) -> k == "__thorw") xs = True
+  | otherwise = False
+is_throw _ = False
+
 string_contains :: String -> String -> Bool
 string_contains target y = go target
   where
     n = length y
     go [] = False
     go str@(x:xs) = (take n str == y) || go xs
+
 string_replace :: Int -> String -> String -> String -> String
 string_replace n a b c = string_join c (string_split n a b)
 string_split :: Int -> String -> String -> [String]
@@ -236,30 +176,38 @@ string_join glue [] = ""
 string_join glue [x] = x
 string_join glue (x:xs) = x ++ glue ++ (string_join glue xs)
 
-to_strings xs = string_join " " (map to_string xs)
+to_strings xs = string_join " " (map show xs)
 to_string Void = "_"
 to_string (Bool True) = "true"
 to_string (Bool False) = "false"
-to_string (Int n) = show n
-to_string (Float n) = show n
-to_string (String s) = s
-to_string (List xs) = '[' : (to_strings xs) ++ "]"
-to_string (Apply name args) = name ++ "(" ++ to_strings args ++ ")"
-to_string (Match matches) = "\n" ++ string_join "\n" (map go matches)
-  where
-    go (conds, branch) = "| " ++ to_strings conds ++ " = " ++ to_string branch
-to_string (Struct kvs) = string_join "\n" (map go kvs)
-  where
-    go (k, v) = k ++ ":" ++ to_string v
-to_string (Enum tag Void) = tag
-to_string (Enum tag body) = tag ++ "(" ++ to_string body ++ ")"
-to_string (Func args body) = "(" ++ string_join " " args ++ " => " ++ to_string body ++ ")"
-to_string (Block block) = "block:" ++ (string_join "\n  " $ map to_string block)
-to_string (Throw s) = "throw:" ++ s
-to_string (Define name ast) = name ++ " = " ++ to_string ast
-to_string (Assign name ast) = name ++ " <- " ++ to_string ast
-to_string (Update name ast) = name ++ " := " ++ to_string ast
+to_string (Int x) = show x
+to_string (Float x) = show x
+to_string (String x) = x
+to_string (Func _ _) = "(func)"
+to_string (List xs) = "[" ++ (string_join ", " (map to_string xs)) ++ "]"
+to_string (Class xs) = "(class)"
+to_string (Match conds) = "(match" ++ (show $ length conds) ++ ")"
+
+keys env = (string_join ", " $ map fst env)
+kvs env = "- " ++ (string_join "\n- " $ map (\(k,v) -> k ++ " " ++ (take 70 $ show v)) env)
+showStack n [] = "(empty)"
+showStack 0 ((name, s):_) = "# " ++ name ++ "\n" ++ (kvs $ local s)
+showStack n (x:xs) = showStack (n - 1) xs
+
 escape [] = ""
 escape ('"':xs) = "\\\"" ++ escape xs
 escape (x:xs) = x : escape xs
-trace_ mark x = trace ("* " ++ (show mark) ++ " " ++ show x) x
+
+miss :: String -> Runtime AST
+miss message = do
+  s <- get
+  error $ string_join "\n" [
+      message
+    , ""
+    , "Stacks"
+    , showStack 0 (stack s)
+    , showStack 1 (stack s)
+    , showStack 2 (stack s)
+    , showStack 3 (stack s)
+    , showStack 4 (stack s)
+    ]
