@@ -126,12 +126,14 @@ parse_op2 = go
       op <- option "" next_op
       case op of
         "" -> return l
+        ":=" -> update l
         "=>" -> func l
         "=" -> assign l
         _ -> op2 op l
     func Void = Func [] <$> parse_exp
     func (Call name []) = Func [(name, Void)] <$> parse_exp
     assign (Call name []) = Assign name <$> parse_exp
+    update (Call name []) = Update name <$> parse_exp
     op2 op l = do
       r <- parse_op2
       return $ Call op [l, r]
@@ -254,7 +256,7 @@ next_op = do
     return o
   where
     op = op2 ++ op1
-    op2 = ["<-",  ":=", "==", "!=", ">=", "<=", "||", "&&", "=>", "++"]
+    op2 = ["<-", ":=", "==", "!=", ">=", "<=", "||", "&&", "=>", "++"]
     op1 = map (\x -> [x]) ".+-*/%|<>="
 
 next_br = do

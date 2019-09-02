@@ -3,7 +3,7 @@ module Main where
 import Debug.Trace (trace)
 import AST
 import Parser (parse)
-import Evaluator (eval, to_string)
+import Evaluator (eval)
 import Control.Monad (when)
 import System.Process (runCommand, waitForProcess)
 

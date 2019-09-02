@@ -4,22 +4,13 @@ import Debug.Trace (trace)
 import AST
 import Parser (parseAST)
 import Control.Applicative ((<|>))
-import Control.Monad.State
+import Control.Monad (filterM)
 import Data.Foldable (find)
 
 eval :: Env -> AST -> AST
-eval env input = evalState (unify input) (Scope env [] [] [])
+eval env top = evalRuntime (unify top) (Scope env [] [] [])
 
 -- private functions
-
-data Scope = Scope {
-    global :: Env
-  , share :: Env
-  , local :: Env
-  , stack :: [(String, Scope)]
-} deriving (Show, Eq)
-
-type Runtime = State Scope
 
 unify :: AST -> Runtime AST
 unify (List xs) = List <$> mapM unify xs
@@ -28,6 +19,11 @@ unify (Assign name body) = do
   ret <- unify body
   ret <- unwrap ret
   modify (\s -> s { local = (name, ret) : local s })
+  return ret
+unify (Update name body) = do
+  ret <- unify body
+  ret <- unwrap ret
+  modify (\s -> s { share = (name, ret) : (share s) })
   return ret
 unify (Call name argv) = do
   argv <- mapM unify argv
@@ -40,26 +36,27 @@ unify f@(Func args body) = if elem ("__captured", Void) args then return f else 
 unify ast = return ast
 
 unwrap (Func args body) = do
-  s <- get
-  put $ s { local = local s ++ args }
+  s1 <- get
+  put $ s1 { local = args ++ local s1 }
   ret <- unify body
-  put s
+  modify $ \s2 -> s2 { local = local s1 }
   return ret
 unwrap ast = return ast
 
 callWithStack :: String -> [AST] -> Runtime AST
 callWithStack name argv = do
   s1 <- get
-  put $ s1 { stack = (name ++ " : " ++ (keys $ local s1), s1) : stack s1 }
+  let label = name ++ " : " ++ (keys $ local s1)
+  put $ s1 { stack = (label, s1) : stack s1 }
   ret <- call name argv
-  s2 <- get
-  put $ s2 { stack = stack s1 }
+  modify $ \s2 -> s2 { stack = stack s1 }
   return ret
 call :: String -> [AST] -> Runtime AST
 call "_" [] = return Void
 call "|" [l, r] = return $ if is_throw l then l else r
 call "||" [(Bool True), _] = return $ Bool True
 call "||" [(Bool False), r] = return r
+call "||" args = error $ show args
 call "&&" [(Bool True), r] = return r
 call "&&" [(Bool False), _] = return $ Bool False
 call "+" [(Int l), (Int r)] = return $ Int $ l + r
@@ -109,28 +106,23 @@ call name ((Class env):argv) = do
   s1 <- get
   put $ s1 { share = new env argv }
   ret <- call name argv
-  s2 <- get
-  put $ s2 { share = share s1 }
+  modify $ \s2 -> s2 { share = share s1 }
   return $ ret
 call name argv = do
   ast <- ref name
   apply ast argv
 
 apply :: AST -> [AST] -> Runtime AST
-apply ast [] = return ast
 apply (String s) [Int n] = return $ String [s !! n]
 apply (List l) [Int n] = return $ l !! n
 apply (Class env) argv = return $ Class $ (zip (map fst env) argv) ++ (drop (length argv) env)
 apply (Match conds) argv = miss "no implement"
-apply (Func args body) argv = go args
-  where
-    go [] = return body -- keep pointer for lazy evaluation
-    go _ = do
-      s <- get
-      put $ s { local = new args argv }
-      ret <- unify body
-      put $ s { local = local s }
-      return ret
+apply (Func args body) argv = do
+  s1 <- get
+  put $ s1 { local = (new args argv) ++ local s1 }
+  ret <- unify body
+  modify $ \s2 -> s2 { local = local s1 }
+  return ret
 apply ast argv = miss $ show ast ++ " with " ++ show argv
 
 ref :: String -> Runtime AST
@@ -146,68 +138,14 @@ new env argv = (zip (map fst env) argv) ++ (drop (length argv) env)
 throw message = Class [("__throw", String message)]
 
 -- utility
-debug name = trace name (return ())
+debug x = trace (take 70 $ show x) (return ())
 
 is_throw (Class xs)
-  | any (\(k, _) -> k == "__thorw") xs = True
+  | any (\(k, _) -> k == "__throw") xs = True
   | otherwise = False
 is_throw _ = False
-
-string_contains :: String -> String -> Bool
-string_contains target y = go target
-  where
-    n = length y
-    go [] = False
-    go str@(x:xs) = (take n str == y) || go xs
-
-string_replace :: Int -> String -> String -> String -> String
-string_replace n a b c = string_join c (string_split n a b)
-string_split :: Int -> String -> String -> [String]
-string_split limit str delim = go limit str [] []
-  where
-    n = length delim
-    go 0 str _ acc2 = acc2 ++ [str]
-    go m [] _ acc2 = acc2
-    go m str@(x:xs) acc1 acc2 = if delim == (take n str)
-      then go (m - 1) (drop n str) [] (if length acc1 == 0 then acc2 else (reverse acc1) : acc2)
-      else go m xs (x : acc1) acc2
-string_join :: String -> [String] -> String
-string_join glue [] = ""
-string_join glue [x] = x
-string_join glue (x:xs) = x ++ glue ++ (string_join glue xs)
-
-to_strings xs = string_join " " (map show xs)
-to_string Void = "_"
-to_string (Bool True) = "true"
-to_string (Bool False) = "false"
-to_string (Int x) = show x
-to_string (Float x) = show x
-to_string (String x) = x
-to_string (Func _ _) = "(func)"
-to_string (List xs) = "[" ++ (string_join ", " (map to_string xs)) ++ "]"
-to_string (Class xs) = "(class)"
-to_string (Match conds) = "(match" ++ (show $ length conds) ++ ")"
-
-keys env = (string_join ", " $ map fst env)
-kvs env = "- " ++ (string_join "\n- " $ map (\(k,v) -> k ++ " " ++ (take 70 $ show v)) env)
-showStack n [] = "(empty)"
-showStack 0 ((name, s):_) = "# " ++ name ++ "\n" ++ (kvs $ local s)
-showStack n (x:xs) = showStack (n - 1) xs
-
-escape [] = ""
-escape ('"':xs) = "\\\"" ++ escape xs
-escape (x:xs) = x : escape xs
 
 miss :: String -> Runtime AST
 miss message = do
   s <- get
-  error $ string_join "\n" [
-      message
-    , ""
-    , "Stacks"
-    , showStack 0 (stack s)
-    , showStack 1 (stack s)
-    , showStack 2 (stack s)
-    , showStack 3 (stack s)
-    , showStack 4 (stack s)
-    ]
+  error $ message ++ dump s
