@@ -1,5 +1,7 @@
 module AST where
 
+import Debug.Trace (trace)
+
 type Env = [(String, AST)]
 
 data AST =
@@ -9,8 +11,10 @@ data AST =
   | Int Int
   | Float Double
   | String String
-  | Func Env AST
+  | Func [String] AST
+  | Closure [String] Env AST
   | List [AST]
+  | Throw Env
   | Class Env
 -- expression
   | Block [AST]
@@ -47,57 +51,64 @@ instance Monad Parser where
 
 data Scope = Scope {
     global :: Env
-  , share :: Env
+  , klass :: Env
+  , block :: Env
   , local :: Env
   , stack :: [(String, Scope)]
 } deriving (Show, Eq)
 
-data Runtime a = Runtime { runState :: Scope -> (a, Scope) }
+data Runtime a = Runtime { runState :: Scope -> Either AST (a, Scope) }
 
 instance Functor Runtime where
-  fmap f vm = Runtime $ \s -> let (a, s') = runState vm s in (f a, s')
+  fmap f vm = Runtime $ \s -> fmap (\(a, s') -> (f a, s')) (runState vm s)
 
 instance Applicative Runtime where
-  pure v = Runtime $ \s -> (v, s)
-  l <*> r = Runtime $ \s -> let
-    (f, s') = runState l s
-    (v, s'') = runState r s'
-    in (f v, s'')
+  pure v = Runtime $ \s -> Right (v, s)
+  l <*> r = Runtime $ \s ->
+            case (runState l s, runState r s) of
+              (Right (f, _), Right (v, s')) -> Right (f v, s')
+              _ -> Left Void
 
 instance Monad Runtime where
   return = pure
-  vm >>= f = Runtime $ \s -> if (length $ stack s) > 10
+  vm >>= f = Runtime $ \s -> if (length $ stack s) > 20
     then error $ "Stack over flow\n" ++ dump s
-    else let (a, s') = runState vm s in runState (f a) s'
+    else case runState vm s of
+      Right (v, s') -> runState (f v) s'
 
-modify f = Runtime $ \s -> ((), f s)
-put s = Runtime $ \_ -> ((), s)
-get = Runtime $ \s -> (s, s)
-evalRuntime vm s = fst $ runState vm s
+modify f = Runtime $ \s -> Right ((), f s)
+put s = Runtime $ \_ -> Right ((), s)
+get = Runtime $ \s -> Right (s, s)
+evalRuntime vm s = case runState vm s of
+  Right (v, _) -> trace (show v) v
+  Left x -> error $ "thrown " ++ show x
 
 -- utility
 
 dump :: Scope -> String
-dump s = string_join "\n" [
-      "Stacks"
-    , showStack 0 (stack s)
-    , showStack 1 (stack s)
-    , showStack 2 (stack s)
-    , showStack 3 (stack s)
-    , showStack 4 (stack s)
-    ]
+dump s = "Local:" ++ (kvs $ filter ignore $ local s) ++
+    "\nBlock:" ++ (kvs $ filter ignore $ block s) ++
+    "\nKlass:" ++ (kvs $ filter ignore $ klass s) ++
+    "\nStacks:\n"  ++ showStacks (stack s) ++
+    "\nGlobal:" ++ (kvs $ filter ignore $ klass s)
+  where
+    ignore (_, Func _ _) = False
+    ignore (_, Block _) = False
+    ignore (_, Throw _) = False
+    ignore (_, Call _ _) = False
+    ignore _ = True
 
 string_join :: String -> [String] -> String
 string_join glue [] = ""
 string_join glue [x] = x
 string_join glue (x:xs) = x ++ glue ++ (string_join glue xs)
 
-showStack n [] = "(empty)"
-showStack 0 ((name, s):_) = "# " ++ name ++ "\n" ++ (kvs $ local s)
-showStack n (x:xs) = showStack (n - 1) xs
+showStacks xs = string_join "\n" $ map showStack xs
+showStack (name, s)  = "# " ++ name ++ (kvs $ block s ++ local s)
 
 keys env = (string_join ", " $ map fst env)
-kvs env = "- " ++ (string_join "\n- " $ map (\(k,v) -> k ++ " " ++ (take 70 $ show v)) env)
+kvs [] = ""
+kvs env = "\n- " ++ (string_join "\n- " $ map (\(k,v) -> k ++ " " ++ (take 120 $ show v)) env)
 
 string_contains :: String -> String -> Bool
 string_contains target y = go target

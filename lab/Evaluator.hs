@@ -8,36 +8,53 @@ import Control.Monad (filterM)
 import Data.Foldable (find)
 
 eval :: Env -> AST -> AST
-eval env top = evalRuntime (unify top) (Scope env [] [] [])
+eval env top = evalRuntime (unify top) (Scope env [] [] [] [])
 
 -- private functions
 
 unify :: AST -> Runtime AST
 unify (List xs) = List <$> mapM unify xs
-unify (Block lines) = fmap last $ mapM unify lines
+unify (Block lines) = do
+  s1 <- get
+  --put $ s1 { block = [] }
+  debug "in block"
+  v <- fmap last $ mapM unify lines
+  debug "out block"
+  --modify $ \s2 -> s2 { block = block s1 }
+  return v
 unify (Assign name body) = do
   ret <- unify body
   ret <- unwrap ret
-  modify (\s -> s { local = (name, ret) : local s })
+  modify $ \s -> s { block = (name, ret) : block s }
+  s <- get
+  debug ("assign", name, block s)
   return ret
 unify (Update name body) = do
   ret <- unify body
   ret <- unwrap ret
-  modify (\s -> s { share = (name, ret) : (share s) })
+  modify $ \s -> s { klass = (name, ret) : (klass s) }
   return ret
+unify (Call "|" [l, r]) = do
+  ret <- unify l
+  case ret of
+    Throw _ -> unify r
+    _ -> return ret
 unify (Call name argv) = do
   argv <- mapM unify argv
-  case find is_throw argv of
-    Just x -> return x
-    Nothing -> callWithStack name argv
-unify f@(Func args body) = if elem ("__captured", Void) args then return f else do
+  callWithStack name argv
+unify f@(Func args body) = do
   s <- get
-  return $ Func (args ++ (local s) ++ [("__captured", Void)]) body
+  let env = block s ++ local s
+  return $ Closure args env body
 unify ast = return ast
 
-unwrap (Func args body) = do
+unwrap (Func [] body) = do
   s1 <- get
-  put $ s1 { local = args ++ local s1 }
+  ret <- unify body
+  modify $ \s2 -> s2 { local = local s1 }
+  return ret
+unwrap (Closure [] env body) = do
+  s1 <- get
   ret <- unify body
   modify $ \s2 -> s2 { local = local s1 }
   return ret
@@ -46,17 +63,15 @@ unwrap ast = return ast
 callWithStack :: String -> [AST] -> Runtime AST
 callWithStack name argv = do
   s1 <- get
-  let label = name ++ " : " ++ (keys $ local s1)
+  let label = name ++ " : " ++ (keys $ local s1 ++ block s1)
   put $ s1 { stack = (label, s1) : stack s1 }
   ret <- call name argv
   modify $ \s2 -> s2 { stack = stack s1 }
   return ret
 call :: String -> [AST] -> Runtime AST
 call "_" [] = return Void
-call "|" [l, r] = return $ if is_throw l then l else r
 call "||" [(Bool True), _] = return $ Bool True
 call "||" [(Bool False), r] = return r
-call "||" args = error $ show args
 call "&&" [(Bool True), r] = return r
 call "&&" [(Bool False), _] = return $ Bool False
 call "+" [(Int l), (Int r)] = return $ Int $ l + r
@@ -71,6 +86,7 @@ call "." [(String l), (String r)] = return $ String (l ++ r)
 call "++" [(List l), (List r)] = return $ List (l ++ r)
 call "==" [l, r] = return $ Bool (show l == show r)
 call "!=" [l, r] = return $ Bool (not $ (show l == show r))
+call "die" [] = miss "die"
 call "trace" args = trace ("TRACE: " ++ (take 100 $ show args)) (return Void)
 call "if"  [Bool a, b, c] = return $ if a then b else c
 call "map"  [List xs, ast] = do { x <- mapM (\x -> apply ast [x]) xs; return $ List x }
@@ -101,36 +117,44 @@ call "at" [String s, Int index] = return $ if index < length s
 call "at" [List s, Int index] = return $ if index < length s
   then s !! index
   else throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
-call name [] = ref name
 call name ((Class env):argv) = do
   s1 <- get
-  put $ s1 { share = new env argv }
+  put $ s1 { klass = new env argv }
   ret <- call name argv
-  modify $ \s2 -> s2 { share = share s1 }
+  modify $ \s2 -> s2 { klass = klass s1 }
   return $ ret
 call name argv = do
-  ast <- ref name
+  s <- get
+  debug ("ref", name, block s)
+  ast <- ref name argv
   apply ast argv
 
 apply :: AST -> [AST] -> Runtime AST
+apply ast [] = return ast
 apply (String s) [Int n] = return $ String [s !! n]
 apply (List l) [Int n] = return $ l !! n
 apply (Class env) argv = return $ Class $ (zip (map fst env) argv) ++ (drop (length argv) env)
 apply (Match conds) argv = miss "no implement"
 apply (Func args body) argv = do
   s1 <- get
-  put $ s1 { local = (new args argv) ++ local s1 }
+  put $ s1 { local = (zip args argv) ++ local s1 }
+  ret <- unify body
+  modify $ \s2 -> s2 { local = local s1 }
+  return ret
+apply (Closure args env body) argv = do
+  s1 <- get
+  put $ s1 { local = (zip args argv) ++ env ++ local s1 }
   ret <- unify body
   modify $ \s2 -> s2 { local = local s1 }
   return ret
 apply ast argv = miss $ show ast ++ " with " ++ show argv
 
-ref :: String -> Runtime AST
-ref name = do
+ref :: String -> [AST] -> Runtime AST
+ref name argv = do
   s <- get
-  case lookup name $ (local s) ++ (share s) ++ (global s) of
+  case lookup name $ (local s) ++ (block s) ++ (klass s) ++ (global s) of
     Just x -> unify x
-    Nothing -> miss $ "Not found: " ++ name
+    Nothing -> miss $ "Not found: " ++ name ++ " with " ++ show argv
 
 new :: Env -> [AST] -> Env
 new env argv = (zip (map fst env) argv) ++ (drop (length argv) env)
@@ -138,14 +162,9 @@ new env argv = (zip (map fst env) argv) ++ (drop (length argv) env)
 throw message = Class [("__throw", String message)]
 
 -- utility
-debug x = trace (take 70 $ show x) (return ())
-
-is_throw (Class xs)
-  | any (\(k, _) -> k == "__throw") xs = True
-  | otherwise = False
-is_throw _ = False
+debug x = trace ("@ " ++ (take 70 $ show x)) (return ())
 
 miss :: String -> Runtime AST
 miss message = do
   s <- get
-  error $ message ++ dump s
+  error $ message ++ "\n" ++ dump s

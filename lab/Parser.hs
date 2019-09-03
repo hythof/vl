@@ -131,7 +131,7 @@ parse_op2 = go
         "=" -> assign l
         _ -> op2 op l
     func Void = Func [] <$> parse_exp
-    func (Call name []) = Func [(name, Void)] <$> parse_exp
+    func (Call name []) = Func [name] <$> parse_exp
     assign (Call name []) = Assign name <$> parse_exp
     update (Call name []) = Update name <$> parse_exp
     op2 op l = do
@@ -171,10 +171,10 @@ debug mark = Parser $ \s -> trace ("@ " ++ show mark ++ " | " ++ show s) (return
 current_indent = Parser $ \s -> return (indentation s, s)
 
 make_func [] body = body
-make_func args body = Func (map (\x -> (x, Void)) args) body
+make_func args body = Func args body
 
 make_class name props methods = Class $ (map (\x -> (x, Void)) props) ++ methods ++ [("__name", (String name))]
-make_throw name props = make_class name props [("__throw", Void)]
+make_throw name props = Throw $ map (\x -> (x, Void)) props
 
 satisfy f = Parser $ \s -> do
   let src = source s
