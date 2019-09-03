@@ -16,18 +16,14 @@ unify :: AST -> Runtime AST
 unify (List xs) = List <$> mapM unify xs
 unify (Block lines) = do
   s1 <- get
-  --put $ s1 { block = [] }
-  debug "in block"
+  put $ s1 { block = [] }
   v <- fmap last $ mapM unify lines
-  debug "out block"
-  --modify $ \s2 -> s2 { block = block s1 }
+  modify $ \s2 -> s2 { block = block s1 }
   return v
 unify (Assign name body) = do
   ret <- unify body
   ret <- unwrap ret
   modify $ \s -> s { block = (name, ret) : block s }
-  s <- get
-  debug ("assign", name, block s)
   return ret
 unify (Update name body) = do
   ret <- unify body
@@ -42,7 +38,7 @@ unify (Call "|" [l, r]) = do
 unify (Call name argv) = do
   argv <- mapM unify argv
   callWithStack name argv
-unify f@(Func args body) = do
+unify (Func args body) = do
   s <- get
   let env = block s ++ local s
   return $ Closure args env body
@@ -124,8 +120,6 @@ call name ((Class env):argv) = do
   modify $ \s2 -> s2 { klass = klass s1 }
   return $ ret
 call name argv = do
-  s <- get
-  debug ("ref", name, block s)
   ast <- ref name argv
   apply ast argv
 
@@ -162,7 +156,7 @@ new env argv = (zip (map fst env) argv) ++ (drop (length argv) env)
 throw message = Class [("__throw", String message)]
 
 -- utility
-debug x = trace ("@ " ++ (take 70 $ show x)) (return ())
+debug x = trace ("@ " ++ (take 200 $ show x)) (return ())
 
 miss :: String -> Runtime AST
 miss message = do

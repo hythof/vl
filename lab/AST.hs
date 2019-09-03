@@ -35,9 +35,12 @@ instance Functor Parser where
 
 instance Applicative Parser where
   pure v = Parser $ \s -> Just (v, s)
-  l <*> r = Parser $ \s -> case (runParser l s, runParser r s) of
-    (Just (f, _), Just (a, _)) -> Just (f a, s)
-    _ -> Nothing
+  l <*> r = Parser $ \s ->
+            case runParser l s of
+              Just (f, s') -> case runParser r s' of
+                Just (v, s'') -> Just (f v, s'')
+                _ -> Nothing
+              _ -> Nothing
 
 instance Monad Parser where
   return = pure
@@ -57,31 +60,33 @@ data Scope = Scope {
   , stack :: [(String, Scope)]
 } deriving (Show, Eq)
 
-data Runtime a = Runtime { runState :: Scope -> Either AST (a, Scope) }
+data Runtime a = Runtime { runState :: Scope -> Maybe (a, Scope) }
 
 instance Functor Runtime where
   fmap f vm = Runtime $ \s -> fmap (\(a, s') -> (f a, s')) (runState vm s)
 
 instance Applicative Runtime where
-  pure v = Runtime $ \s -> Right (v, s)
+  pure v = Runtime $ \s -> Just (v, s)
   l <*> r = Runtime $ \s ->
-            case (runState l s, runState r s) of
-              (Right (f, _), Right (v, s')) -> Right (f v, s')
-              _ -> Left Void
+            case runState l s of
+              Just (f, s') -> case runState r s' of
+                Just (v, s'') -> Just (f v, s'')
+                _ -> Nothing
+              _ -> Nothing
 
 instance Monad Runtime where
   return = pure
   vm >>= f = Runtime $ \s -> if (length $ stack s) > 20
     then error $ "Stack over flow\n" ++ dump s
     else case runState vm s of
-      Right (v, s') -> runState (f v) s'
+      Just (v, s') -> runState (f v) s'
 
-modify f = Runtime $ \s -> Right ((), f s)
-put s = Runtime $ \_ -> Right ((), s)
-get = Runtime $ \s -> Right (s, s)
+modify f = Runtime $ \s -> return ((), f s)
+put s = Runtime $ \_ -> return ((), s)
+get = Runtime $ \s -> return (s, s)
 evalRuntime vm s = case runState vm s of
-  Right (v, _) -> trace (show v) v
-  Left x -> error $ "thrown " ++ show x
+  Just (v, _) -> trace (show v) v
+  Nothing -> error $ "thrown"
 
 -- utility
 

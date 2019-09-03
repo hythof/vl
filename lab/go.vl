@@ -98,11 +98,6 @@ flow parser:
   bug_of_c_parser
   input string
   satisfy f = () =>
-    a = 1
-    b = 2
-    die
-    c = 3
-    d = 4
     c = input.at(0) | eof
     j = f(c)
     j || miss
