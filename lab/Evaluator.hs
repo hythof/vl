@@ -3,7 +3,6 @@ module Evaluator where
 import Debug.Trace (trace)
 import AST
 import Parser (parseAST)
-import Control.Applicative ((<|>))
 import Control.Monad (filterM)
 import Data.Foldable (find)
 
@@ -21,46 +20,38 @@ unify (Block lines) = do
   modify $ \s2 -> s2 { block = block s1 }
   return v
 unify (Assign name body) = do
-  ret <- unify body
-  ret <- unwrap ret
+  ret <- unwrap body
   modify $ \s -> s { block = (name, ret) : block s }
   return ret
 unify (Update name body) = do
-  ret <- unify body
-  ret <- unwrap ret
-  modify $ \s -> s { klass = (name, ret) : (klass s) }
+  ret <- unwrap body
+  modify $ \s -> s { klass = squash [(name, ret)] (klass s) }
   return ret
-unify (Call "|" [l, r]) = do
-  ret <- unify l
-  case ret of
-    Throw _ -> unify r
-    _ -> return ret
+unify (Call "|" [l, r]) = unify l <|> unify r
 unify (Call name argv) = do
   argv <- mapM unify argv
   callWithStack name argv
-unify (Func args body) = do
+unify (Func args [] body) = do
   s <- get
   let env = block s ++ local s
-  return $ Closure args env body
+  return $ Func args env body
 unify ast = return ast
 
-unwrap (Func [] body) = do
-  s1 <- get
-  ret <- unify body
-  modify $ \s2 -> s2 { local = local s1 }
-  return ret
-unwrap (Closure [] env body) = do
-  s1 <- get
-  ret <- unify body
-  modify $ \s2 -> s2 { local = local s1 }
-  return ret
-unwrap ast = return ast
+unwrap ast = unify ast >>= go
+  where
+    go (Func [] env body) = do
+      s1 <- get
+      put $ s1 { local = env }
+      ret <- unify body
+      modify $ \s2 -> s2 { local = local s1 }
+      return ret
+    go ast = return ast
 
 callWithStack :: String -> [AST] -> Runtime AST
 callWithStack name argv = do
   s1 <- get
   let label = name ++ " : " ++ (keys $ local s1 ++ block s1)
-  put $ s1 { stack = (label, s1) : stack s1 }
+  put $ s1 { stack = (label, s1) : (stack s1) }
   ret <- call name argv
   modify $ \s2 -> s2 { stack = stack s1 }
   return ret
@@ -107,11 +98,11 @@ call "length" [List s] = return $ Int $ length s
 call "length" [String s] = return $ Int $ length s
 call "slice"  [String s, Int n] = return $ String $ drop n s
 call "slice"  [String s, Int n, Int m] = return $ String $ take m (drop n s)
-call "at" [String s, Int index] = return $ if index < length s
-  then String $ [(s !! index)]
+call "at" [String s, Int index] = if index < length s
+  then return $ String $ [(s !! index)]
   else throw $ "out of index " ++ show index ++ " in \"" ++ s ++ "\""
-call "at" [List s, Int index] = return $ if index < length s
-  then s !! index
+call "at" [List s, Int index] = if index < length s
+  then return $ s !! index
   else throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
 call name ((Class env):argv) = do
   s1 <- get
@@ -129,15 +120,9 @@ apply (String s) [Int n] = return $ String [s !! n]
 apply (List l) [Int n] = return $ l !! n
 apply (Class env) argv = return $ Class $ (zip (map fst env) argv) ++ (drop (length argv) env)
 apply (Match conds) argv = miss "no implement"
-apply (Func args body) argv = do
+apply (Func args env body) argv = do
   s1 <- get
-  put $ s1 { local = (zip args argv) ++ local s1 }
-  ret <- unify body
-  modify $ \s2 -> s2 { local = local s1 }
-  return ret
-apply (Closure args env body) argv = do
-  s1 <- get
-  put $ s1 { local = (zip args argv) ++ env ++ local s1 }
+  put $ s1 { local = squash3 (zip args argv) env (local s1) }
   ret <- unify body
   modify $ \s2 -> s2 { local = local s1 }
   return ret
@@ -153,11 +138,25 @@ ref name argv = do
 new :: Env -> [AST] -> Env
 new env argv = (zip (map fst env) argv) ++ (drop (length argv) env)
 
-throw message = Class [("__throw", String message)]
+squash :: Env -> Env -> Env
+squash [] ys = ys
+squash xs [] = xs
+squash xs ys = go ys []
+  where
+    go [] acc = xs ++ (reverse acc)
+    go (y@(k,_):ys) acc = if any (\(k',_) -> k == k') xs
+      then go ys acc
+      else go ys (y : acc)
+
+squash3 xs ys zs = squash xs (squash ys zs)
+
+throw message = Runtime $ \_ -> trace ("throw " ++ message) Nothing
+
+l <|> r = Runtime $ \s -> case runState l s of
+  Just v -> return v
+  _ -> runState r s
 
 -- utility
-debug x = trace ("@ " ++ (take 200 $ show x)) (return ())
-
 miss :: String -> Runtime AST
 miss message = do
   s <- get

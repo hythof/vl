@@ -33,16 +33,16 @@ parse_bottom = go
       switch op unit
     switch '.' unit = do
       name <- token <|> (many1 $ oneOf "0123456789")
-      args <- option [] (between (string "(") (spaces >> string ")") read_args1)
+      args <- option [] (between (string "(") (spaces >> string ")") read_args)
       chain $ Call name (unit : args)
     switch '(' unit = do
-      args <- many1 (spaces >> parse_exp)
+      args <- read_args
       spaces
       string ")"
       let (Call name []) = unit
       chain $ Call name args
     switch _ unit = return unit
-    read_args1 = many1 (spaces >> parse_exp)
+    read_args = many (spaces >> parse_exp)
 -- define
 parse_define = go
   where
@@ -130,8 +130,8 @@ parse_op2 = go
         "=>" -> func l
         "=" -> assign l
         _ -> op2 op l
-    func Void = Func [] <$> parse_exp
-    func (Call name []) = Func [name] <$> parse_exp
+    func Void = make_func [] <$> parse_exp
+    func (Call name []) = make_func [name] <$> parse_exp
     assign (Call name []) = Assign name <$> parse_exp
     update (Call name []) = Update name <$> parse_exp
     op2 op l = do
@@ -158,7 +158,7 @@ parse_match = Match <$> many1 go
 parse_block = next_br >> (indent (go <|> miss "block"))
   where
     go = Block <$> indented_lines parse_exp
-parse_lazy = next_string "() =>" >> fmap (Func []) parse_block
+parse_lazy = next_string "() =>" >> fmap (Func [] []) parse_block -- make Func object even if args is empty for closure
 -- comments
 parse_tail_comment = do
   spaces1
@@ -167,11 +167,10 @@ parse_tail_comment = do
 -- utility
 eof = Parser $ \s -> if 0 == (length $ source s) then Just ((), s) else Nothing
 eol = (look next_br) <|> (miss "eol")
-debug mark = Parser $ \s -> trace ("@ " ++ show mark ++ " | " ++ show s) (return ((), s))
 current_indent = Parser $ \s -> return (indentation s, s)
 
 make_func [] body = body
-make_func args body = Func args body
+make_func args body = Func args [] body
 
 make_class name props methods = Class $ (map (\x -> (x, Void)) props) ++ methods ++ [("__name", (String name))]
 make_throw name props = Throw $ map (\x -> (x, Void)) props

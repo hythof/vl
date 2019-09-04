@@ -11,8 +11,7 @@ data AST =
   | Int Int
   | Float Double
   | String String
-  | Func [String] AST
-  | Closure [String] Env AST
+  | Func [String] Env AST
   | List [AST]
   | Throw Env
   | Class Env
@@ -76,10 +75,11 @@ instance Applicative Runtime where
 
 instance Monad Runtime where
   return = pure
-  vm >>= f = Runtime $ \s -> if (length $ stack s) > 20
+  vm >>= f = Runtime $ \s -> if (length $ stack s) > 100
     then error $ "Stack over flow\n" ++ dump s
     else case runState vm s of
       Just (v, s') -> runState (f v) s'
+      Nothing -> Nothing
 
 modify f = Runtime $ \s -> return ((), f s)
 put s = Runtime $ \_ -> return ((), s)
@@ -95,9 +95,9 @@ dump s = "Local:" ++ (kvs $ filter ignore $ local s) ++
     "\nBlock:" ++ (kvs $ filter ignore $ block s) ++
     "\nKlass:" ++ (kvs $ filter ignore $ klass s) ++
     "\nStacks:\n"  ++ showStacks (stack s) ++
-    "\nGlobal:" ++ (kvs $ filter ignore $ klass s)
+    "\nGlobal:" ++ (kvs $ filter ignore $ global s)
   where
-    ignore (_, Func _ _) = False
+    ignore (_, Func _ _ _) = False
     ignore (_, Block _) = False
     ignore (_, Throw _) = False
     ignore (_, Call _ _) = False
@@ -113,7 +113,7 @@ showStack (name, s)  = "# " ++ name ++ (kvs $ block s ++ local s)
 
 keys env = (string_join ", " $ map fst env)
 kvs [] = ""
-kvs env = "\n- " ++ (string_join "\n- " $ map (\(k,v) -> k ++ " " ++ (take 120 $ show v)) env)
+kvs env = "\n- " ++ (string_join "\n- " $ map (\(k,v) -> k ++ " " ++ (take 120 $ to_string v)) env)
 
 string_contains :: String -> String -> Bool
 string_contains target y = go target
@@ -141,7 +141,16 @@ to_string (Bool False) = "false"
 to_string (Int x) = show x
 to_string (Float x) = show x
 to_string (String x) = x
-to_string (Func _ _) = "(func)"
+to_string (Func args _ body) = "(" ++ (string_join "," args) ++ " => " ++ to_string body ++ ")"
+to_string (Call name []) = name
+to_string (Call name argv) = name ++ "(" ++ (string_join " " $ map to_string argv) ++ ")"
+to_string (Assign name body) = name ++ " = " ++ to_string body
+to_string (Update name body) = name ++ " := " ++ to_string body
+to_string (Block xs) = string_join "; " (map to_string xs)
 to_string (List xs) = "[" ++ (string_join ", " (map to_string xs)) ++ "]"
-to_string (Class xs) = "(class)"
+to_string (Class xs) = "(class: " ++ (string_join ", " $ map fst xs) ++ ")"
+to_string (Throw xs) = "(throw: " ++ (string_join ", " $ map fst xs) ++ ")"
 to_string (Match conds) = "(match" ++ (show $ length conds) ++ ")"
+--to_string x = show x
+
+debug x = trace ("@ " ++ (take 200 $ show x)) (return ())
