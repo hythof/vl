@@ -5,9 +5,10 @@ import AST
 import Parser (parseAST)
 import Control.Monad (filterM)
 import Data.Foldable (find)
+import System.IO.Unsafe (unsafePerformIO)
 
 eval :: Env -> AST -> AST
-eval env top = evalRuntime (unify top) (Scope env [] [] [] [])
+eval env top = evalRuntime (unify top) (Scope env [] [] [] [] [] [] [])
 
 -- private functions
 
@@ -16,24 +17,26 @@ unify (List xs) = List <$> mapM unify xs
 unify (Block lines) = do
   s1 <- get
   put $ s1 { block = [] }
-  v <- fmap last $ mapM unify lines
+  v <- fmap last $ mapM unwrap lines
   modify $ \s2 -> s2 { block = block s1 }
   return v
 unify (Assign name body) = do
   ret <- unwrap body
-  modify $ \s -> s { block = (name, ret) : block s }
+  modify $ \s -> s { block = squash [(name, ret)] (block s) }
   return ret
 unify (Update name body) = do
   ret <- unwrap body
-  modify $ \s -> s { klass = squash [(name, ret)] (klass s) }
+  modify $ \s -> s { vars = squash [(name, ret)] (vars s) }
   return ret
-unify (Call "|" [l, r]) = unify l <|> unify r
+unify (Call "|" [l, r]) = do
+  s <- get
+  unwrap l <|> (put s >> unwrap r)
 unify (Call name argv) = do
   argv <- mapM unify argv
   callWithStack name argv
 unify (Func args [] body) = do
   s <- get
-  let env = block s ++ local s
+  let env = squash (block s) (local s)
   return $ Func args env body
 unify ast = return ast
 
@@ -45,6 +48,7 @@ unwrap ast = unify ast >>= go
       ret <- unify body
       modify $ \s2 -> s2 { local = local s1 }
       return ret
+    go (Throw env) = throw (show env)
     go ast = return ast
 
 callWithStack :: String -> [AST] -> Runtime AST
@@ -53,7 +57,7 @@ callWithStack name argv = do
   let label = name ++ " : " ++ (keys $ local s1 ++ block s1)
   put $ s1 { stack = (label, s1) : (stack s1) }
   ret <- call name argv
-  modify $ \s2 -> s2 { stack = stack s1 }
+  modify $ \s2 -> s2 { stack = stack s1, history = (name, argv, ret) : history s2 }
   return ret
 call :: String -> [AST] -> Runtime AST
 call "_" [] = return Void
@@ -73,7 +77,6 @@ call "." [(String l), (String r)] = return $ String (l ++ r)
 call "++" [(List l), (List r)] = return $ List (l ++ r)
 call "==" [l, r] = return $ Bool (show l == show r)
 call "!=" [l, r] = return $ Bool (not $ (show l == show r))
-call "die" [] = miss "die"
 call "trace" args = trace ("TRACE: " ++ (take 100 $ show args)) (return Void)
 call "if"  [Bool a, b, c] = return $ if a then b else c
 call "map"  [List xs, ast] = do { x <- mapM (\x -> apply ast [x]) xs; return $ List x }
@@ -83,7 +86,7 @@ call "find"  [List xs, ast] = do
   case hits of
     [] -> miss $ "Finding element not found " ++ show ast ++ "\n  in " ++ show xs
     (x:_) -> return x
-call "has"  [List xs, ast] = return $ Bool (elem ast xs)
+call "has"  [List xs, ast] = trace ("has" ++ show ast ++ " " ++ (show $ length xs) ++ " => " ++ show (elem ast xs)) $ return $ Bool (elem ast xs)
 call "has"  [String xs, String x] = return $ Bool (string_contains xs x)
 call "join" [List xs, String glue] = return $ String (string_join glue (map to_string xs))
 call "sub"  [String a, String b, String c] = return $ String (string_replace (length a) a b c)
@@ -104,11 +107,28 @@ call "at" [String s, Int index] = if index < length s
 call "at" [List s, Int index] = if index < length s
   then return $ s !! index
   else throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
-call name ((Class env):argv) = do
+call "bp" [ast] = go
+  where
+    go = do
+      s <- get
+      return $ unsafePerformIO $ do
+        putStrLn $ "Brake point: " ++ show ast
+        putStrLn $ dump s
+        loop
+    loop = do
+      putStr "> "
+      cmd <- getLine
+      case cmd of
+        "quit" -> return Void
+        "exit" -> return Void
+        "q" -> return Void
+        _ -> loop
+
+call name ((Class props env):argv) = do
   s1 <- get
-  put $ s1 { klass = new env argv }
+  put $ s1 { vars = new props argv, methods = env }
   ret <- call name argv
-  modify $ \s2 -> s2 { klass = klass s1 }
+  modify $ \s2 -> s2 { vars = vars s1, methods = methods s1 }
   return $ ret
 call name argv = do
   ast <- ref name argv
@@ -118,7 +138,7 @@ apply :: AST -> [AST] -> Runtime AST
 apply ast [] = return ast
 apply (String s) [Int n] = return $ String [s !! n]
 apply (List l) [Int n] = return $ l !! n
-apply (Class env) argv = return $ Class $ (zip (map fst env) argv) ++ (drop (length argv) env)
+apply (Class vars env) argv = return $ Class (new vars argv) env
 apply (Match conds) argv = miss "no implement"
 apply (Func args env body) argv = do
   s1 <- get
@@ -131,12 +151,14 @@ apply ast argv = miss $ show ast ++ " with " ++ show argv
 ref :: String -> [AST] -> Runtime AST
 ref name argv = do
   s <- get
-  case lookup name $ (local s) ++ (block s) ++ (klass s) ++ (global s) of
+  case lookup name $ (local s) ++ (block s) ++ (vars s) ++ (methods s) ++ (global s) of
     Just x -> unify x
     Nothing -> miss $ "Not found: " ++ name ++ " with " ++ show argv
 
 new :: Env -> [AST] -> Env
-new env argv = (zip (map fst env) argv) ++ (drop (length argv) env)
+new env argv = if length env == length argv
+  then zip (map fst env) argv
+  else error $ "Argument miss match " ++ show env ++ " " ++ show argv
 
 squash :: Env -> Env -> Env
 squash [] ys = ys
@@ -150,7 +172,7 @@ squash xs ys = go ys []
 
 squash3 xs ys zs = squash xs (squash ys zs)
 
-throw message = Runtime $ \_ -> trace ("throw " ++ message) Nothing
+throw message = Runtime $ \_ -> Nothing
 
 l <|> r = Runtime $ \s -> case runState l s of
   Just v -> return v

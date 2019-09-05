@@ -14,7 +14,7 @@ data AST =
   | Func [String] Env AST
   | List [AST]
   | Throw Env
-  | Class Env
+  | Class Env Env -- properties, methods
 -- expression
   | Block [AST]
   | Assign String AST
@@ -53,10 +53,13 @@ instance Monad Parser where
 
 data Scope = Scope {
     global :: Env
-  , klass :: Env
+  , methods :: Env
+  , vars :: Env
   , block :: Env
   , local :: Env
   , stack :: [(String, Scope)]
+  , history :: [(String, [AST], AST)]
+  , throws :: [(String)]
 } deriving (Show, Eq)
 
 data Runtime a = Runtime { runState :: Scope -> Maybe (a, Scope) }
@@ -85,23 +88,19 @@ modify f = Runtime $ \s -> return ((), f s)
 put s = Runtime $ \_ -> return ((), s)
 get = Runtime $ \s -> return (s, s)
 evalRuntime vm s = case runState vm s of
-  Just (v, _) -> trace (show v) v
+  Just (v, _) -> v
   Nothing -> error $ "thrown"
 
 -- utility
 
 dump :: Scope -> String
-dump s = "Local:" ++ (kvs $ filter ignore $ local s) ++
-    "\nBlock:" ++ (kvs $ filter ignore $ block s) ++
-    "\nKlass:" ++ (kvs $ filter ignore $ klass s) ++
-    "\nStacks:\n"  ++ showStacks (stack s) ++
-    "\nGlobal:" ++ (kvs $ filter ignore $ global s)
-  where
-    ignore (_, Func _ _ _) = False
-    ignore (_, Block _) = False
-    ignore (_, Throw _) = False
-    ignore (_, Call _ _) = False
-    ignore _ = True
+dump s = "Local:" ++ (kvs $ local s)
+    ++ "\nBlock:" ++ (kvs $ block s)
+    ++ "\nVars:" ++ (kvs $ vars s)
+    ++ "\nStacks:\n"  ++ showStacks (take 3 $ stack s)
+    ++ "\nHistory:\n"  ++ showHistories (take 10 $ history s)
+    ++ "\nThrows:\n"  ++ showThrows (take 10 $ throws s)
+    --"\nGlobal:" ++ (kvs $ global s)
 
 string_join :: String -> [String] -> String
 string_join glue [] = ""
@@ -109,7 +108,11 @@ string_join glue [x] = x
 string_join glue (x:xs) = x ++ glue ++ (string_join glue xs)
 
 showStacks xs = string_join "\n" $ map showStack xs
-showStack (name, s)  = "# " ++ name ++ (kvs $ block s ++ local s)
+showStack (name, s)  = "# " ++ name ++ (kvs $ vars s ++ block s ++ local s)
+showHistories xs = string_join "\n" $ map showHistory xs
+showHistory (name, argv, ret)  = "# " ++ (to_string ret) ++ " = " ++ name ++ "(" ++ (string_join "," $ map to_string argv) ++ ")"
+showThrows xs = string_join "\n" $ map showThrow xs
+showThrow x = x
 
 keys env = (string_join ", " $ map fst env)
 kvs [] = ""
@@ -148,7 +151,7 @@ to_string (Assign name body) = name ++ " = " ++ to_string body
 to_string (Update name body) = name ++ " := " ++ to_string body
 to_string (Block xs) = string_join "; " (map to_string xs)
 to_string (List xs) = "[" ++ (string_join ", " (map to_string xs)) ++ "]"
-to_string (Class xs) = "(class: " ++ (string_join ", " $ map fst xs) ++ ")"
+to_string (Class vars methods) = "(class: " ++ kvs vars ++ ")"
 to_string (Throw xs) = "(throw: " ++ (string_join ", " $ map fst xs) ++ ")"
 to_string (Match conds) = "(match" ++ (show $ length conds) ++ ")"
 --to_string x = show x
