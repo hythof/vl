@@ -31,6 +31,14 @@ unify (Update name body) = do
 unify (Call "|" [l, r]) = do
   s <- get
   unwrap l <|> (put s >> unwrap r)
+unify (Call "||" [l, r]) = unwrap l >>= \l' -> case l' of
+  Bool True -> return $ Bool True
+  Bool False -> unify r
+  _ -> throw $ "|| " ++ show l'
+unify (Call "invalid bool &&" [l, r]) = unwrap l >>= \l' -> case l' of
+  Bool True -> unify r
+  Bool False -> return $ Bool False
+  _ -> throw $ "invalid bool && " ++ show l'
 unify (Call name argv) = do
   argv <- mapM unify argv
   callWithStack name argv
@@ -47,8 +55,8 @@ unwrap ast = unify ast >>= go
       put $ s1 { local = env }
       ret <- unify body
       modify $ \s2 -> s2 { local = local s1 }
-      return ret
-    go (Throw env) = throw (show env)
+      unwrap ret
+    go (Throw message) = throw message
     go ast = return ast
 
 callWithStack :: String -> [AST] -> Runtime AST
@@ -61,10 +69,6 @@ callWithStack name argv = do
   return ret
 call :: String -> [AST] -> Runtime AST
 call "_" [] = return Void
-call "||" [(Bool True), _] = return $ Bool True
-call "||" [(Bool False), r] = return r
-call "&&" [(Bool True), r] = return r
-call "&&" [(Bool False), _] = return $ Bool False
 call "+" [(Int l), (Int r)] = return $ Int $ l + r
 call "-" [(Int l), (Int r)] = return $ Int $ l - r
 call "*" [(Int l), (Int r)] = return $ Int $ l * r
@@ -107,6 +111,7 @@ call "at" [String s, Int index] = if index < length s
 call "at" [List s, Int index] = if index < length s
   then return $ s !! index
   else throw $ "out of index " ++ show index ++ " in \"" ++ show s ++ "\""
+call "throw" argv = throw $ string_join ", " $ map to_string argv
 call "bp" [ast] = go
   where
     go = do
@@ -172,11 +177,15 @@ squash xs ys = go ys []
 
 squash3 xs ys zs = squash xs (squash ys zs)
 
-throw message = Runtime $ \_ -> Nothing
+throw message = Runtime $ \s -> Left (Throw message, s { throws = message : throws s })
 
-l <|> r = Runtime $ \s -> case runState l s of
-  Just v -> return v
-  _ -> runState r s
+l <|> r = go
+  where
+    go = Runtime $ \s -> case runState l s of
+      Left (e, s') -> runState r (s' { vars = vars s, local = local s, throws = handleLast $ throws s })
+      l' -> l'
+    handleLast [] = []
+    handleLast (x:xs) = ("catched " ++ x) : xs
 
 -- utility
 miss :: String -> Runtime AST

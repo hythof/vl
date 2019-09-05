@@ -173,7 +173,7 @@ make_func [] body = body
 make_func args body = Func args [] body
 
 make_class name props methods = Class (map (\x -> (x, Void)) props) (methods ++ [("__name", (String name))])
-make_throw name props = Throw $ map (\x -> (x, Void)) props
+make_throw name props = Func props [] (Throw $ show props)
 
 satisfy f = Parser $ \s -> do
   let src = source s

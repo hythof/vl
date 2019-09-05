@@ -13,7 +13,7 @@ data AST =
   | String String
   | Func [String] Env AST
   | List [AST]
-  | Throw Env
+  | Throw String
   | Class Env Env -- properties, methods
 -- expression
   | Block [AST]
@@ -62,34 +62,34 @@ data Scope = Scope {
   , throws :: [(String)]
 } deriving (Show, Eq)
 
-data Runtime a = Runtime { runState :: Scope -> Maybe (a, Scope) }
+data Runtime a = Runtime { runState :: Scope -> Either (AST, Scope) (a, Scope) }
 
 instance Functor Runtime where
   fmap f vm = Runtime $ \s -> fmap (\(a, s') -> (f a, s')) (runState vm s)
 
 instance Applicative Runtime where
-  pure v = Runtime $ \s -> Just (v, s)
+  pure v = Runtime $ \s -> return (v, s)
   l <*> r = Runtime $ \s ->
             case runState l s of
-              Just (f, s') -> case runState r s' of
-                Just (v, s'') -> Just (f v, s'')
-                _ -> Nothing
-              _ -> Nothing
+              Right (f, s') -> case runState r s' of
+                Right (v, s'') -> return (f v, s'')
+                Left (e, s') -> Left (e, s')
+              Left (e, s') -> Left (e, s')
 
 instance Monad Runtime where
   return = pure
   vm >>= f = Runtime $ \s -> if (length $ stack s) > 100
     then error $ "Stack over flow\n" ++ dump s
     else case runState vm s of
-      Just (v, s') -> runState (f v) s'
-      Nothing -> Nothing
+      Right (v, s') -> runState (f v) s'
+      Left (e, s') -> Left (e, s')
 
 modify f = Runtime $ \s -> return ((), f s)
 put s = Runtime $ \_ -> return ((), s)
 get = Runtime $ \s -> return (s, s)
 evalRuntime vm s = case runState vm s of
-  Just (v, _) -> v
-  Nothing -> error $ "thrown"
+  Right (v, _) -> v
+  Left (e, s) -> error $ show e ++ "\n" ++ dump s
 
 -- utility
 
@@ -97,7 +97,7 @@ dump :: Scope -> String
 dump s = "Local:" ++ (kvs $ local s)
     ++ "\nBlock:" ++ (kvs $ block s)
     ++ "\nVars:" ++ (kvs $ vars s)
-    ++ "\nStacks:\n"  ++ showStacks (take 3 $ stack s)
+    ++ "\nStacks:\n"  ++ showStacks (take 5 $ stack s)
     ++ "\nHistory:\n"  ++ showHistories (take 10 $ history s)
     ++ "\nThrows:\n"  ++ showThrows (take 10 $ throws s)
     --"\nGlobal:" ++ (kvs $ global s)
@@ -112,7 +112,7 @@ showStack (name, s)  = "# " ++ name ++ (kvs $ vars s ++ block s ++ local s)
 showHistories xs = string_join "\n" $ map showHistory xs
 showHistory (name, argv, ret)  = "# " ++ (to_string ret) ++ " = " ++ name ++ "(" ++ (string_join "," $ map to_string argv) ++ ")"
 showThrows xs = string_join "\n" $ map showThrow xs
-showThrow x = x
+showThrow x = "# " ++ x
 
 keys env = (string_join ", " $ map fst env)
 kvs [] = ""
@@ -143,6 +143,7 @@ to_string (Bool True) = "true"
 to_string (Bool False) = "false"
 to_string (Int x) = show x
 to_string (Float x) = show x
+to_string (String "") = "(empty string)"
 to_string (String x) = x
 to_string (Func args _ body) = "(" ++ (string_join "," args) ++ " => " ++ to_string body ++ ")"
 to_string (Call name []) = name
@@ -152,7 +153,7 @@ to_string (Update name body) = name ++ " := " ++ to_string body
 to_string (Block xs) = string_join "; " (map to_string xs)
 to_string (List xs) = "[" ++ (string_join ", " (map to_string xs)) ++ "]"
 to_string (Class vars methods) = "(class: " ++ kvs vars ++ ")"
-to_string (Throw xs) = "(throw: " ++ (string_join ", " $ map fst xs) ++ ")"
+to_string (Throw x) = "(throw: " ++ x ++ ")"
 to_string (Match conds) = "(match" ++ (show $ length conds) ++ ")"
 --to_string x = show x
 
