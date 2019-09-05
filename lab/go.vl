@@ -181,8 +181,8 @@ flow parser:
   many1 p = () =>
     x = p
     xs = p.many
-    x ++ xs
-  many_acc p acc = () => fmap(p x => p.many_acc(acc ++ [x]) | acc)
+    [x] ++ xs
+  many_acc p acc = () => fmap(p x => p.many_acc(acc ++ [x])) | acc
   fmap p f = () =>
     v = p
     f(v)
@@ -196,9 +196,9 @@ flow parser:
     x = p
     xs = many(combine(s p))
     [x] ++ xs
-  combine aa bb = () =>
-    aa
-    bb
+  combine a b = () =>
+    a
+    b
 to_op op_text =
 | "+" = op.add
 | "-" = op.sub

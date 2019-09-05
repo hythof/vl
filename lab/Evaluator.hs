@@ -28,20 +28,34 @@ unify (Update name body) = do
   ret <- unwrap body
   modify $ \s -> s { vars = squash [(name, ret)] (vars s) }
   return ret
-unify (Call "|" [l, r]) = do
-  s <- get
-  unwrap l <|> (put s >> unwrap r)
-unify (Call "||" [l, r]) = unwrap l >>= \l' -> case l' of
-  Bool True -> return $ Bool True
-  Bool False -> unify r
-  _ -> throw $ "|| " ++ show l'
-unify (Call "invalid bool &&" [l, r]) = unwrap l >>= \l' -> case l' of
-  Bool True -> unify r
-  Bool False -> return $ Bool False
-  _ -> throw $ "invalid bool && " ++ show l'
-unify (Call name argv) = do
-  argv <- mapM unify argv
-  callWithStack name argv
+unify (Call name argv) = go
+  where
+    go = do
+      s1 <- get
+      let label = name ++ " : " ++ (keys $ local s1 ++ block s1)
+      put $ s1 { stack = (label, s1) : (stack s1) }
+      ret <- switch
+      modify $ \s2 -> s2 { stack = stack s1, history = (name, argv, ret) : history s2 }
+      return ret
+    l = argv !! 0
+    r = argv !! 1
+    switch = case name of
+      "|" -> do
+        s <- get
+        unwrap l <|> (put s >> unwrap r)
+      "||" -> do
+        unwrap l >>= \l' -> case l' of
+          Bool True -> return $ Bool True
+          Bool False -> unify r
+          _ -> throw $ "|| " ++ show l'
+      "&&" ->
+        unwrap l >>= \l' -> case l' of
+          Bool True -> unify r
+          Bool False -> return $ Bool False
+          _ -> throw $ "invalid bool && " ++ show l'
+      _ -> do
+        argv <- mapM unify argv
+        call name argv
 unify (Func args [] body) = do
   s <- get
   let env = squash (block s) (local s)
@@ -59,14 +73,6 @@ unwrap ast = unify ast >>= go
     go (Throw message) = throw message
     go ast = return ast
 
-callWithStack :: String -> [AST] -> Runtime AST
-callWithStack name argv = do
-  s1 <- get
-  let label = name ++ " : " ++ (keys $ local s1 ++ block s1)
-  put $ s1 { stack = (label, s1) : (stack s1) }
-  ret <- call name argv
-  modify $ \s2 -> s2 { stack = stack s1, history = (name, argv, ret) : history s2 }
-  return ret
 call :: String -> [AST] -> Runtime AST
 call "_" [] = return Void
 call "+" [(Int l), (Int r)] = return $ Int $ l + r
@@ -131,7 +137,8 @@ call "bp" [ast] = go
 
 call name ((Class props env):argv) = do
   s1 <- get
-  put $ s1 { vars = new props argv, methods = env }
+  vs <- new props argv
+  put $ s1 { vars = vs, methods = env }
   ret <- call name argv
   modify $ \s2 -> s2 { vars = vars s1, methods = methods s1 }
   return $ ret
@@ -143,7 +150,7 @@ apply :: AST -> [AST] -> Runtime AST
 apply ast [] = return ast
 apply (String s) [Int n] = return $ String [s !! n]
 apply (List l) [Int n] = return $ l !! n
-apply (Class vars env) argv = return $ Class (new vars argv) env
+apply (Class props env) argv = (new props argv) >>= \vs -> return $ Class vs env
 apply (Match conds) argv = miss "no implement"
 apply (Func args env body) argv = do
   s1 <- get
@@ -160,10 +167,10 @@ ref name argv = do
     Just x -> unify x
     Nothing -> miss $ "Not found: " ++ name ++ " with " ++ show argv
 
-new :: Env -> [AST] -> Env
+new :: Env -> [AST] -> Runtime Env
 new env argv = if length env == length argv
-  then zip (map fst env) argv
-  else error $ "Argument miss match " ++ show env ++ " " ++ show argv
+  then return $ zip (map fst env) argv
+  else miss $ "Argument miss match " ++ show env ++ " " ++ show argv
 
 squash :: Env -> Env -> Env
 squash [] ys = ys
@@ -188,7 +195,7 @@ l <|> r = go
     handleLast (x:xs) = ("catched " ++ x) : xs
 
 -- utility
-miss :: String -> Runtime AST
+miss :: String -> Runtime a
 miss message = do
   s <- get
   error $ message ++ "\n" ++ dump s

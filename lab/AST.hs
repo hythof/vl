@@ -95,12 +95,12 @@ evalRuntime vm s = case runState vm s of
 
 dump :: Scope -> String
 dump s = "Local:" ++ (kvs $ local s)
-    ++ "\nBlock:" ++ (kvs $ block s)
-    ++ "\nVars:" ++ (kvs $ vars s)
-    ++ "\nStacks:\n"  ++ showStacks (take 5 $ stack s)
-    ++ "\nHistory:\n"  ++ showHistories (take 10 $ history s)
-    ++ "\nThrows:\n"  ++ showThrows (take 10 $ throws s)
-    --"\nGlobal:" ++ (kvs $ global s)
+    ++ "\n\nBlock:" ++ (kvs $ block s)
+    ++ "\n\nVars:" ++ (kvs $ vars s)
+    ++ "\n\nStacks:\n"  ++ showStacks (take 5 $ stack s)
+    ++ "\n\nHistory:\n" ++ showHistories (history s)
+    ++ "\n\nThrows:\n" ++ showThrows (take 5 $ throws s)
+    ++ "\n\nGlobal:\n" ++ (kvs $ global s)
 
 string_join :: String -> [String] -> String
 string_join glue [] = ""
@@ -110,7 +110,7 @@ string_join glue (x:xs) = x ++ glue ++ (string_join glue xs)
 showStacks xs = string_join "\n" $ map showStack xs
 showStack (name, s)  = "# " ++ name ++ (kvs $ vars s ++ block s ++ local s)
 showHistories xs = string_join "\n" $ map showHistory xs
-showHistory (name, argv, ret)  = "# " ++ (to_string ret) ++ " = " ++ name ++ "(" ++ (string_join "," $ map to_string argv) ++ ")"
+showHistory (name, argv, ret)  = "# " ++ name ++ (if length argv == 0 then "" else "(" ++ (string_join "," $ map to_string argv) ++ ")") ++ "\t-> " ++ (to_string ret)
 showThrows xs = string_join "\n" $ map showThrow xs
 showThrow x = "# " ++ x
 
@@ -152,9 +152,9 @@ to_string (Assign name body) = name ++ " = " ++ to_string body
 to_string (Update name body) = name ++ " := " ++ to_string body
 to_string (Block xs) = string_join "; " (map to_string xs)
 to_string (List xs) = "[" ++ (string_join ", " (map to_string xs)) ++ "]"
-to_string (Class vars methods) = "(class: " ++ kvs vars ++ ")"
+to_string (Class vars methods) = "(class: " ++ kvs vars ++ " " ++ (string_join ", " $ map fst methods) ++ ")"
 to_string (Throw x) = "(throw: " ++ x ++ ")"
-to_string (Match conds) = "(match" ++ (show $ length conds) ++ ")"
+to_string (Match conds) = "(match " ++ (show $ length conds) ++ ")"
 --to_string x = show x
 
 debug x = trace ("@ " ++ (take 200 $ show x)) (return ())
