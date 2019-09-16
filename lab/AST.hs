@@ -14,7 +14,8 @@ data AST =
   | Func [String] Env AST
   | List [AST]
   | Throw String
-  | Class Env Env -- properties, methods
+  | Struct String Env
+  | New String [String] Env
 -- expression
   | Block [AST]
   | Assign String AST
@@ -97,6 +98,7 @@ dump :: Scope -> String
 dump s = "Local:" ++ (kvs $ local s)
     ++ "\n\nBlock:" ++ (kvs $ block s)
     ++ "\n\nVars:" ++ (kvs $ vars s)
+    ++ "\n\nMethods:" ++ (kvs $ methods s)
     ++ "\n\nStacks:\n"  ++ showStacks (take 5 $ stack s)
     ++ "\n\nHistory:\n" ++ showHistories (history s)
     ++ "\n\nThrows:\n" ++ showThrows (take 5 $ throws s)
@@ -152,7 +154,8 @@ to_string (Assign name body) = name ++ " = " ++ to_string body
 to_string (Update name body) = name ++ " := " ++ to_string body
 to_string (Block xs) = string_join "; " (map to_string xs)
 to_string (List xs) = "[" ++ (string_join ", " (map to_string xs)) ++ "]"
-to_string (Class vars methods) = "(class: " ++ kvs vars ++ " " ++ (string_join ", " $ map fst methods) ++ ")"
+to_string (Struct name _) = "(struct: " ++ name ++ ")"
+to_string (New name _ _) = "(new: " ++ name ++ ")"
 to_string (Throw x) = "(throw: " ++ x ++ ")"
 to_string (Match conds) = "(match " ++ (show $ length conds) ++ ")"
 --to_string x = show x

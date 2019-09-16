@@ -43,7 +43,7 @@ enum type:
   list generic type
 
 compile src =
-  defs = parser.parse_top(src)
+  defs = parser(src).parse_top
   defs = inference.infer(defs [])
   defs.map(to_go).join("\n")
 
@@ -131,8 +131,9 @@ flow parser:
       parse_int |
       parse_string |
       parse_list
+    trace(left)
     parse_op2_remaining(left) | left
-  parse_op2_remaining left = () =>
+  parse_op2_remaining left =
     op = parse_op
     right = parse_exp
     ast.op2(op left right type.untyped)
@@ -166,9 +167,9 @@ flow parser:
     read_one([" " "\t"]).many
     read_one(["\r" "\n"])
   read_spaces = () => read_one([" " "\t" "\r" "\n"]).many
-  read_string s = () => satisfy(x => x == s)
-  read_one set = () => satisfy(x => set.has(x))
-  read_none set = () => satisfy(x => set.has(x).not)
+  read_string s = satisfy(x => x == s)
+  read_one set = satisfy(x => set.has(x))
+  read_none set = satisfy(x => set.has(x).not)
   read_id = () =>
     x = read_one(["_" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"])
     xs = read_one(["_" "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"]).many

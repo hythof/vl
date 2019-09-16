@@ -58,8 +58,7 @@ unify (Call name argv) = go
         call name argv
 unify (Func args [] body) = do
   s <- get
-  let env = squash (block s) (local s)
-  return $ Func args env body
+  return $ Func args (local s) body
 unify ast = return ast
 
 unwrap ast = unify ast >>= go
@@ -96,7 +95,7 @@ call "find"  [List xs, ast] = do
   case hits of
     [] -> miss $ "Finding element not found " ++ show ast ++ "\n  in " ++ show xs
     (x:_) -> return x
-call "has"  [List xs, ast] = trace ("has" ++ show ast ++ " " ++ (show $ length xs) ++ " => " ++ show (elem ast xs)) $ return $ Bool (elem ast xs)
+call "has"  [List xs, ast] = return $ Bool (elem ast xs)
 call "has"  [String xs, String x] = return $ Bool (string_contains xs x)
 call "join" [List xs, String glue] = return $ String (string_join glue (map to_string xs))
 call "sub"  [String a, String b, String c] = return $ String (string_replace (length a) a b c)
@@ -135,13 +134,14 @@ call "bp" [ast] = go
         "q" -> return Void
         _ -> loop
 
-call name ((Class props env):argv) = do
+call name ((Struct id members):argv) = do
   s1 <- get
-  vs <- new props argv
-  put $ s1 { vars = vs, methods = env }
+  put $ s1 { vars = [], methods = members }
   ret <- call name argv
+  val <- unwrap ret
   modify $ \s2 -> s2 { vars = vars s1, methods = methods s1 }
-  return $ ret
+  return $ val
+
 call name argv = do
   ast <- ref name argv
   apply ast argv
@@ -150,27 +150,25 @@ apply :: AST -> [AST] -> Runtime AST
 apply ast [] = return ast
 apply (String s) [Int n] = return $ String [s !! n]
 apply (List l) [Int n] = return $ l !! n
-apply (Class props env) argv = (new props argv) >>= \vs -> return $ Class vs env
+apply (New id props members) argv = return $ Struct id ((zip props argv) ++ members)
 apply (Match conds) argv = miss "no implement"
 apply (Func args env body) argv = do
   s1 <- get
   put $ s1 { local = squash3 (zip args argv) env (local s1) }
   ret <- unify body
   modify $ \s2 -> s2 { local = local s1 }
-  return ret
-apply ast argv = miss $ show ast ++ " with " ++ show argv
+  return $ ret
+apply ast argv = miss $ "apply " ++ show ast ++ " with " ++ (take 100 $ show argv)
 
 ref :: String -> [AST] -> Runtime AST
 ref name argv = do
   s <- get
   case lookup name $ (local s) ++ (block s) ++ (vars s) ++ (methods s) ++ (global s) of
     Just x -> unify x
-    Nothing -> miss $ "Not found: " ++ name ++ " with " ++ show argv
+    Nothing -> miss $ "not found: " ++ name ++ " with " ++ show argv
 
 new :: Env -> [AST] -> Runtime Env
-new env argv = if length env == length argv
-  then return $ zip (map fst env) argv
-  else miss $ "Argument miss match " ++ show env ++ " " ++ show argv
+new env argv = return $ (zip (map fst env) argv) ++ (drop (length argv) env)
 
 squash :: Env -> Env -> Env
 squash [] ys = ys
@@ -198,4 +196,4 @@ l <|> r = go
 miss :: String -> Runtime a
 miss message = do
   s <- get
-  error $ message ++ "\n" ++ dump s
+  error $ "Failed: " ++ message ++ "\n" ++ dump s

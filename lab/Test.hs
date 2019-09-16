@@ -21,11 +21,11 @@ _tests = do
 --    , ("hello", "\"hello\"")
 --    , ("hello", "\"he\" . \"llo\"")
 --    , ("3", unlines ["a + b", "a = 1", "b = 2"])
-    , ("3.2", unlines ["a + b", "a = 1.1", "b = 2.1"])
-    , ("2", unlines ["inc(1)", "inc x:i64 = 1 + x"])
-    , ("[]", unlines ["[]"])
-    , ("[1]", unlines ["[1]"])
-    , ("[1 2 3]", unlines ["[1 2 3]"])
+--    , ("3.2", unlines ["a + b", "a = 1.1", "b = 2.1"])
+--    , ("2", unlines ["inc(1)", "inc x:i64 = 1 + x"])
+--    , ("[]", unlines ["[]"])
+--    , ("[1]", unlines ["[1]"])
+--    , ("[1 2 3]", unlines ["[1 2 3]"])
     ]
   putStrLn "done of tmp test"
 tests = do

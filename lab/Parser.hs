@@ -28,20 +28,20 @@ parse_bottom = go
     go = do
       bottom <- (next_between "(" ")" parse_exp) <|> parse_value <|> parse_ref
       chain bottom
-    chain unit = do
+    chain left = do
       op <- option ' ' (oneOf "(.")
-      switch op unit
-    switch '.' unit = do
+      switch left op
+    switch left '.' = do
       name <- token <|> (many1 $ oneOf "0123456789")
       args <- option [] (between (string "(") (spaces >> string ")") read_args)
-      chain $ Call name (unit : args)
-    switch '(' unit = do
+      chain $ Call name (left : args)
+    switch left '(' = do
       args <- read_args
       spaces
       string ")"
-      let (Call name []) = unit
+      let (Call name []) = left
       chain $ Call name args
-    switch _ unit = return unit
+    switch left _ = return left
     read_args = many (spaces >> parse_exp)
 -- define
 parse_define = go
@@ -63,11 +63,11 @@ parse_define = go
       return $ (name, body)
     switch "enum" name = do
       tags <- indented_lines next_tag
-      let methods = map (\(x:xs) -> (x, make_class (name ++ ":" ++ x) xs [])) tags
-      return $ make_class name [] methods
+      let methods = map (\(x:xs) -> (x, make_new (name ++ ":" ++ x) xs [])) tags
+      return $ make_struct name methods
     switch "struct" name = do
       props <- indented_lines next_property
-      return $ make_class name props []
+      return $ make_new name props []
     switch "flow" name = do
       tags <- indented_lines next_tag
       next_br
@@ -75,7 +75,7 @@ parse_define = go
       next_br
       methods <- indented_lines def_func
       let throws = map (\(x:xs) -> (x, make_throw (name ++ ":" ++ x) xs)) tags
-      return $ make_class name props (methods ++ throws)
+      return $ make_new name props (methods ++ throws)
     switch kind name = miss $ "unknown " ++ kind
     next_property = do
       name <- next_token
@@ -172,8 +172,11 @@ current_indent = Parser $ \s -> return (indentation s, s)
 make_func [] body = body
 make_func args body = Func args [] body
 
-make_class name props methods = Class (map (\x -> (x, Void)) props) (methods ++ [("__name", (String name))])
+make_struct name members = Struct name members
+make_new name args members = New name args members
 make_throw name props = Func props [] (Throw $ show props)
+
+vfill = map $ \x -> (x, Void)
 
 satisfy f = Parser $ \s -> do
   let src = source s

@@ -110,3 +110,7 @@ git@github.com:hythof/vl.git
 History
 =======
 2019/07/09 write README.md
+
+TODO
+====
+[_] fix ambiguous scope problem about a.b and a(b)
