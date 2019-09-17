@@ -8,31 +8,26 @@ import Data.Foldable (find)
 import System.IO.Unsafe (unsafePerformIO)
 
 eval :: Env -> AST -> AST
-eval env top = evalRuntime (unify top) (Scope env [] [] [] [] [] [] [])
+eval env top = evalRuntime (unify top) (Scope env [] [] [] [] [])
 
 -- private functions
 
 unify :: AST -> Runtime AST
 unify (List xs) = List <$> mapM unify xs
-unify (Block lines) = do
-  s1 <- get
-  put $ s1 { block = [] }
-  v <- fmap last $ mapM unwrap lines
-  modify $ \s2 -> s2 { block = block s1 }
-  return v
+unify (Block lines) = fmap last $ mapM unwrap lines
 unify (Assign name body) = do
   ret <- unwrap body
-  modify $ \s -> s { block = squash [(name, ret)] (block s) }
+  modify $ \s -> s { local = squash [(name, ret)] (local s) }
   return ret
 unify (Update name body) = do
   ret <- unwrap body
-  modify $ \s -> s { vars = squash [(name, ret)] (vars s) }
+  modify $ \s -> s { context = squash [(name, ret)] (context s) }
   return ret
 unify (Call name argv) = go
   where
     go = do
       s1 <- get
-      let label = name ++ " : " ++ (keys $ local s1 ++ block s1)
+      let label = name ++ " : " ++ (keys $ local s1)
       put $ s1 { stack = (label, s1) : (stack s1) }
       ret <- switch
       modify $ \s2 -> s2 { stack = stack s1, history = (name, argv, ret) : history s2 }
@@ -147,10 +142,10 @@ call name all@((Struct id members):argv) = go
       apply ast all
     in_struct = do
       s1 <- get
-      put $ s1 { vars = [], methods = members }
+      put $ s1 { context = members }
       ret <- call name argv
       val <- unwrap ret
-      modify $ \s2 -> s2 { vars = vars s1, methods = methods s1 }
+      modify $ \s2 -> s2 { context = context s1 }
       return $ val
 
 call name argv = do
@@ -190,7 +185,7 @@ apply ast argv = miss $ "apply " ++ show ast ++ " with " ++ (take 100 $ show arg
 ref :: String -> [AST] -> Runtime AST
 ref name argv = do
   s <- get
-  case lookup name $ (local s) ++ (block s) ++ (vars s) ++ (methods s) ++ (global s) of
+  case lookup name $ (local s) ++ (context s) ++ (global s) of
     Just x -> unify x
     Nothing -> miss $ "not found: " ++ name ++ " with " ++ show argv
 
@@ -214,7 +209,7 @@ throw message = Runtime $ \s -> Left (Throw message, s { throws = message : thro
 l <|> r = go
   where
     go = Runtime $ \s -> case runState l s of
-      Left (e, s') -> runState r (s' { vars = vars s, local = local s, throws = handleLast $ throws s })
+      Left (e, s') -> runState r (s' { local = local s, context = context s, throws = handleLast $ throws s })
       l' -> l'
     handleLast [] = []
     handleLast (x:xs) = ("catched " ++ x) : xs

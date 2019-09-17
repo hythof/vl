@@ -59,11 +59,8 @@ instance Monad Parser where
 
 data Scope = Scope {
     global :: Env -- readonly
-  , methods :: Env -- in context as struct, updated values
-  --, context :: Env -- arguments, assigned values
-  , vars :: Env -- deplicated
-  , block :: Env -- deplicated
-  , local :: Env -- deplicated
+  , context :: Env -- in context as struct, updated values
+  , local :: Env -- arguments, assigned values
   , stack :: [(String, Scope)]        -- for debug
   , history :: [(String, [AST], AST)] -- for debug
   , throws :: [(String)]              -- for debug
@@ -102,9 +99,7 @@ evalRuntime vm s = case runState vm s of
 
 dump :: Scope -> String
 dump s = "Local:" ++ (kvs $ local s)
-    ++ "\n\nBlock:" ++ (kvs $ block s)
-    ++ "\n\nVars:" ++ (kvs $ vars s)
-    ++ "\n\nMethods:" ++ (kvs $ methods s)
+    ++ "\n\nContext:" ++ (kvs $ context s)
     ++ "\n\nStacks:\n"  ++ showStacks (take 5 $ stack s)
     ++ "\n\nHistory:\n" ++ showHistories (history s)
     ++ "\n\nThrows:\n" ++ showThrows (take 5 $ throws s)
@@ -116,7 +111,7 @@ string_join glue [x] = x
 string_join glue (x:xs) = x ++ glue ++ (string_join glue xs)
 
 showStacks xs = string_join "\n" $ map showStack xs
-showStack (name, s)  = "# " ++ name ++ (kvs $ vars s ++ block s ++ local s)
+showStack (name, s)  = "# " ++ name ++ (kvs $ local s ++ context s)
 showHistories xs = string_join "\n" $ map showHistory xs
 showHistory (name, argv, ret)  = "# " ++ name ++ (if length argv == 0 then "" else "(" ++ (string_join "," $ map to_string argv) ++ ")") ++ "\t-> " ++ (to_string ret)
 showThrows xs = string_join "\n" $ map showThrow xs
