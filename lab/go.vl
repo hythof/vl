@@ -44,7 +44,7 @@ enum type:
 
 compile src =
   defs = parser(src).parse_top
-  defs = inference.infer(defs [])
+  defs = inference(defs []).infer
   defs.map(to_go).join("\n")
 
 to_go x = "func v_" . x.name . "(" . x.val.c_args . ") " . x.val.v_type . " {" .
@@ -124,14 +124,16 @@ flow parser:
       read_string(")").lex
       parse_exp.many) | []
     ast.call(name argv type.untyped)
-  parse_exp = () => parse_op2.lex
+  parse_exp = () =>
+    left = ast.i64(99)
+    trace_local(left)
+    lex(parse_op2)
   parse_op2 = () =>
     left = parse_call |
       parse_float |
       parse_int |
       parse_string |
       parse_list
-    trace(left)
     parse_op2_remaining(left) | left
   parse_op2_remaining left =
     op = parse_op
@@ -216,7 +218,7 @@ flow inference:
   defs []define
   infered []define
   infer =
-    "main".lookup
+    lookup("main")
     infered
   infer_ast x =
   | ast.f64 = x
@@ -234,7 +236,9 @@ flow inference:
   | ast.op2 = x.left.infer_type
   | ast.func = x.body.infer_type
   | ast.call = x.name.lookup.infer_ast
-  lookup target = try_assign(defs.find(x => x.name == target).val)
+  lookup target =
+    val = defs.find(x => x.name == target).val
+    try_assign(val)
   try_assign x =
   | ast.i64 = x
   | ast.f64 = x

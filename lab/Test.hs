@@ -10,7 +10,8 @@ import System.Process (runCommand, waitForProcess)
 main = _tests
 _tests = do
   testGo [
-      ("1", "1")
+    ("5", "2 + 3")
+--      ("1", "1")
 --    , ("1.1", "1.1")
 --    , ("5", "2 + 3")
 --    , ("5.2", "2.1 + 3.1")

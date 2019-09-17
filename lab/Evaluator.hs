@@ -56,9 +56,12 @@ unify (Call name argv) = go
       _ -> do
         argv <- mapM unify argv
         call name argv
-unify (Func args [] body) = do
-  s <- get
-  return $ Func args (local s) body
+unify (Func args [] body) = go
+  where
+    go = do
+      s <- get
+      return $ Func args (local s) body
+
 unify ast = return ast
 
 unwrap ast = unify ast >>= go
@@ -66,9 +69,10 @@ unwrap ast = unify ast >>= go
     go (Func [] env body) = do
       s1 <- get
       put $ s1 { local = env }
-      ret <- unify body
+      ret1 <- unify body
+      ret2 <- unwrap ret1
       modify $ \s2 -> s2 { local = local s1 }
-      unwrap ret
+      return ret2
     go (Throw message) = throw message
     go ast = return ast
 
@@ -86,7 +90,8 @@ call "." [(String l), (String r)] = return $ String (l ++ r)
 call "++" [(List l), (List r)] = return $ List (l ++ r)
 call "==" [l, r] = return $ Bool (show l == show r)
 call "!=" [l, r] = return $ Bool (not $ (show l == show r))
-call "trace" args = trace ("TRACE: " ++ (take 100 $ show args)) (return Void)
+call "trace" args = trace ("TRACE: " ++ (take 100 $ show args)) (return $ args !! 0)
+call "trace_local" args = get >>= \s -> trace ("TRACE: " ++ (take 100 $ show args) ++ " LOCAL:" ++ (show $ map fst (local s))) (return Void)
 call "if"  [Bool a, b, c] = return $ if a then b else c
 call "map"  [List xs, ast] = do { x <- mapM (\x -> apply ast [x]) xs; return $ List x }
 call "mapi"  [List xs, ast] = List <$> mapM (\(i, arg) -> apply ast [Int i, arg]) (zip [0..] xs)
@@ -134,13 +139,19 @@ call "bp" [ast] = go
         "q" -> return Void
         _ -> loop
 
-call name ((Struct id members):argv) = do
-  s1 <- get
-  put $ s1 { vars = [], methods = members }
-  ret <- call name argv
-  val <- unwrap ret
-  modify $ \s2 -> s2 { vars = vars s1, methods = methods s1 }
-  return $ val
+call name all@((Struct id members):argv) = go
+  where
+    go = if elem name (map fst members) then in_struct else out_struct
+    out_struct = do
+      ast <- ref name all
+      apply ast all
+    in_struct = do
+      s1 <- get
+      put $ s1 { vars = [], methods = members }
+      ret <- call name argv
+      val <- unwrap ret
+      modify $ \s2 -> s2 { vars = vars s1, methods = methods s1 }
+      return $ val
 
 call name argv = do
   ast <- ref name argv
@@ -151,13 +162,29 @@ apply ast [] = return ast
 apply (String s) [Int n] = return $ String [s !! n]
 apply (List l) [Int n] = return $ l !! n
 apply (New id props members) argv = return $ Struct id ((zip props argv) ++ members)
-apply (Match conds) argv = miss "no implement"
-apply (Func args env body) argv = do
-  s1 <- get
-  put $ s1 { local = squash3 (zip args argv) env (local s1) }
-  ret <- unify body
-  modify $ \s2 -> s2 { local = local s1 }
-  return $ ret
+apply (Func args env body) argv = go
+  where
+    go :: Runtime AST
+    go = do
+      s1 <- get
+      put $ s1 { local = squash (zip args argv) env }
+      ret <- match_unify body
+      modify $ \s2 -> s2 { local = local s1 }
+      return $ ret
+    match_unify :: AST -> Runtime AST
+    match_unify (Match conds) = match conds conds
+    match_unify x = unify x
+    match conds [] = miss $ "not match " ++ show argv ++ " =>\n - " ++ string_join "\n - " (map (show . fst) conds)
+    match conds ((parts, ast):rest) = if all is_cond (zip parts argv)
+      then unify ast
+      else match conds rest
+      where
+        is_cond (MatchAny, _) = True
+        is_cond (MatchValue v, v') = v == v'
+        is_cond (MatchType name, (Struct name' _)) = name == name'
+        is_cond (MatchType name, (New name' _ _)) = name == name'
+        is_cond x = error $ "invalid pattern match: " ++ (show x) ++ "\n-> " ++
+                            "not match: " ++ show argv ++ "\n - " ++ string_join "\n - " (map (show . fst) conds)
 apply ast argv = miss $ "apply " ++ show ast ++ " with " ++ (take 100 $ show argv)
 
 ref :: String -> [AST] -> Runtime AST

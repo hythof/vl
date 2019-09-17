@@ -21,9 +21,14 @@ data AST =
   | Assign String AST
   | Update String AST
   | Call String [AST] -- ref, exp, assign and update
-  | Match [([AST], AST)]
+  | Match [([Matcher], AST)]
   deriving (Show, Eq)
 
+data Matcher =
+  MatchAny
+  | MatchValue AST
+  | MatchType String
+  deriving (Show, Eq)
 
 -- Pparser
 data Source = Source { original :: String, source :: String, indentation :: Int, line :: Int, column :: Int } deriving (Show)
@@ -53,14 +58,15 @@ instance Monad Parser where
 -- Runtime
 
 data Scope = Scope {
-    global :: Env
-  , methods :: Env
-  , vars :: Env
-  , block :: Env
-  , local :: Env
-  , stack :: [(String, Scope)]
-  , history :: [(String, [AST], AST)]
-  , throws :: [(String)]
+    global :: Env -- readonly
+  , methods :: Env -- in context as struct, updated values
+  --, context :: Env -- arguments, assigned values
+  , vars :: Env -- deplicated
+  , block :: Env -- deplicated
+  , local :: Env -- deplicated
+  , stack :: [(String, Scope)]        -- for debug
+  , history :: [(String, [AST], AST)] -- for debug
+  , throws :: [(String)]              -- for debug
 } deriving (Show, Eq)
 
 data Runtime a = Runtime { runState :: Scope -> Either (AST, Scope) (a, Scope) }

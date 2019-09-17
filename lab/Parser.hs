@@ -63,7 +63,7 @@ parse_define = go
       return $ (name, body)
     switch "enum" name = do
       tags <- indented_lines next_tag
-      let methods = map (\(x:xs) -> (x, make_new (name ++ ":" ++ x) xs [])) tags
+      let methods = map (\(x:xs) -> (x, make_new (name ++ "." ++ x) xs [])) tags
       return $ make_struct name methods
     switch "struct" name = do
       props <- indented_lines next_property
@@ -74,7 +74,7 @@ parse_define = go
       props <- indented_lines next_property
       next_br
       methods <- indented_lines def_func
-      let throws = map (\(x:xs) -> (x, make_throw (name ++ ":" ++ x) xs)) tags
+      let throws = map (\(x:xs) -> (x, make_throw (name ++ "." ++ x) xs)) tags
       return $ make_new name props (methods ++ throws)
     switch kind name = miss $ "unknown " ++ kind
     next_property = do
@@ -142,19 +142,18 @@ parse_match = Match <$> many1 go
     go = do
       next_br
       next_string "| "
-      conds <- many1 (match_enum <|> parse_bottom <|> match_all)
+      conds <- many1 (match_type <|> match_any <|> match_value)
       next_string "= "
       body <- parse_exp
       return (conds, body)
-    match_enum = do
+    match_type = do
       name1 <- next_token
       string "."
       name2 <- token
-      let name = name1 ++ ":" ++ name2
-      return $ Call name []
-    match_all = do
-      next_string "_"
-      return Void
+      let name = name1 ++ "." ++ name2
+      return $ MatchType name
+    match_value = MatchValue <$> parse_bottom
+    match_any = next_string "_" >> return MatchAny
 parse_block = next_br >> (indent (go <|> miss "block"))
   where
     go = Block <$> indented_lines parse_exp
