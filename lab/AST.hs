@@ -82,7 +82,7 @@ instance Applicative Runtime where
 
 instance Monad Runtime where
   return = pure
-  vm >>= f = Runtime $ \s -> if (length $ stack s) > 100
+  vm >>= f = Runtime $ \s -> if (length $ stack s) > 30
     then error $ "Stack over flow\n" ++ dump s
     else case runState vm s of
       Right (v, s') -> runState (f v) s'
@@ -99,11 +99,10 @@ evalRuntime vm s = case runState vm s of
 
 dump :: Scope -> String
 dump s = "Local:" ++ (kvs $ local s)
-    ++ "\n\nContext:" ++ (kvs $ context s)
-    ++ "\n\nStacks:\n"  ++ showStacks (take 5 $ stack s)
+    ++ "\n\nStacks:\n"  ++ showStacks (stack s)
     ++ "\n\nHistory:\n" ++ showHistories (history s)
-    ++ "\n\nThrows:\n" ++ showThrows (take 5 $ throws s)
-    ++ "\n\nGlobal:\n" ++ (kvs $ global s)
+    ++ "\n\nThrows:\n" ++ showThrows (throws s)
+    ++ "\n\nGlobal:\n" ++ showGlobals (global s)
 
 string_join :: String -> [String] -> String
 string_join glue [] = ""
@@ -111,11 +110,14 @@ string_join glue [x] = x
 string_join glue (x:xs) = x ++ glue ++ (string_join glue xs)
 
 showStacks xs = string_join "\n" $ map showStack xs
-showStack (name, s)  = "# " ++ name ++ (kvs $ local s ++ context s)
+showStack (name, s)  = "# " ++ name
 showHistories xs = string_join "\n" $ map showHistory xs
 showHistory (name, argv, ret)  = "# " ++ name ++ (if length argv == 0 then "" else "(" ++ (string_join "," $ map to_string argv) ++ ")") ++ "\t-> " ++ (to_string ret)
+showThrows [] = "(empty)"
 showThrows xs = string_join "\n" $ map showThrow xs
 showThrow x = "# " ++ x
+showGlobals xs = string_join "\n" (map showGlobal xs)
+showGlobal (name, ast) = "# " ++ name ++ " = " ++ to_string ast
 
 keys env = (string_join ", " $ map fst env)
 kvs [] = ""
@@ -155,7 +157,7 @@ to_string (Assign name body) = name ++ " = " ++ to_string body
 to_string (Update name body) = name ++ " := " ++ to_string body
 to_string (Block xs) = string_join "; " (map to_string xs)
 to_string (List xs) = "[" ++ (string_join ", " (map to_string xs)) ++ "]"
-to_string (Struct name _) = "(struct: " ++ name ++ ")"
+to_string (Struct name members) = "(struct: " ++ name ++ ")"
 to_string (New name _ _) = "(new: " ++ name ++ ")"
 to_string (Throw x) = "(throw: " ++ x ++ ")"
 to_string (Match conds) = "(match " ++ (show $ length conds) ++ ")"

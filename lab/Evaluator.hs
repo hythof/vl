@@ -27,8 +27,6 @@ unify (Call name argv) = go
   where
     go = do
       s1 <- get
-      let label = name ++ " : " ++ (keys $ local s1)
-      put $ s1 { stack = (label, s1) : (stack s1) }
       ret <- switch
       modify $ \s2 -> s2 { stack = stack s1, history = (name, argv, ret) : history s2 }
       return ret
@@ -36,21 +34,30 @@ unify (Call name argv) = go
     r = argv !! 1
     switch = case name of
       "|" -> do
+        push_stack argv
         s <- get
         unwrap l <|> (put s >> unwrap r)
       "||" -> do
+        push_stack argv
         unwrap l >>= \l' -> case l' of
           Bool True -> return $ Bool True
           Bool False -> unify r
           _ -> throw $ "|| " ++ show l'
-      "&&" ->
-        unwrap l >>= \l' -> case l' of
+      "&&" -> do
+        push_stack argv
+        l' <- unwrap l
+        case l' of
           Bool True -> unify r
           Bool False -> return $ Bool False
           _ -> throw $ "invalid bool && " ++ show l'
       _ -> do
         argv <- mapM unify argv
+        push_stack argv
         call name argv
+    push_stack argv = do
+      s <- get
+      let label = name ++ " : " ++ (string_join ", " $ map to_string argv)
+      put $ s { stack = (label, s) : (stack s) }
 unify (Func args [] body) = go
   where
     go = do

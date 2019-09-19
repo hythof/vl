@@ -218,14 +218,6 @@ flow inference:
   infer =
     lookup("main")
     infered
-  infer_ast x =
-  | ast.f64 = x
-  | ast.i64 = x
-  | ast.string = x
-  | ast.list = x
-  | ast.op2 = ast.op2(x.op x.left x.right x.left.infer_type)
-  | ast.func = ast.func(x.name x.args x.body x.body.infer_type)
-  | ast.call = ast.call(x.name x.argv x.name.lookup.infer_type)
   infer_type x =
   | ast.i64 = type.i64
   | ast.f64 = type.f64
@@ -233,7 +225,7 @@ flow inference:
   | ast.list = x.type
   | ast.op2 = x.left.infer_type
   | ast.func = x.body.infer_type
-  | ast.call = x.name.lookup.infer_ast
+  | ast.call = x.name.lookup.infer_type
   lookup target =
     val = defs.find(x => x.name == target).val
     try_assign(val)
@@ -242,9 +234,9 @@ flow inference:
   | ast.f64 = x
   | ast.string = x
   | ast.list = x
-  | ast.op2 = x
+  | ast.op2 = ast.op2(x.op x.left x.right x.left.infer_type)
   | ast.func = assign(x.name x.args x.body x.body.infer_type)
-  | ast.call = x
+  | ast.call = ast.call(x.name x.argv x.name.lookup.infer_type)
   assign name args body type =
     f = ast.func(name args body type)
     infered := infered ++ [def(name f)]
