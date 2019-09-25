@@ -82,7 +82,7 @@ instance Applicative Runtime where
 
 instance Monad Runtime where
   return = pure
-  vm >>= f = Runtime $ \s -> if (length $ stack s) > 30
+  vm >>= f = Runtime $ \s -> if (length $ stack s) > 20
     then error $ "Stack over flow\n" ++ dump s
     else case runState vm s of
       Right (v, s') -> runState (f v) s'
@@ -99,10 +99,10 @@ evalRuntime vm s = case runState vm s of
 
 dump :: Scope -> String
 dump s = "Local:" ++ (kvs $ local s)
-    ++ "\n\nStacks:\n"  ++ showStacks (stack s)
-    ++ "\n\nHistory:\n" ++ showHistories (history s)
-    ++ "\n\nThrows:\n" ++ showThrows (throws s)
-    ++ "\n\nGlobal:\n" ++ showGlobals (global s)
+    ++ "\nStacks:\n"  ++ showStacks (stack s)
+    -- ++ "\n\nHistory:\n" ++ showHistories (history s)
+    ++ "\nThrows:\n" ++ showThrows (throws s)
+    -- ++ "\n\nGlobal:\n" ++ showGlobals (global s)
 
 string_join :: String -> [String] -> String
 string_join glue [] = ""
@@ -110,18 +110,18 @@ string_join glue [x] = x
 string_join glue (x:xs) = x ++ glue ++ (string_join glue xs)
 
 showStacks xs = string_join "\n" $ map showStack xs
-showStack (name, s)  = "# " ++ name
+showStack (name, s)  = "- " ++ name
 showHistories xs = string_join "\n" $ map showHistory xs
-showHistory (name, argv, ret)  = "# " ++ name ++ (if length argv == 0 then "" else "(" ++ (string_join "," $ map to_string argv) ++ ")") ++ "\t-> " ++ (to_string ret)
+showHistory (name, argv, ret)  = "- " ++ name ++ (if length argv == 0 then "" else "(" ++ (string_join "," $ map to_string argv) ++ ")") ++ "\t-> " ++ (to_string ret)
 showThrows [] = "(empty)"
 showThrows xs = string_join "\n" $ map showThrow xs
-showThrow x = "# " ++ x
+showThrow x = "- " ++ x
 showGlobals xs = string_join "\n" (map showGlobal xs)
-showGlobal (name, ast) = "# " ++ name ++ " = " ++ to_string ast
+showGlobal (name, ast) = "- " ++ name ++ " = " ++ to_string ast
 
 keys env = (string_join ", " $ map fst env)
 kvs [] = ""
-kvs env = "\n- " ++ (string_join "\n- " $ map (\(k,v) -> k ++ " " ++ (take 120 $ to_string v)) env)
+kvs env = "\n  - " ++ (string_join "\n- " $ map (\(k,v) -> k ++ " " ++ (take 120 $ to_string v)) env)
 
 string_contains :: String -> String -> Bool
 string_contains target y = go target

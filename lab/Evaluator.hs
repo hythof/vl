@@ -92,7 +92,7 @@ call "." [(String l), (String r)] = return $ String (l ++ r)
 call "++" [(List l), (List r)] = return $ List (l ++ r)
 call "==" [l, r] = return $ Bool (show l == show r)
 call "!=" [l, r] = return $ Bool (not $ (show l == show r))
-call "trace" args = trace ("TRACE: " ++ (take 100 $ show args)) (return $ args !! 0)
+call "trace" args = trace ("TRACE: " ++ (take 10000 $ show args)) (return $ args !! 0)
 call "trace_local" args = get >>= \s -> trace ("TRACE: " ++ (take 100 $ show args) ++ " LOCAL:" ++ (show $ map fst (local s))) (return Void)
 call "if"  [Bool a, b, c] = return $ if a then b else c
 call "map"  [List xs, ast] = do { x <- mapM (\x -> apply ast [x]) xs; return $ List x }
@@ -178,6 +178,7 @@ apply (Func args env body) argv = go
     match_unify x = unify x
     match conds [] = miss $ "not match " ++ show argv ++ " =>\n - " ++ string_join "\n - " (map (show . fst) conds)
     match conds ((parts, ast):rest) = if all is_cond (zip parts argv)
+      -- then trace (show parts ++ " @ " ++ show argv ++ " => " ++ show ast) $ unify ast
       then unify ast
       else match conds rest
       where

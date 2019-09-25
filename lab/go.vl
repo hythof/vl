@@ -225,7 +225,7 @@ flow inference:
   | ast.list = x.type
   | ast.op2 = x.left.infer_type
   | ast.func = x.body.infer_type
-  | ast.call = x.name.lookup.infer_type
+  | ast.call = type.untyped
   lookup target =
     val = defs.find(x => x.name == target).val
     try_assign(val)
@@ -235,9 +235,14 @@ flow inference:
   | ast.string = x
   | ast.list = x
   | ast.op2 = ast.op2(x.op x.left x.right x.left.infer_type)
-  | ast.func = assign(x.name x.args x.body x.body.infer_type)
-  | ast.call = ast.call(x.name x.argv x.name.lookup.infer_type)
-  assign name args body type =
+  | ast.func = assign(x.name x.args x.body)
+  | ast.call = try_call(x.name x.args)
+  try_call name args =
+    trace(name)
+    lookup(name)
+    args.map(x => try_assign(x))
+  assign name args body =
+    type = body.infer_type
     f = ast.func(name args body type)
     infered := infered ++ [def(name f)]
     f
