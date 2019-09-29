@@ -1,53 +1,51 @@
 # About 
-This document describe programming language especially design and implements.
+This document describe recentry tasks.
 
-# Syntax
+# v0.1
+- i64
+- operator `+ - * / %`
+- parenthesis
+- LLVM
 
-```
-top:
-  exp*
+# v0.2
+- def
+- call
+- operator `+= -= *= /= %= := **`
 
-exp:
-  "(" exp ")"
-  val
-  ref arg* : exp  # type
-  ref arg* = exp  # function
-  ref exp*        # call
-  exp (, exp)+    # tuple
-  op1 exp?
-  exp? op2 exp?
-  # [^¥n]*        # comment
-  [;\n]
+# v0.3
+- bool
+- operator `> >= < <= != == && ||`
+- build-in `if`
+- type inference
 
-id:
-  [a-z][a-z0-9]*
+# v0.4
+- ascii
+- float
+- list
+- struct
 
-ref:
-  id (. id)*
+# v0.5
+- self boot
 
-arg:
-  "(" arg ")"
-  exp (: type)?
-  arg [*+]  # repeatable
+# v0.6
+- sleep
+- async / await
+- parallel
+- coroutine
 
-val:
-  [0-9]+ (. [0-9]+)? # number
-  'c'         # utf8 char
-  "string"    # string
-  [exp*]      # list
-  {exp*}      # struct
-  arg+ => exp # anonymous
+# v0.6
+- u8 .. u64
+- i8 .. i64
+- f32, f64
+- utf8
+- dict
 
-op2:
-  [+-*/><]
-  <= >= == <=>
-  >> <<
-  || &&
+# v0.7
+- operator `| & << >> ~`
+- file
+- tcp
+- udp
 
-op1:
-  [+-*!~]
-```
-
-# Dependency
-- ICU 64.2: for utf8 operations
-
+# v0.8
+- bigint
+- bigfloat
