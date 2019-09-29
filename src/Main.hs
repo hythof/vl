@@ -4,6 +4,7 @@ import AST
 import Debug.Trace (trace)
 import Control.Applicative ((<|>))
 import Control.Monad (guard)
+import System.Process (system)
 
 -- Parse --------------------------------------------------
 parse :: String -> Maybe (AST, Source)
@@ -53,32 +54,67 @@ many_acc f acc = (do
   ) <|> (return $ reverse acc)
 
 -- Eval ---------------------------------------------------
-eval :: AST -> AST
-eval x@(Int _) = x
-eval (Call op [left, right]) = go op (eval left) (eval right)
+eval :: AST -> IO String
+eval x = do
+  system $ "mkdir -p /tmp/llvm"
+  let ll = compile x
+  writeFile "/tmp/llvm/v.ll" ll
+  system $ "(cd /tmp/llvm && llc -o a.s v.ll && clang a.s && ./a.out > stdout.txt)"
+  readFile "/tmp/llvm/stdout.txt"
+
+compile x = go
   where
-    go "+" (Int l) (Int r) = Int $ l + r
-    go "-" (Int l) (Int r) = Int $ l - r
-    go "*" (Int l) (Int r) = Int $ l * r
-    go "/" (Int l) (Int r) = Int $ l `div` r
-    go "%" (Int l) (Int r) = Int $ l `mod` r
-eval x = error $ "Failed evaluation: " ++ show x
+    go = ll_main ++ ll_suffix
+    ll_main = compileToLL "v_main" "i32" (ll_body x)
+    ll_body (Int n) = emmit $ "ret i32 " ++ show n
+    ll_suffix = unlines [
+        ""
+      , "; common suffix"
+      , "@.str = private unnamed_addr constant [3 x i8] c\"%d\00\", align 1"
+      , ""
+      , "define i32 @main() #0 {"
+      , "  %1 = alloca i32, align 4"
+      , "  store i32 0, i32* %1, align 4"
+      , "  %2 = call i32 @v_main()"
+      , "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str, i32 0, i32 0), i32 %2)"
+      , "  ret i32 0 "
+      , "}"
+      , ""
+      , "declare i32 @printf(i8*, ...) #1"
+      ]
+
+--eval (Int n) = show n
+--eval (Call op [left, right]) = go op (eval left) (eval right)
+--  where
+--    go "+" (Int l) (Int r) = Int $ l + r
+--    go "-" (Int l) (Int r) = Int $ l - r
+--    go "*" (Int l) (Int r) = Int $ l * r
+--    go "/" (Int l) (Int r) = Int $ l `div` r
+--    go "%" (Int l) (Int r) = Int $ l `mod` r
+--eval x = error $ "Failed evaluation: " ++ show x
 
 -- Main ---------------------------------------------------
-test :: AST -> String -> IO ()
-test expect input = do
-  case parse input of
-    Nothing -> error $ "Parser error " ++ input ++ " expect: " ++ show expect
-    Just (x, s) -> if pos s == len s
-      then if expect == (eval x) then putChar '.' else putStrLn $ "x\n- expect: " ++ show expect ++ "\n-   fact: " ++ show (eval x) ++ " :: " ++ show x
-      else error $ "Parser error remaining " ++ (drop (pos s) (src s))
+test :: String -> String -> IO ()
+test expect input = go
+  where
+    go = do
+      case parse input of
+        Nothing -> error $ "Parser error " ++ input ++ " expect: " ++ expect
+        Just (x, s) -> if pos s == len s
+          then run x
+          else error $ "Parser error remaining " ++ (drop (pos s) (src s))
+    run ast = do
+      stdout <- eval ast
+      if expect == stdout
+      then putChar '.'
+      else putStrLn $ "x\n- expect: " ++ show expect ++ "\n-   fact: " ++ stdout ++ " :: " ++ show ast
 
 main = do
-  test (Int 1) "1"
-  test (Int 12) "12"
-  test (Int 5) "2+3"
-  test (Int $ -1) "2-3"
-  test (Int 6) "2*3"
-  test (Int 0) "2/3"
-  test (Int 2) "2%3"
+  test "1" "1"
+  --test (Int 12) "12"
+  --test (Int 5) "2+3"
+  --test (Int $ -1) "2-3"
+  --test (Int 6) "2*3"
+  --test (Int 0) "2/3"
+  --test (Int 2) "2%3"
   putStrLn "done"

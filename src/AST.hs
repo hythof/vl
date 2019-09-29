@@ -43,36 +43,31 @@ instance Alternative Parser where
               Nothing -> runParser r s
 
 
--- Runtime
+-- LLVM
+data LLVM = LLVM { strs :: [String], defines :: [Define] } deriving (Show)
 
-data Scope = Scope {
-    global :: Env
-  , local :: Env
-} deriving (Show, Eq)
+data Define = Define { body :: [String] } deriving (Show)
+data Compiler a = Compiler { runCompile :: Define -> (a, Define) }
 
-data Runtime a = Runtime { runState :: Scope -> Either (AST, Scope) (a, Scope) }
+instance Functor Compiler where
+  fmap f c = Compiler $ \d ->let (a, d') = (runCompile c d) in (f a, d')
 
-instance Functor Runtime where
-  fmap f vm = Runtime $ \s -> fmap (\(a, s') -> (f a, s')) (runState vm s)
+instance Applicative Compiler where
+  pure v = Compiler $ \d -> (v, d)
+  l <*> r = Compiler $ \d ->
+    let
+      (f, d') = runCompile l d
+      (a, d'') = runCompile r d'
+    in (f a, d'')
 
-instance Applicative Runtime where
-  pure v = Runtime $ \s -> return (v, s)
-  l <*> r = Runtime $ \s ->
-            case runState l s of
-              Right (f, s') -> case runState r s' of
-                Right (v, s'') -> return (f v, s'')
-                Left (e, s') -> Left (e, s')
-              Left (e, s') -> Left (e, s')
-
-instance Monad Runtime where
+instance Monad Compiler where
   return = pure
-  vm >>= f = Runtime $ \s -> case runState vm s of
-      Right (v, s') -> runState (f v) s'
-      Left (e, s') -> Left (e, s')
+  l >>= f = Compiler $ \d -> let (a, d') = runCompile l d in runCompile (f a) d'
 
-modify f = Runtime $ \s -> return ((), f s)
-put s = Runtime $ \_ -> return ((), s)
-get = Runtime $ \s -> return (s, s)
+emmit x = Compiler $ \d -> ((), d { body = (' ' : ' ' : x) : (body d) })
+compileToLL name ret f = let
+  (_, d) = runCompile f (Define [])
+  in "define " ++ ret  ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ "}\n"
 
 -- utility
 to_string Void = "_"
