@@ -44,7 +44,7 @@ instance Alternative Parser where
 
 
 -- LLVM
-data Define = Define { ssa :: Int, body :: [String] } deriving (Show)
+data Define = Define { counter :: Int, body :: [String] } deriving (Show)
 data Compiler a = Compiler { runCompile :: Define -> (a, Define) }
 
 instance Functor Compiler where
@@ -62,17 +62,20 @@ instance Monad Compiler where
   return = pure
   l >>= f = Compiler $ \d -> let (a, d') = runCompile l d in runCompile (f a) d'
 
-nssa d = 1 + ssa d
-emit x = Compiler $ \d -> (ssa d, d { body = (' ' : ' ' : x) : (body d) })
-next x = Compiler $ \d -> (nssa d, d { body = ("  %" ++ (show $ nssa d) ++ " = " ++ x) : (body d), ssa = nssa d })
+n0 d = counter d
+n1 d = 1 + counter d
+c0 d = show $ n0 d
+c1 d = show $ n1 d
+emit x = Compiler $ \d -> (n0 d, d { body = (' ' : ' ' : x) : (body d) })
+next x = Compiler $ \d -> (n1 d, d { body = ("  %" ++ c1 d ++ " = " ++ x) : (body d), counter = n1 d })
 alloca ty = next $ "alloca i" ++ show ty ++ ", align 4"
 store ty n v = emit $ "store i" ++ show ty ++ " " ++ v ++ ", i" ++ show ty ++ "* " ++ "%" ++ show n ++ ", align 4"
 assign ty v = alloca ty >>= \n -> store ty n v
 add ty op1 op2 = next $ "add i" ++ show ty ++ " " ++ show op1 ++ ", " ++ show op2
 compileToLL name ty f = let
   (_, d) = runCompile f (Define 0 [])
-  load = "  %" ++ (show $ nssa d) ++ "= load i32, i32* %" ++ (show $ ssa d) ++ ", align 4\n"
-  ret = "  ret i32 %" ++ (show $ nssa d) ++ "\n"
+  load = "  %" ++ c1 d ++ "= load i32, i32* %" ++ c0 d ++ ", align 4\n"
+  ret = "  ret i32 %" ++ c1 d ++ "\n"
   in "define i" ++ show ty ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ load ++ ret ++ "}\n"
 
 -- utility
