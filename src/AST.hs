@@ -74,8 +74,8 @@ assign ty v = alloca ty >>= \n -> store ty n v
 add ty op1 op2 = next $ "add i" ++ show ty ++ " " ++ show op1 ++ ", " ++ show op2
 compileToLL name ty f = let
   (_, d) = runCompile f (Define 0 [])
-  load = "  %" ++ c1 d ++ " = load i32, i32* %" ++ c0 d ++ ", align 4\n"
-  ret = "  ret i32 %" ++ c1 d ++ "\n"
+  load = "  %" ++ c1 d ++ " = load i64, i64* %" ++ c0 d ++ ", align 4\n"
+  ret = "  ret i64 %" ++ c1 d ++ "\n"
   in "define i" ++ show ty ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ load ++ ret ++ "}\n"
 
 -- utility

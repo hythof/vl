@@ -73,8 +73,8 @@ compile x = go
   where
     go = ll_main ++ ll_suffix
     root = constant_folding x
-    ll_main = compileToLL "v_main" 32 (ll_body root >> return ())
-    ll_body (Int n) = assign 32 (show n)
+    ll_main = compileToLL "v_main" 64 (ll_body root >> return ())
+    ll_body (Int n) = assign 64 (show n)
     ll_suffix = unlines [
         ""
       , "; common suffix"
@@ -83,8 +83,8 @@ compile x = go
       , "define i32 @main() #0 {"
       , "  %1 = alloca i32, align 4"
       , "  store i32 0, i32* %1, align 4"
-      , "  %2 = call i32 @v_main()"
-      , "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str, i32 0, i32 0), i32 %2)"
+      , "  %2 = call i64 @v_main()"
+      , "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str, i32 0, i32 0), i64 %2)"
       , "  ret i32 0 "
       , "}"
       , ""
