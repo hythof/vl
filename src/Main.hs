@@ -59,14 +59,24 @@ eval x = do
   system $ "mkdir -p /tmp/llvm"
   let ll = compile x
   writeFile "/tmp/llvm/v.ll" ll
-  system $ "(cd /tmp/llvm && llc -o a.s v.ll && clang a.s && ./a.out > stdout.txt)"
+  system $ "(cd /tmp/llvm && lli v.ll > stdout.txt)"
   readFile "/tmp/llvm/stdout.txt"
 
 compile x = go
   where
     go = ll_main ++ ll_suffix
-    ll_main = compileToLL "v_main" "i32" (ll_body x)
-    ll_body (Int n) = emmit $ "ret i32 " ++ show n
+    ll_main = compileToLL "v_main" 32 (ll_body x >> return ())
+    ll_body (Int n) = assign 32 (show n)
+    ll_body (Call "+" [Int l, Int r]) = assign 32 (show $ l + r)
+    ll_body (Call "-" [Int l, Int r]) = assign 32 (show $ l - r)
+    ll_body (Call "*" [Int l, Int r]) = assign 32 (show $ l * r)
+    ll_body (Call "/" [Int l, Int r]) = assign 32 (show $ l `div` r)
+    ll_body (Call "%" [Int l, Int r]) = assign 32 (show $ l `mod` r)
+    ll_body (Call op [left, right]) = do
+      l <- ll_body left
+      r <- ll_body right
+      case op of
+        "+" -> add 32 l r
     ll_suffix = unlines [
         ""
       , "; common suffix"
@@ -82,16 +92,6 @@ compile x = go
       , ""
       , "declare i32 @printf(i8*, ...) #1"
       ]
-
---eval (Int n) = show n
---eval (Call op [left, right]) = go op (eval left) (eval right)
---  where
---    go "+" (Int l) (Int r) = Int $ l + r
---    go "-" (Int l) (Int r) = Int $ l - r
---    go "*" (Int l) (Int r) = Int $ l * r
---    go "/" (Int l) (Int r) = Int $ l `div` r
---    go "%" (Int l) (Int r) = Int $ l `mod` r
---eval x = error $ "Failed evaluation: " ++ show x
 
 -- Main ---------------------------------------------------
 test :: String -> String -> IO ()
@@ -111,10 +111,10 @@ test expect input = go
 
 main = do
   test "1" "1"
-  --test (Int 12) "12"
-  --test (Int 5) "2+3"
-  --test (Int $ -1) "2-3"
-  --test (Int 6) "2*3"
-  --test (Int 0) "2/3"
-  --test (Int 2) "2%3"
+  test "12" "12"
+  test "5" "2+3"
+  test "-1" "2-3"
+  test "6" "2*3"
+  test "0" "2/3"
+  test "2" "2%3"
   putStrLn "done"
