@@ -15,8 +15,9 @@ parse_exp = go
   where
     go :: Parser AST
     go = do
-      left <- parse_int
+      left <- parenthis <|> parse_int
       (parse_op2 left) <|> (return left)
+    parenthis = between (char '(') (char ')') parse_exp
     parse_op2 :: AST -> Parser AST
     parse_op2 left = do
       op <- read_op
@@ -52,6 +53,12 @@ many_acc f acc = (do
   x <- f
   many_acc f (x : acc)
   ) <|> (return $ reverse acc)
+char c = satisfy (== c)
+between l r c = do
+  l
+  v <- c <|> error "failed in between on the center"
+  r <|> error "faield in between on the right"
+  return $ v
 
 -- Eval ---------------------------------------------------
 eval :: AST -> IO String
@@ -65,18 +72,9 @@ eval x = do
 compile x = go
   where
     go = ll_main ++ ll_suffix
-    ll_main = compileToLL "v_main" 32 (ll_body x >> return ())
+    root = constant_folding x
+    ll_main = compileToLL "v_main" 32 (ll_body root >> return ())
     ll_body (Int n) = assign 32 (show n)
-    ll_body (Call "+" [Int l, Int r]) = assign 32 (show $ l + r)
-    ll_body (Call "-" [Int l, Int r]) = assign 32 (show $ l - r)
-    ll_body (Call "*" [Int l, Int r]) = assign 32 (show $ l * r)
-    ll_body (Call "/" [Int l, Int r]) = assign 32 (show $ l `div` r)
-    ll_body (Call "%" [Int l, Int r]) = assign 32 (show $ l `mod` r)
-    ll_body (Call op [left, right]) = do
-      l <- ll_body left
-      r <- ll_body right
-      case op of
-        "+" -> add 32 l r
     ll_suffix = unlines [
         ""
       , "; common suffix"
@@ -93,6 +91,20 @@ compile x = go
       , "declare i32 @printf(i8*, ...) #1"
       ]
 
+constant_folding :: AST -> AST
+constant_folding ast = go ast
+  where
+    go x@(Int n) = x
+    go (Call "+" [Int l, Int r]) = Int $ l + r
+    go (Call "-" [Int l, Int r]) = Int $ l - r
+    go (Call "*" [Int l, Int r]) = Int $ l * r
+    go (Call "/" [Int l, Int r]) = Int $ l `div` r
+    go (Call "%" [Int l, Int r]) = Int $ l `mod` r
+    go (Call op [left, right]) = go $ Call op [l, r]
+      where
+        l = go left
+        r = go right
+
 -- Main ---------------------------------------------------
 test :: String -> String -> IO ()
 test expect input = go
@@ -102,7 +114,7 @@ test expect input = go
         Nothing -> error $ "Parser error " ++ input ++ " expect: " ++ expect
         Just (x, s) -> if pos s == len s
           then run x
-          else error $ "Parser error remaining " ++ (drop (pos s) (src s))
+          else error $ "Parser error\n- remaining: " ++ (drop (pos s) (src s)) ++ "\n- src: " ++ input
     run ast = do
       stdout <- eval ast
       if expect == stdout
@@ -117,4 +129,7 @@ main = do
   test "6" "2*3"
   test "0" "2/3"
   test "2" "2%3"
+  test "9" "2+3+4"
+  test "14" "2+(3*4)"
+  test "20" "(2+3)*4"
   putStrLn "done"
