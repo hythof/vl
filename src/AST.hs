@@ -13,10 +13,9 @@ data AST =
   | Call String [AST]
   deriving (Show, Eq)
 
-data Register = Register {
-    ty :: String
-  , reg :: String
-  } deriving (Show, Eq)
+data Register = Register { ty :: String , reg :: String, mem :: String }
+  | Memory { ty :: String, reg :: String, mem :: String }
+  deriving (Show, Eq)
 
 -- Pparser
 data Source = Source { src :: String, pos :: Int, len :: Int } deriving (Show)
@@ -72,6 +71,7 @@ n0 d = counter d
 n1 d = 1 + counter d
 c0 d = show $ n0 d
 c1 d = show $ n1 d
+last_register = Compiler $ \d -> ('%' : (show $ n0 d), d)
 emit x = Compiler $ \d -> ('%' : (show $ n0 d), d { body = (' ' : ' ' : x) : (body d) })
 next x = Compiler $ \d -> ('%' : (show $ n1 d), d { body = ("  %" ++ c1 d ++ " = " ++ x) : (body d), counter = n1 d })
 register name r = Compiler $ \d -> (r, d { env = (name, r) : env d })

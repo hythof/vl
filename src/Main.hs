@@ -1,6 +1,7 @@
 module Main where
 
 import AST
+import Data.Traversable (forM)
 import Debug.Trace (trace)
 import Control.Applicative ((<|>))
 import Control.Monad (guard)
@@ -42,9 +43,10 @@ parse_int = do
   return $ I64 (read s :: Int)
 
 read_op :: Parser String
-read_op = do
-  c <- satisfy ((flip elem) "+-*/%")
-  return [c]
+read_op = op2 <|> op1
+  where
+    op1 = satisfy ((flip elem) "+-*/%") >>= \c -> return [c]
+    op2 = string ":="
 read_id :: Parser String
 read_id = do
   xs <- many1 $ satisfy ((flip elem) "abcdefghijklmnopqrstuvwxyz_")
@@ -65,7 +67,6 @@ satisfy f = Parser $ \s -> do
   let c = (src s) !! (pos s)
   guard $ f c
   let br = c == '\n'
-  let pos' = pos s + 1
   return (c, s { pos = 1 + pos s })
 many :: Parser a -> Parser [a]
 many f = many_acc f []
@@ -84,7 +85,12 @@ sep_by1 body sep = do
   x <- body
   xs <- many (sep >> body)
   return $ x : xs
+char :: Char -> Parser Char
 char c = satisfy (== c)
+string :: String -> Parser String
+string target = Parser $ \s -> do
+  guard $ target == take (length target) (drop (pos s) (src s))
+  return (target, s { pos = length target + pos s })
 between l r c = do
   l
   v <- c <|> error "failed in between on the center"
@@ -100,16 +106,29 @@ eval x = do
   system $ "(cd /tmp/llvm && lli v.ll > stdout.txt)"
   readFile "/tmp/llvm/stdout.txt"
 
+compile :: [AST] -> String
 compile xs = go
   where
     go = ll_main ++ ll_suffix
-    lines = mapM_ (line . optimize) xs
-    ll_main = compileToLL "v_main" 64 (lines >> return ())
+    lines = do
+      rs <- mapM (line . optimize) xs
+      let r = last rs
+      emit $ "ret i" ++ ty r ++ " " ++ reg r
+    ll_main = compileToLL "v_main" "64" lines
     line :: AST -> Compiler Register
-    line (I64 n) = assign 64 (show n)
+    line (I64 n) = assign "64" (show n)
     line (Def name ast) = define name $ optimize ast
     line (Call name []) = reference name
-    line (Call op [left@(Call _ _), right@(Call _ _)]) = do
+    line (Call ":=" [op1@(Call name []), op2]) = do
+      o1 <- line op1
+      o2 <- line op2
+      let ty1 = ty o1
+      let ty2 = ty o2
+      let ty = if ty1 == ty2 then ty1 else error $ "Type miss match op: := left:" ++ show op1 ++ " right " ++ show op2
+      n <- store ty (mem o1) (reg o2)
+      n <- load ty n
+      register name (Register ty n n)
+    line (Call op [left, right]) = do
       l <- line left
       r <- line right
       let tyl = ty l
@@ -123,7 +142,7 @@ compile xs = go
         "*" -> next $ "mul i" ++ ty ++ " " ++ rl ++ ", " ++ rr
         "/" -> next $ "sdiv i" ++ ty ++ " " ++ rl ++ ", " ++ rr
         "%" -> next $ "srem i" ++ ty ++ " " ++ rl ++ ", " ++ rr
-      return $ Register ty n
+      return $ Register ty n n
 
     ll_line x = error $ show x
     ll_suffix = unlines [
@@ -141,17 +160,16 @@ compile xs = go
       , ""
       , "declare i32 @printf(i8*, ...) #1"
       ]
-    alloca ty = next $ "alloca i" ++ show ty ++ ", align 4"
-    store ty n v = emit $ "store i" ++ show ty ++ " " ++ v ++ ", i" ++ show ty ++ "* " ++ n ++ ", align 4"
-    load ty n = next $ "load i" ++ show ty ++ ", i" ++ show ty ++ "* " ++ n ++ ", align 4"
-    assign ty v = alloca ty >>= \n -> store ty n v >>= \n -> load ty n >>= \n -> return $ Register (show ty) n
+    alloca ty = next $ "alloca i" ++ ty ++ ", align 4"
+    store ty n v = (emit $ "store i" ++ ty ++ " " ++ v ++ ", i" ++ ty ++ "* " ++ n ++ ", align 4") >> return n
+    load ty n = next $ "load i" ++ ty ++ ", i" ++ ty ++ "* " ++ n ++ ", align 4"
+    assign ty v = alloca ty >>= \rm -> store ty rm v >>= \rm -> load ty rm >>= \rr -> return $ Memory ty rr rm
     define name v = case v of
-      I64 x -> assign 64 (show x) >>= \n -> register name n
+      I64 x -> assign "64" (show x) >>= \n -> register name n
       _ -> error $ "Does not define " ++ show v
     compileToLL name ty f = let
       (_, d) = runCompile f (Define 0 [] [])
-      ret = "  ret i64 %" ++ c0 d
-      in "define i" ++ show ty ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ ret ++ "\n}\n"
+      in "define i" ++ ty ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ "\n}\n"
 
 optimize :: AST -> AST
 optimize ast = go ast
@@ -202,4 +220,6 @@ main = do
   test "6" "x=2\ny=3\nx*y"
   test "0" "x=2\ny=3\nx/y"
   test "2" "x=2\ny=3\nx%y"
+  test "3" "x=2\nx:=3\nx"
+  test "3" "x=2\nx:=3\ny=4\nx"
   putStrLn "done"

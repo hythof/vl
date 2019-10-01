@@ -8,7 +8,7 @@ This document describe recentry tasks.
 [x] LLVM
 
 # v0.2
-- variable
+[x] variable
 [x] reference
 - operator `+= -= *= /= %= := **`
 
