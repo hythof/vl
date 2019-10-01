@@ -119,32 +119,27 @@ compile xs = go
     line (I64 n) = assign "64" (show n)
     line (Def name ast) = define name $ optimize ast
     line (Call name []) = reference name
-    line (Call ":=" [op1@(Call name []), op2]) = do
+    line (Call op [op1, op2]) = do
       o1 <- line op1
       o2 <- line op2
+      let r1 = reg o1
+      let r2 = reg o2
       let ty1 = ty o1
       let ty2 = ty o2
       let ty = if ty1 == ty2 then ty1 else error $ "Type miss match op: := left:" ++ show op1 ++ " right " ++ show op2
-      n <- store ty (mem o1) (reg o2)
-      n <- load ty n
-      register name (Register ty n n)
-    line (Call op [left, right]) = do
-      l <- line left
-      r <- line right
-      let tyl = ty l
-      let tyr = ty r
-      let ty = if tyl == tyr then tyl else error $ "Type miss match op: " ++ op ++ " left:" ++ show l ++ " right " ++ show r
-      let rl = reg l
-      let rr = reg r
-      n <- case op of
-        "+" -> next $ "add i" ++ ty ++ " " ++ rl ++ ", " ++ rr
-        "-" -> next $ "sub i" ++ ty ++ " " ++ rl ++ ", " ++ rr
-        "*" -> next $ "mul i" ++ ty ++ " " ++ rl ++ ", " ++ rr
-        "/" -> next $ "sdiv i" ++ ty ++ " " ++ rl ++ ", " ++ rr
-        "%" -> next $ "srem i" ++ ty ++ " " ++ rl ++ ", " ++ rr
-      return $ Register ty n n
-
-    ll_line x = error $ show x
+      let op_code code = (next $ code ++ " i" ++ ty ++ " " ++ r1 ++ ", " ++ r2) >>= \n -> return $ Register ty n n
+      case op of
+        ":=" -> do
+            n <- store ty (mem o1) (reg o2)
+            n <- load ty n
+            let (Call name []) = op1
+            register name (Register ty n n)
+        "+" -> op_code "add"
+        "-" -> op_code "sub"
+        "*" -> op_code "mul"
+        "/" -> op_code "sdiv"
+        "%" -> op_code "srem"
+    line x = error $ show x
     ll_suffix = unlines [
         ""
       , "; common suffix"
