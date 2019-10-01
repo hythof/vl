@@ -7,22 +7,35 @@ import Control.Monad (guard)
 import System.Process (system)
 
 -- Parse --------------------------------------------------
-parse :: String -> Maybe (AST, Source)
-parse s = runParser parse_exp $ Source s 0 (length s)
+parse :: String -> Maybe ([AST], Source)
+parse s = runParser parse_top $ Source s 0 (length s)
 
+parse_top = sep_by1 (parse_def <|> parse_exp) read_br
+
+parse_def = do
+  name <- read_id
+  char '='
+  body <- parse_exp
+  return $ Def name body
 parse_exp :: Parser AST
 parse_exp = go
   where
     go :: Parser AST
     go = do
-      left <- parenthis <|> parse_int
-      (parse_op2 left) <|> (return left)
-    parenthis = between (char '(') (char ')') parse_exp
-    parse_op2 :: AST -> Parser AST
-    parse_op2 left = do
+      left <- parse_unit
+      (exp_op_remaining left) <|> (return left)
+    exp_op_remaining :: AST -> Parser AST
+    exp_op_remaining left = do
       op <- read_op
       right <- parse_exp
       return $ Call op [left, right]
+parse_unit = go
+  where
+    go = parenthis <|> parse_int <|> parse_call
+    parenthis = between (char '(') (char ')') parse_exp
+parse_call = do
+  name <- read_id
+  return $ Call name []
 parse_int :: Parser AST
 parse_int = do
   s <- many1 (satisfy ((flip elem) "0123456789"))
@@ -32,6 +45,19 @@ read_op :: Parser String
 read_op = do
   c <- satisfy ((flip elem) "+-*/%")
   return [c]
+read_id :: Parser String
+read_id = do
+  xs <- many1 $ satisfy ((flip elem) "abcdefghijklmnopqrstuvwxyz_")
+  ys <- many $ satisfy ((flip elem) "abcdefghijklmnopqrstuvwxyz_0123456789")
+  return $ xs ++ ys
+read_spaces :: Parser String
+read_spaces = many $ satisfy ((flip elem) "\t ")
+read_br :: Parser ()
+read_br = do
+  read_spaces
+  char '\n'
+  many $ satisfy ((flip elem) "\n\t ")
+  return ()
 
 satisfy :: (Char -> Bool) -> Parser Char
 satisfy f = Parser $ \s -> do
@@ -53,6 +79,11 @@ many_acc f acc = (do
   x <- f
   many_acc f (x : acc)
   ) <|> (return $ reverse acc)
+sep_by1 :: Parser a -> Parser b -> Parser [a]
+sep_by1 body sep = do
+  x <- body
+  xs <- many (sep >> body)
+  return $ x : xs
 char c = satisfy (== c)
 between l r c = do
   l
@@ -61,7 +92,7 @@ between l r c = do
   return $ v
 
 -- Eval ---------------------------------------------------
-eval :: AST -> IO String
+eval :: [AST] -> IO String
 eval x = do
   system $ "mkdir -p /tmp/llvm"
   let ll = compile x
@@ -69,12 +100,15 @@ eval x = do
   system $ "(cd /tmp/llvm && lli v.ll > stdout.txt)"
   readFile "/tmp/llvm/stdout.txt"
 
-compile x = go
+compile xs = go
   where
     go = ll_main ++ ll_suffix
-    root = constant_folding x
-    ll_main = compileToLL "v_main" 64 (ll_body root >> return ())
+    body = mapM_ (ll_body . optimize) xs
+    ll_main = compileToLL "v_main" 64 (body >> return ())
     ll_body (Int n) = assign 64 (show n)
+    ll_body (Def name ast) = define name $ optimize ast
+    ll_body (Call name []) = reference name
+    ll_body x = error $ show x
     ll_suffix = unlines [
         ""
       , "; common suffix"
@@ -91,19 +125,19 @@ compile x = go
       , "declare i32 @printf(i8*, ...) #1"
       ]
 
-constant_folding :: AST -> AST
-constant_folding ast = go ast
+optimize :: AST -> AST
+optimize ast = go ast
   where
-    go x@(Int n) = x
-    go (Call "+" [Int l, Int r]) = Int $ l + r
-    go (Call "-" [Int l, Int r]) = Int $ l - r
-    go (Call "*" [Int l, Int r]) = Int $ l * r
-    go (Call "/" [Int l, Int r]) = Int $ l `div` r
-    go (Call "%" [Int l, Int r]) = Int $ l `mod` r
-    go (Call op [left, right]) = go $ Call op [l, r]
-      where
-        l = go left
-        r = go right
+    go (Call op [Int l, Int r]) = case op of
+      "+" -> Int $ l + r
+      "-" -> Int $ l - r
+      "*" -> Int $ l * r
+      "/" -> Int $ l `div` r
+      "%" -> Int $ l `mod` r
+    go x@(Call op [left, right]) = case (go left, go right) of
+      (Int l, Int r) -> go $ Call op [Int l, Int r]
+      (l, r) -> Call op [l, r]
+    go x = x
 
 -- Main ---------------------------------------------------
 test :: String -> String -> IO ()
@@ -132,4 +166,6 @@ main = do
   test "9" "2+3+4"
   test "14" "2+(3*4)"
   test "20" "(2+3)*4"
+  test "1" "x=1\nx"
+  --test "5" "x=2\ny=3\nx+y"
   putStrLn "done"

@@ -9,6 +9,7 @@ data AST =
 -- simple value
     Void
   | Int Int
+  | Def String AST
   | Call String [AST]
   deriving (Show, Eq)
 
@@ -44,7 +45,7 @@ instance Alternative Parser where
 
 
 -- LLVM
-data Define = Define { counter :: Int, body :: [String] } deriving (Show)
+data Define = Define { counter :: Int, env :: [(String, Int)], body :: [String] } deriving (Show)
 data Compiler a = Compiler { runCompile :: Define -> (a, Define) }
 
 instance Functor Compiler where
@@ -66,17 +67,27 @@ n0 d = counter d
 n1 d = 1 + counter d
 c0 d = show $ n0 d
 c1 d = show $ n1 d
+get_or_raise name xs = case lookup name xs of
+  Just x -> x
+  Nothing -> error $ "Not found " ++ name
+put name v = Compiler $ \d -> ((), d { env = (name, v) : env d })
 emit x = Compiler $ \d -> (n0 d, d { body = (' ' : ' ' : x) : (body d) })
 next x = Compiler $ \d -> (n1 d, d { body = ("  %" ++ c1 d ++ " = " ++ x) : (body d), counter = n1 d })
 alloca ty = next $ "alloca i" ++ show ty ++ ", align 4"
 store ty n v = emit $ "store i" ++ show ty ++ " " ++ v ++ ", i" ++ show ty ++ "* " ++ "%" ++ show n ++ ", align 4"
 assign ty v = alloca ty >>= \n -> store ty n v
-add ty op1 op2 = next $ "add i" ++ show ty ++ " " ++ show op1 ++ ", " ++ show op2
+define name v = case v of
+  Int x -> do { n <- assign 64 (show x); put name n; return n }
+  _ -> error $ "Does not define " ++ show v
+reference name = Compiler $ \d -> (get_or_raise name $ env d, d)
+add ty op1 op2 = next $ "add nsw i" ++ show ty ++ " %" ++ show op1 ++ ", %" ++ show op2
 compileToLL name ty f = let
-  (_, d) = runCompile f (Define 0 [])
-  load = "  %" ++ c1 d ++ " = load i64, i64* %" ++ c0 d ++ ", align 4\n"
-  ret = "  ret i64 %" ++ c1 d ++ "\n"
-  in "define i" ++ show ty ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ load ++ ret ++ "}\n"
+  (_, d) = runCompile f (Define 0 [] [])
+  ret = unlines [
+      "  %" ++ c1 d ++ " = load i64, i64* %" ++ c0 d ++ ", align 4"
+    , "  ret i64 %" ++ c1 d
+    ]
+  in "define i" ++ show ty ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ ret ++ "\n}\n"
 
 -- utility
 to_string Void = "_"
