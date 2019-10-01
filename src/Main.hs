@@ -46,7 +46,12 @@ read_op :: Parser String
 read_op = op2 <|> op1
   where
     op1 = satisfy ((flip elem) "+-*/%") >>= \c -> return [c]
-    op2 = string ":="
+    op2 = string ":=" <|>
+          string "+=" <|>
+          string "-=" <|>
+          string "*=" <|>
+          string "/=" <|>
+          string "%="
 read_id :: Parser String
 read_id = do
   xs <- many1 $ satisfy ((flip elem) "abcdefghijklmnopqrstuvwxyz_")
@@ -139,6 +144,7 @@ compile xs = go
         "*" -> op_code "mul"
         "/" -> op_code "sdiv"
         "%" -> op_code "srem"
+        _ -> error $ "Unsupported op: " ++ op
     line x = error $ show x
     ll_suffix = unlines [
         ""
@@ -170,7 +176,8 @@ compile xs = go
       in "define i" ++ ty ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ "\n}\n"
 
 optimize :: AST -> AST
-optimize ast = go ast
+optimize ast = unwrap_synatx_sugar $ constant_folding ast
+constant_folding ast = go ast
   where
     go (Call op [I64 l, I64 r]) = op2 op l r
     go x@(Call op [left, right]) = case (go left, go right) of
@@ -184,6 +191,14 @@ optimize ast = go ast
       "/" -> I64 $ l `div` r
       "%" -> I64 $ l `mod` r
       _ -> error $ "Unsupported operator: " ++ op ++ " left: " ++ show l ++ " right: " ++ show r
+unwrap_synatx_sugar ast = go ast
+  where
+    go (Call "+=" [left, right]) = Call ":=" [left, Call "+" [left, go right]]
+    go (Call "-=" [left, right]) = Call ":=" [left, Call "-" [left, go right]]
+    go (Call "*=" [left, right]) = Call ":=" [left, Call "*" [left, go right]]
+    go (Call "/=" [left, right]) = Call ":=" [left, Call "/" [left, go right]]
+    go (Call "%=" [left, right]) = Call ":=" [left, Call "%" [left, go right]]
+    go x = x
 
 -- Main ---------------------------------------------------
 test :: String -> String -> IO ()
@@ -220,4 +235,9 @@ main = do
   test "2" "x=2\ny=3\nx%y"
   test "3" "x=2\nx:=3\nx"
   test "3" "x=2\nx:=3\ny=4\nx"
+  test "5" "x=2\nx+=3\nx"
+  test "-1" "x=2\nx-=3\nx"
+  test "6" "x=2\nx*=3\nx"
+  test "0" "x=2\nx/=3\nx"
+  test "2" "x=2\nx%=3\nx"
   putStrLn "done"

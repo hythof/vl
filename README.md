@@ -10,12 +10,12 @@ This document describe recentry tasks.
 # v0.2
 [x] variable
 [x] reference
-- operator `+= -= *= /= %= := **`
+[x] operator `:= += -= *= /= %=`
 
 # v0.3
 - define function
 - call function
-- hide name when conflict
+- LLDB
 
 # v0.4
 - bool
