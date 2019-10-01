@@ -39,7 +39,7 @@ parse_call = do
 parse_int :: Parser AST
 parse_int = do
   s <- many1 (satisfy ((flip elem) "0123456789"))
-  return $ Int (read s :: Int)
+  return $ I64 (read s :: Int)
 
 read_op :: Parser String
 read_op = do
@@ -103,12 +103,29 @@ eval x = do
 compile xs = go
   where
     go = ll_main ++ ll_suffix
-    body = mapM_ (ll_body . optimize) xs
-    ll_main = compileToLL "v_main" 64 (body >> return ())
-    ll_body (Int n) = assign 64 (show n)
-    ll_body (Def name ast) = define name $ optimize ast
-    ll_body (Call name []) = reference name
-    ll_body x = error $ show x
+    lines = mapM_ (line . optimize) xs
+    ll_main = compileToLL "v_main" 64 (lines >> return ())
+    line :: AST -> Compiler Register
+    line (I64 n) = assign 64 (show n)
+    line (Def name ast) = define name $ optimize ast
+    line (Call name []) = reference name
+    line (Call op [left@(Call _ _), right@(Call _ _)]) = do
+      l <- line left
+      r <- line right
+      let tyl = ty l
+      let tyr = ty r
+      let ty = if tyl == tyr then tyl else error $ "Type miss match op: " ++ op ++ " left:" ++ show l ++ " right " ++ show r
+      let rl = reg l
+      let rr = reg r
+      n <- case op of
+        "+" -> next $ "add i" ++ ty ++ " " ++ rl ++ ", " ++ rr
+        "-" -> next $ "sub i" ++ ty ++ " " ++ rl ++ ", " ++ rr
+        "*" -> next $ "mul i" ++ ty ++ " " ++ rl ++ ", " ++ rr
+        "/" -> next $ "sdiv i" ++ ty ++ " " ++ rl ++ ", " ++ rr
+        "%" -> next $ "srem i" ++ ty ++ " " ++ rl ++ ", " ++ rr
+      return $ Register ty n
+
+    ll_line x = error $ show x
     ll_suffix = unlines [
         ""
       , "; common suffix"
@@ -124,21 +141,32 @@ compile xs = go
       , ""
       , "declare i32 @printf(i8*, ...) #1"
       ]
+    alloca ty = next $ "alloca i" ++ show ty ++ ", align 4"
+    store ty n v = emit $ "store i" ++ show ty ++ " " ++ v ++ ", i" ++ show ty ++ "* " ++ n ++ ", align 4"
+    load ty n = next $ "load i" ++ show ty ++ ", i" ++ show ty ++ "* " ++ n ++ ", align 4"
+    assign ty v = alloca ty >>= \n -> store ty n v >>= \n -> load ty n >>= \n -> return $ Register (show ty) n
+    define name v = case v of
+      I64 x -> assign 64 (show x) >>= \n -> register name n
+      _ -> error $ "Does not define " ++ show v
+    compileToLL name ty f = let
+      (_, d) = runCompile f (Define 0 [] [])
+      ret = "  ret i64 %" ++ c0 d
+      in "define i" ++ show ty ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ ret ++ "\n}\n"
 
 optimize :: AST -> AST
 optimize ast = go ast
   where
-    go (Call op [Int l, Int r]) = op2 op l r
+    go (Call op [I64 l, I64 r]) = op2 op l r
     go x@(Call op [left, right]) = case (go left, go right) of
-      (Int l, Int r) -> op2 op l r
+      (I64 l, I64 r) -> op2 op l r
       (l, r) -> Call op [l, r]
     go x = x
     op2 op l r = case op of
-      "+" -> Int $ l + r
-      "-" -> Int $ l - r
-      "*" -> Int $ l * r
-      "/" -> Int $ l `div` r
-      "%" -> Int $ l `mod` r
+      "+" -> I64 $ l + r
+      "-" -> I64 $ l - r
+      "*" -> I64 $ l * r
+      "/" -> I64 $ l `div` r
+      "%" -> I64 $ l `mod` r
       _ -> error $ "Unsupported operator: " ++ op ++ " left: " ++ show l ++ " right: " ++ show r
 
 -- Main ---------------------------------------------------
@@ -169,5 +197,9 @@ main = do
   test "14" "2+(3*4)"
   test "20" "(2+3)*4"
   test "1" "x=1\nx"
-  --test "5" "x=2\ny=3\nx+y"
+  test "5" "x=2\ny=3\nx+y"
+  test "-1" "x=2\ny=3\nx-y"
+  test "6" "x=2\ny=3\nx*y"
+  test "0" "x=2\ny=3\nx/y"
+  test "2" "x=2\ny=3\nx%y"
   putStrLn "done"
