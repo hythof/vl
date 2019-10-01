@@ -8,3 +8,6 @@
 *~
 
 bin/
+/llvm/add
+/llvm/add.s
+/llvm/add.ll
