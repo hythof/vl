@@ -13,9 +13,7 @@ data AST =
   | Call String [AST]
   deriving (Show, Eq)
 
-data Register = Register { ty :: String , reg :: String, mem :: String }
-  | Memory { ty :: String, reg :: String, mem :: String }
-  deriving (Show, Eq)
+data Register = Register { ty :: String , reg :: String, mem :: String } deriving (Show, Eq)
 
 -- Pparser
 data Source = Source { src :: String, pos :: Int, len :: Int } deriving (Show)

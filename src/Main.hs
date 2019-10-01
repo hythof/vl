@@ -160,10 +160,13 @@ compile xs = go
       , ""
       , "declare i32 @printf(i8*, ...) #1"
       ]
-    alloca ty = next $ "alloca i" ++ ty ++ ", align 4"
     store ty n v = (emit $ "store i" ++ ty ++ " " ++ v ++ ", i" ++ ty ++ "* " ++ n ++ ", align 4") >> return n
     load ty n = next $ "load i" ++ ty ++ ", i" ++ ty ++ "* " ++ n ++ ", align 4"
-    assign ty v = alloca ty >>= \rm -> store ty rm v >>= \rm -> load ty rm >>= \rr -> return $ Memory ty rr rm
+    assign ty v = do
+      r1 <- next $ "alloca i" ++ ty ++ ", align 4"
+      store ty r1 v
+      r2 <- load ty r1
+      return $ Register ty r2 r1
     define name v = case v of
       I64 x -> assign "64" (show x) >>= \n -> register name n
       _ -> error $ "Does not define " ++ show v
