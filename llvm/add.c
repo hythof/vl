@@ -2,9 +2,10 @@
 
 int v_main() {
   int x = 2;
-  int y = 3;
-  int z = x % y;
-  return z;
+  x = 3;
+  x = 4;
+  x = 5;
+  return x;
 }
 
 int main() {

@@ -1,10 +1,14 @@
 reset:
 	vi add.c
-	/usr/bin/clang -S -emit-llvm -O0 add.c
-	/usr/local/Cellar/llvm/8.0.1/bin/llc add.ll
-	clang add.s -o add
+	clang -g -S -emit-llvm -O0 add.c
+	llc add.ll
+	as -o add.o add.s
+	ld64.lld -lSystem -o add add.o
 	./add
 	cat add.ll
 
 check:
 	vi add.ll && lli add.ll
+
+clean:
+	rm -rf add add.dSYM add.ll add.s add.o
