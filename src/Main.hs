@@ -128,16 +128,18 @@ compile xs = go
 optimize :: AST -> AST
 optimize ast = go ast
   where
-    go (Call op [Int l, Int r]) = case op of
+    go (Call op [Int l, Int r]) = op2 op l r
+    go x@(Call op [left, right]) = case (go left, go right) of
+      (Int l, Int r) -> op2 op l r
+      (l, r) -> Call op [l, r]
+    go x = x
+    op2 op l r = case op of
       "+" -> Int $ l + r
       "-" -> Int $ l - r
       "*" -> Int $ l * r
       "/" -> Int $ l `div` r
       "%" -> Int $ l `mod` r
-    go x@(Call op [left, right]) = case (go left, go right) of
-      (Int l, Int r) -> go $ Call op [Int l, Int r]
-      (l, r) -> Call op [l, r]
-    go x = x
+      _ -> error $ "Unsupported operator: " ++ op ++ " left: " ++ show l ++ " right: " ++ show r
 
 -- Main ---------------------------------------------------
 test :: String -> String -> IO ()
