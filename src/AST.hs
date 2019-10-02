@@ -83,8 +83,8 @@ reference name = Compiler $ \d -> (ref name $ env d, d)
     ref name xs = case lookup name xs of
       Just x -> x
       Nothing -> error $ "Not found " ++ name
-define_sub :: String -> Register -> Compiler Register
-define_sub body r = Compiler $ \d -> (r, d { subs = body : subs d })
+define_sub :: String -> Compiler ()
+define_sub body = Compiler $ \d -> ((), d { subs = body : subs d })
 
 -- utility
 to_string Void = "_"

@@ -30,7 +30,9 @@ parse_exp = go
       (exp_op_remaining left) <|> (return left)
     exp_op_remaining :: AST -> Parser AST
     exp_op_remaining left = do
+      read_spaces
       op <- read_op
+      read_spaces
       right <- parse_exp
       return $ Call op [left, right]
 parse_unit = go
@@ -126,6 +128,14 @@ compile top_lines = go
   where
     go = c_main ++ ll_suffix
     all_op = [":=", "+", "-", "*", "/", "%"]
+    call_ref name argv = ref top_lines
+      where
+        ref [] = error $ "Deos not found " ++ name ++ " with " ++ show argv
+        ref (x@(Def name' args _):xs) = case (name == name', length args == length argv) of
+          (True, True) -> x
+          (True, False) -> error $ "Does not match number of arguments expect=" ++ (show $ length args) ++ " given=" ++ show argv
+          _ -> ref xs
+        ref (_:xs) = ref xs
     c_lines lines = do
       rs <- mapM (c_line . optimize) lines
       return $ last rs
@@ -141,15 +151,23 @@ compile top_lines = go
       r <- c_lines lines
       n <- assign (rty r) (reg r)
       register name n
-    c_line (Def name args lines) = error "no implement yet"
+    c_line (Def name args lines) = noop
     c_line (Call name []) = reference name
     c_line (Call op [op1, op2]) = if elem op all_op
       then c_op2 op op1 op2
       else c_call op [op1, op2]
     c_line (Call name args) = c_call name args
     c_line x = error $ "Unsupported compiling: " ++ show x
-    c_call name args = do
-      assign "64" "999"
+    c_call name argv = do
+      let ast = call_ref name argv
+      let (Def _ args lines) = ast
+      registers <- mapM c_line argv
+      let env = zip args registers
+      let (r, code) = compile_func name env $ c_func lines
+      define_sub code
+      let call_argv = string_join ", " $ map (\r -> "i" ++ rty r ++ " " ++ reg r) registers
+      n <- next $ "call i" ++ rty r ++ " @" ++ name ++ "(" ++ call_argv ++ ")"
+      return $ Register (rty r) n ""
     c_op2 op op1 op2 = do
       o1 <- c_line op1
       o2 <- c_line op2
@@ -186,6 +204,7 @@ compile top_lines = go
       , ""
       , "declare i32 @printf(i8*, ...) #1"
       ]
+    noop = return $ Register "" "" ""
     store ty n v = (emit $ "store i" ++ ty ++ " " ++ v ++ ", i" ++ ty ++ "* " ++ n ++ ", align 4") >> return n
     load ty n = next $ "load i" ++ ty ++ ", i" ++ ty ++ "* " ++ n ++ ", align 4"
     assign ty v = do
@@ -198,8 +217,11 @@ compile top_lines = go
       _ -> error $ "Does not define " ++ show v
     compile_func :: String -> [(String, Register)] -> Compiler Register -> (Register, String)
     compile_func name env f = let
-      (r, d) = runCompile f (Define (length env) env [] [])
-      in (r, "define i" ++ (rty r) ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ "\n}\n")
+      env' = map (\(i, (name, r)) -> (name, Register (rty r) ("%" ++ show i) "")) (zip [0..] env)
+      (r, d) = runCompile f (Define (length env') env' [] [])
+      sub_funcs = unlines $ subs d
+      argv = string_join "," $ map (\(_, r) -> "i" ++ rty r) env
+      in (r, "define i" ++ (rty r) ++ " @" ++ name ++ "(" ++ argv ++ ") #0 {\n" ++ (unlines (reverse $ body d)) ++ "}\n" ++ sub_funcs)
 
 optimize :: AST -> AST
 optimize ast = unwrap_synatx_sugar $ constant_folding ast
@@ -216,7 +238,7 @@ constant_folding ast = go ast
       "*" -> I64 $ l * r
       "/" -> I64 $ l `div` r
       "%" -> I64 $ l `mod` r
-      _ -> error $ "Unsupported operator: " ++ op ++ " left: " ++ show l ++ " right: " ++ show r
+      _ -> Call op [I64 l, I64 r]
 unwrap_synatx_sugar ast = go ast
   where
     go (Call "+=" [left, right]) = Call ":=" [left, Call "+" [left, go right]]
@@ -268,5 +290,7 @@ main = do
   test "2" "x=2\nx%=3\nx"
   test "1" "x={1}\nx"
   test "3" "x={y=1\ny+=2\ny}\nx"
-  --test "1" "id x = x\nid(1)"
+  test "1" "id x = x\nid(1)"
+  test "5" "add a b = a + b\nadd(2 3)"
+  test "9" "add a b c = a + b + c\nadd(2 3 4)"
   putStrLn "done"

@@ -13,9 +13,8 @@ This document describe recentry tasks.
 [x] operator `:= += -= *= /= %=`
 
 # v0.3
-- define function
-- call function
-- LLDB
+[x] define function
+[x] call function
 
 # v0.4
 - bool
