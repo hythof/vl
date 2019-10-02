@@ -11,13 +11,14 @@ import System.Process (system)
 parse :: String -> Maybe ([AST], Source)
 parse s = runParser parse_top $ Source s 0 (length s)
 
-parse_top = sep_by1 (parse_def <|> parse_exp) read_br
+parse_top = sep_by1 parse_line read_br
 
+parse_line = parse_def <|> parse_exp
 parse_def = do
   name <- read_id
   char '='
   body <- parse_exp
-  return $ Def name body
+  return $ Def name [body]
 parse_exp :: Parser AST
 parse_exp = go
   where
@@ -112,17 +113,19 @@ eval x = do
   readFile "/tmp/llvm/stdout.txt"
 
 compile :: [AST] -> String
-compile xs = go
+compile top_lines = go
   where
-    go = ll_main ++ ll_suffix
-    lines = do
-      rs <- mapM (line . optimize) xs
-      let r = last rs
+    go = c_main ++ ll_suffix
+    c_lines lines = do
+      rs <- mapM (line . optimize) lines
+      return $ last rs
+    c_func lines = do
+      r <- c_lines lines
       emit $ "ret i" ++ ty r ++ " " ++ reg r
-    ll_main = compileToLL "v_main" "64" lines
+    c_main = compileToLL "v_main" "64" (c_func top_lines)
     line :: AST -> Compiler Register
     line (I64 n) = assign "64" (show n)
-    line (Def name ast) = define name $ optimize ast
+    line (Def name [line]) = define name line
     line (Call name []) = reference name
     line (Call op [op1, op2]) = do
       o1 <- line op1
