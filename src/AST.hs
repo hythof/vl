@@ -9,6 +9,7 @@ data AST =
 -- simple value
     Void
   | I64 Int
+  | Bool Bool
   | Def String [String] [AST]
   | Call String [AST]
   deriving (Show, Eq)

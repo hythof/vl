@@ -37,7 +37,7 @@ parse_exp = go
       return $ Call op [left, right]
 parse_unit = go
   where
-    go = parenthis <|> parse_int <|> parse_call
+    go = parenthis <|> parse_int <|> parse_bool <|> parse_call
     parenthis = between (char '(') (char ')') parse_exp
 parse_call = do
   name <- read_id
@@ -47,6 +47,10 @@ parse_int :: Parser AST
 parse_int = do
   s <- many1 (satisfy ((flip elem) "0123456789"))
   return $ I64 (read s :: Int)
+parse_bool :: Parser AST
+parse_bool = do
+  s <- string "true" <|> string "false"
+  return $ Bool (s == "true")
 
 read_op :: Parser String
 read_op = op2 <|> op1
@@ -126,7 +130,9 @@ eval x = do
 compile :: [AST] -> String
 compile top_lines = go
   where
-    go = c_main ++ ll_suffix
+    go = let
+      (r, code) = c_main
+      in code ++ ll_suffix r
     all_op = [":=", "+", "-", "*", "/", "%"]
     call_ref name argv = ref top_lines
       where
@@ -143,9 +149,11 @@ compile top_lines = go
       r <- c_lines lines
       emit $ "ret " ++ rty r ++ " " ++ reg r
       return r
-    c_main = snd $ compile_func "v_main" [] (c_func top_lines)
+    c_main = compile_func "v_main" [] (c_func top_lines)
     c_line :: AST -> Compiler Register
     c_line (I64 n) = assign "i64" (show n)
+    c_line (Bool True) = assign "i1" "true"
+    c_line (Bool False) = assign "i1" "false"
     c_line (Def name [] [line]) = define name line
     c_line (Def name [] lines) = do
       r <- c_lines lines
@@ -189,7 +197,7 @@ compile top_lines = go
         "/" -> op_code "sdiv"
         "%" -> op_code "srem"
         _ -> error $ "Unsupported op: " ++ op
-    ll_suffix = unlines [
+    ll_suffix r = unlines [
         ""
       , "; common suffix"
       , "@.str = private unnamed_addr constant [3 x i8] c\"%d\00\", align 1"
@@ -197,7 +205,7 @@ compile top_lines = go
       , "define i32 @main() #0 {"
       , "  %1 = alloca i32, align 4"
       , "  store i32 0, i32* %1, align 4"
-      , "  %2 = call i64 @v_main()"
+      , "  %2 = call " ++ rty r ++ " @v_main()"
       , "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str, i32 0, i32 0), i64 %2)"
       , "  ret i32 0 "
       , "}"
@@ -214,6 +222,7 @@ compile top_lines = go
       return $ Register ty r2 r1
     define name v = case v of
       I64 x -> assign "i64" (show x) >>= \n -> register name n
+      Bool x -> assign "i1" (if x then "true" else "false") >>= \n -> register name n
       _ -> error $ "Does not define " ++ show v
     compile_func :: String -> [(String, Register)] -> Compiler Register -> (Register, String)
     compile_func name env f = let
@@ -293,4 +302,5 @@ main = do
   test "1" "id x = x\nid(1)"
   test "5" "add a b = a + b\nadd(2 3)"
   test "9" "add a b c = a + b + c\nadd(2 3 4)"
+  test "true" "true"
   putStrLn "done"
