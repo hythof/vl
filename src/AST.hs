@@ -9,11 +9,11 @@ data AST =
 -- simple value
     Void
   | I64 Int
-  | Def String [AST]
+  | Def String [String] [AST]
   | Call String [AST]
   deriving (Show, Eq)
 
-data Register = Register { ty :: String , reg :: String, mem :: String } deriving (Show, Eq)
+data Register = Register { rty :: String , reg :: String, mem :: String } deriving (Show, Eq)
 
 -- Pparser
 data Source = Source { src :: String, pos :: Int, len :: Int } deriving (Show)
@@ -47,7 +47,11 @@ instance Alternative Parser where
 
 
 -- LLVM
-data Define = Define { counter :: Int, env :: [(String, Register)], body :: [String] } deriving (Show)
+data Define = Define {
+  counter :: Int,
+  env :: [(String, Register)],
+  body :: [String]
+  } deriving (Show)
 data Compiler a = Compiler { runCompile :: Define -> (a, Define) }
 
 instance Functor Compiler where

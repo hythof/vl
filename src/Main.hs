@@ -10,16 +10,17 @@ import System.Process (system)
 -- Parse --------------------------------------------------
 parse :: String -> Maybe ([AST], Source)
 parse s = runParser parse_top $ Source s 0 (length s)
-
-parse_top = sep_by1 parse_line read_br
-
+parse_top = sep_by1 parse_line read_br1
 parse_line = parse_def <|> parse_exp
 parse_def = do
   name <- read_id
+  args <- many (read_spaces1 >> read_id)
+  read_spaces
   char '='
+  read_spaces
   lines <- parse_stmt <|> (parse_exp >>= \exp -> return [exp])
-  return $ Def name lines
-parse_stmt = between (char '{') (char '}') (sep_by parse_line read_br)
+  return $ Def name args lines
+parse_stmt = between (char '{' >> read_separator) (read_separator >> char '}') (sep_by parse_line read_br1)
 parse_exp :: Parser AST
 parse_exp = go
   where
@@ -38,7 +39,8 @@ parse_unit = go
     parenthis = between (char '(') (char ')') parse_exp
 parse_call = do
   name <- read_id
-  return $ Call name []
+  args <- between (char '(' >> read_spaces) (read_spaces >> char ')') (sep_by parse_unit read_spaces1) <|> (return [])
+  return $ Call name args
 parse_int :: Parser AST
 parse_int = do
   s <- many1 (satisfy ((flip elem) "0123456789"))
@@ -61,8 +63,12 @@ read_id = do
   return $ xs ++ ys
 read_spaces :: Parser String
 read_spaces = many $ satisfy ((flip elem) "\t ")
-read_br :: Parser ()
-read_br = do
+read_spaces1 :: Parser String
+read_spaces1 = many1 $ satisfy ((flip elem) "\t ")
+read_separator :: Parser String
+read_separator = many $ satisfy ((flip elem) "\n\t ")
+read_br1 :: Parser ()
+read_br1 = do
   read_spaces
   char '\n'
   many $ satisfy ((flip elem) "\n\t ")
@@ -119,28 +125,37 @@ compile :: [AST] -> String
 compile top_lines = go
   where
     go = c_main ++ ll_suffix
+    all_op = [":=", "+", "-", "*", "/", "%"]
     c_lines lines = do
-      rs <- mapM (line . optimize) lines
+      rs <- mapM (c_line . optimize) lines
       return $ last rs
     c_func lines = do
       r <- c_lines lines
-      emit $ "ret i" ++ ty r ++ " " ++ reg r
+      emit $ "ret i" ++ rty r ++ " " ++ reg r
     c_main = compileToLL "v_main" "64" (c_func top_lines)
-    line :: AST -> Compiler Register
-    line (I64 n) = assign "64" (show n)
-    line (Def name [line]) = define name line
-    line (Def name lines) = do
+    c_line :: AST -> Compiler Register
+    c_line (I64 n) = assign "64" (show n)
+    c_line (Def name [] [line]) = define name line
+    c_line (Def name [] lines) = do
       r <- c_lines lines
-      n <- assign (ty r) (reg r)
+      n <- assign (rty r) (reg r)
       register name n
-    line (Call name []) = reference name
-    line (Call op [op1, op2]) = do
-      o1 <- line op1
-      o2 <- line op2
+    c_line (Def name args lines) = error "no implement yet"
+    c_line (Call name []) = reference name
+    c_line (Call op [op1, op2]) = if elem op all_op
+      then c_op2 op op1 op2
+      else c_call op [op1, op2]
+    c_line (Call name args) = c_call name args
+    c_line x = error $ "Unsupported compiling: " ++ show x
+    c_call name args = do
+      assign "64" "999"
+    c_op2 op op1 op2 = do
+      o1 <- c_line op1
+      o2 <- c_line op2
       let r1 = reg o1
       let r2 = reg o2
-      let ty1 = ty o1
-      let ty2 = ty o2
+      let ty1 = rty o1
+      let ty2 = rty o2
       let ty = if ty1 == ty2 then ty1 else error $ "Type miss match op: := left:" ++ show op1 ++ " right " ++ show op2
       let op_code code = (next $ code ++ " i" ++ ty ++ " " ++ r1 ++ ", " ++ r2) >>= \n -> return $ Register ty n n
       case op of
@@ -155,7 +170,6 @@ compile top_lines = go
         "/" -> op_code "sdiv"
         "%" -> op_code "srem"
         _ -> error $ "Unsupported op: " ++ op
-    line x = error $ show x
     ll_suffix = unlines [
         ""
       , "; common suffix"
@@ -252,4 +266,5 @@ main = do
   test "2" "x=2\nx%=3\nx"
   test "1" "x={1}\nx"
   test "3" "x={y=1\ny+=2\ny}\nx"
+  --test "1" "id x = x\nid(1)"
   putStrLn "done"
