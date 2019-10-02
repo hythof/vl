@@ -54,7 +54,12 @@ data Define = Define {
   } deriving (Show)
 data Compiler a = Compiler { runCompile :: Define -> (a, Define) }
 
-data Register = Register { rty :: String , reg :: String, mem :: String } deriving (Show, Eq)
+data Register = Register { ast :: AST , reg :: String, mem :: String } deriving (Show, Eq)
+rty r = aty $ ast r
+aty a = case a of
+  (I64 _) -> "i64"
+  (Bool _) -> "i1"
+  _ -> error $ "Untyped " ++ show a
 
 instance Functor Compiler where
   fmap f c = Compiler $ \d ->let (a, d') = (runCompile c d) in (f a, d')

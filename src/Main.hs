@@ -7,6 +7,9 @@ import Control.Applicative ((<|>))
 import Control.Monad (guard)
 import System.Process (system)
 
+all_exec_ops = [":=", "+", "-", "*", "/", "%", ">=", ">", "<=", "<", "!=", "==", "&&", "||"]
+all_parse_ops = ["+=", "-=", "*=", "/=", "%="] ++ all_exec_ops
+
 -- Parse --------------------------------------------------
 parse :: String -> Maybe ([AST], Source)
 parse s = runParser parse_top $ Source s 0 (length s)
@@ -56,12 +59,9 @@ read_op :: Parser String
 read_op = op2 <|> op1
   where
     op1 = satisfy ((flip elem) "+-*/%") >>= \c -> return [c]
-    op2 = string ":=" <|>
-          string "+=" <|>
-          string "-=" <|>
-          string "*=" <|>
-          string "/=" <|>
-          string "%="
+    op2 = try_op2 all_parse_ops
+    try_op2 [] = Parser $ \_ -> Nothing
+    try_op2 (x:xs) = (string x) <|> try_op2 xs
 read_id :: Parser String
 read_id = do
   xs <- many1 $ satisfy ((flip elem) "abcdefghijklmnopqrstuvwxyz_")
@@ -133,7 +133,6 @@ compile top_lines = go
     go = let
       (r, code) = c_main
       in code ++ ll_suffix r
-    all_op = [":=", "+", "-", "*", "/", "%"]
     call_ref name argv = ref top_lines
       where
         ref [] = error $ "Deos not found " ++ name ++ " with " ++ show argv
@@ -151,31 +150,36 @@ compile top_lines = go
       return r
     c_main = compile_func "v_main" [] (c_func top_lines)
     c_line :: AST -> Compiler Register
-    c_line (I64 n) = assign "i64" (show n)
-    c_line (Bool True) = assign "i1" "true"
-    c_line (Bool False) = assign "i1" "false"
+    c_line x@(I64 n) = assign x (show n)
+    c_line x@(Bool True) = assign x "true"
+    c_line x@(Bool False) = assign x "false"
     c_line (Def name [] [line]) = define name line
     c_line (Def name [] lines) = do
       r <- c_lines lines
-      n <- assign (rty r) (reg r)
+      n <- assign (ast r) (reg r)
       register name n
     c_line (Def name args lines) = noop
     c_line (Call name []) = reference name
-    c_line (Call op [op1, op2]) = if elem op all_op
+    c_line (Call "if" [cond, op1, op2]) = do
+      rc <- c_line cond
+      o1 <- c_line op1
+      o2 <- c_line op2
+      n <- next $ "select i1 " ++ (reg rc) ++ ", " ++ (rty o1) ++ " " ++ (reg o1) ++ ", " ++ (rty o2) ++ " " ++ (reg o2)
+      return $ Register op1 n ""
+    c_line (Call op [op1, op2]) = if elem op all_exec_ops
       then c_op2 op op1 op2
       else c_call op [op1, op2]
     c_line (Call name args) = c_call name args
     c_line x = error $ "Unsupported compiling: " ++ show x
     c_call name argv = do
-      let ast = call_ref name argv
-      let (Def _ args lines) = ast
+      let (Def _ args lines) = call_ref name argv
       registers <- mapM c_line argv
       let env = zip args registers
       let (r, code) = compile_func name env $ c_func lines
       define_sub code
       let call_argv = string_join ", " $ map (\r -> rty r ++ " " ++ reg r) registers
       n <- next $ "call " ++ rty r ++ " @" ++ name ++ "(" ++ call_argv ++ ")"
-      return $ Register (rty r) n ""
+      return $ Register (ast r) n ""
     c_op2 op op1 op2 = do
       o1 <- c_line op1
       o2 <- c_line op2
@@ -184,49 +188,59 @@ compile top_lines = go
       let ty1 = rty o1
       let ty2 = rty o2
       let ty = if ty1 == ty2 then ty1 else error $ "Type miss match op: := left:" ++ show op1 ++ " right " ++ show op2
-      let op_code code = (next $ code ++ " " ++ ty ++ " " ++ r1 ++ ", " ++ r2) >>= \n -> return $ Register ty n n
+      let op_code code = (next $ code ++ " " ++ ty ++ " " ++ r1 ++ ", " ++ r2) >>= \n -> return $ Register (ast o1) n n
       case op of
         ":=" -> do
             n <- store ty (mem o1) (reg o2)
             n <- load ty n
             let (Call name []) = op1
-            register name (Register ty n n)
+            register name (Register (ast o1) n n)
         "+" -> op_code "add"
         "-" -> op_code "sub"
         "*" -> op_code "mul"
         "/" -> op_code "sdiv"
         "%" -> op_code "srem"
         _ -> error $ "Unsupported op: " ++ op
-    ll_suffix r = unlines [
-        ""
-      , "; common suffix"
-      , "@.str = private unnamed_addr constant [3 x i8] c\"%d\00\", align 1"
-      , ""
-      , "define i32 @main() #0 {"
-      , "  %1 = alloca i32, align 4"
-      , "  store i32 0, i32* %1, align 4"
-      , "  %2 = call " ++ rty r ++ " @v_main()"
-      , "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str, i32 0, i32 0), i64 %2)"
-      , "  ret i32 0 "
-      , "}"
-      , ""
-      , "declare i32 @printf(i8*, ...) #1"
-      ]
-    noop = return $ Register "" "" ""
+    ll_suffix r = go
+      where
+        go = unlines [
+            ""
+          , "; common suffix"
+          , "@.d_format = private unnamed_addr constant [3 x i8] c\"%d\00\", align 1"
+          , "@.true_format = private unnamed_addr constant [5 x i8] c\"true\00\", align 1"
+          , "@.false_format = private unnamed_addr constant [6 x i8] c\"false\00\", align 1"
+          , "@.bug_format = private unnamed_addr constant [4 x i8] c\"BUG\00\", align 1"
+          , ""
+          , "define i32 @main() #0 {"
+          , "  %1 = alloca i32, align 4"
+          , "  store i32 0, i32* %1, align 4"
+          , "  %2 = call " ++ rty r ++ " @v_main()"
+          , printf $ ast r
+          , "  ret i32 0 "
+          , "}"
+          , ""
+          , "declare i32 @printf(i8*, ...) #1"
+          ]
+        printf (I64 _) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
+        printf (Bool True) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.true_format, i32 0, i32 0))"
+        printf (Bool False) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([6 x i8], [6 x i8]* @.false_format, i32 0, i32 0))"
+        printf _ = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.bug_format, i32 0, i32 0))"
+    noop = return $ Register Void "" ""
     store ty n v = (emit $ "store " ++ ty ++ " " ++ v ++ ", " ++ ty ++ "* " ++ n ++ ", align 4") >> return n
     load ty n = next $ "load " ++ ty ++ ", " ++ ty ++ "* " ++ n ++ ", align 4"
-    assign ty v = do
+    assign a v = do
+      let ty = aty a
       r1 <- next $ "alloca " ++ ty ++ ", align 4"
       store ty r1 v
       r2 <- load ty r1
-      return $ Register ty r2 r1
+      return $ Register a r2 r1
     define name v = case v of
-      I64 x -> assign "i64" (show x) >>= \n -> register name n
-      Bool x -> assign "i1" (if x then "true" else "false") >>= \n -> register name n
+      I64 x -> assign v (show x) >>= \n -> register name n
+      Bool x -> assign v (if x then "true" else "false") >>= \n -> register name n
       _ -> error $ "Does not define " ++ show v
     compile_func :: String -> [(String, Register)] -> Compiler Register -> (Register, String)
     compile_func name env f = let
-      env' = map (\(i, (name, r)) -> (name, Register (rty r) ("%" ++ show i) "")) (zip [0..] env)
+      env' = map (\(i, (name, r)) -> (name, Register (ast r) ("%" ++ show i) "")) (zip [0..] env)
       (r, d) = runCompile f (Define (length env') env' [] [])
       sub_funcs = unlines $ subs d
       argv = string_join "," $ map (\(_, r) -> rty r) env
@@ -236,18 +250,29 @@ optimize :: AST -> AST
 optimize ast = unwrap_synatx_sugar $ constant_folding ast
 constant_folding ast = go ast
   where
-    go (Call op [I64 l, I64 r]) = op2 op l r
+    go (Call op [I64 l, I64 r]) = op2_int op l r
+    go (Call op [Bool l, Bool r]) = op2_bool op l r
     go x@(Call op [left, right]) = case (go left, go right) of
-      (I64 l, I64 r) -> op2 op l r
+      (I64 l, I64 r) -> op2_int op l r
       (l, r) -> Call op [l, r]
     go x = x
-    op2 op l r = case op of
+    op2_int op l r = case op of
       "+" -> I64 $ l + r
       "-" -> I64 $ l - r
       "*" -> I64 $ l * r
       "/" -> I64 $ l `div` r
       "%" -> I64 $ l `mod` r
+      ">" -> Bool $ l > r
+      ">=" -> Bool $ l >= r
+      "<" -> Bool $ l < r
+      "<=" -> Bool $ l <= r
+      "==" -> Bool $ l == r
+      "!=" -> Bool $ not (l == r)
       _ -> Call op [I64 l, I64 r]
+    op2_bool op l r = case op of
+      "&&" -> Bool $ l && r
+      "||" -> Bool $ l || r
+      _ -> Call op [Bool l, Bool r]
 unwrap_synatx_sugar ast = go ast
   where
     go (Call "+=" [left, right]) = Call ":=" [left, Call "+" [left, go right]]
@@ -303,4 +328,19 @@ main = do
   test "5" "add a b = a + b\nadd(2 3)"
   test "9" "add a b c = a + b + c\nadd(2 3 4)"
   test "true" "true"
+  test "false" "false"
+  test "true" "true && true"
+  test "false" "false && true"
+  test "true" "true || true"
+  test "true" "false || true"
+  test "true" "1 == 1"
+  test "false" "1 == 2"
+  test "false" "1 != 1"
+  test "true" "1 != 2"
+  test "true" "1 >= 1"
+  test "false" "1 > 1"
+  test "true" "1 <= 1"
+  test "false" "1 < 1"
+  test "1" "if(true 1 2)"
+  test "2" "if(false 1 2)"
   putStrLn "done"

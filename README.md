@@ -17,10 +17,10 @@ This document describe recentry tasks.
 [x] call function
 
 # v0.4
-- bool
-- operator `> >= < <= != == && ||`
-- build-in `if`
-- type inference
+[x] bool
+[x] operator `> >= < <= != == && ||`
+[x] build-in `if`
+[x] type inference
 
 # v0.5
 - u8 .. u64
