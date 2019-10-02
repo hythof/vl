@@ -23,34 +23,34 @@ This document describe recentry tasks.
 - type inference
 
 # v0.5
-- ascii
-- float
-- list
-- struct
+- u8 .. u64
+- i8 .. i64
+- f32, f64
 
 # v0.6
-- self boot
+- array
+- struct
 
 # v0.7
+- self boot
+
+# v0.8
 - sleep
 - async / await
 - parallel
 - coroutine
 
-# v0.8
-- u8 .. u64
-- i8 .. i64
-- f32, f64
+# v0.9
 - utf8
 - dict
 
-# v0.9
+# v0.10
 - operator `| & << >> ~`
 - file
 - tcp
 - udp
 
-# v0.10
+# v0.11
 - link gmp
 - bigint
 - bigfloat
