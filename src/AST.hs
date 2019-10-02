@@ -13,8 +13,6 @@ data AST =
   | Call String [AST]
   deriving (Show, Eq)
 
-data Register = Register { rty :: String , reg :: String, mem :: String } deriving (Show, Eq)
-
 -- Pparser
 data Source = Source { src :: String, pos :: Int, len :: Int } deriving (Show)
 
@@ -50,9 +48,12 @@ instance Alternative Parser where
 data Define = Define {
   counter :: Int,
   env :: [(String, Register)],
-  body :: [String]
+  body :: [String],
+  subs :: [String]
   } deriving (Show)
 data Compiler a = Compiler { runCompile :: Define -> (a, Define) }
+
+data Register = Register { rty :: String , reg :: String, mem :: String } deriving (Show, Eq)
 
 instance Functor Compiler where
   fmap f c = Compiler $ \d ->let (a, d') = (runCompile c d) in (f a, d')
@@ -82,6 +83,8 @@ reference name = Compiler $ \d -> (ref name $ env d, d)
     ref name xs = case lookup name xs of
       Just x -> x
       Nothing -> error $ "Not found " ++ name
+define_sub :: String -> Register -> Compiler Register
+define_sub body r = Compiler $ \d -> (r, d { subs = body : subs d })
 
 -- utility
 to_string Void = "_"

@@ -132,7 +132,8 @@ compile top_lines = go
     c_func lines = do
       r <- c_lines lines
       emit $ "ret i" ++ rty r ++ " " ++ reg r
-    c_main = compileToLL "v_main" "64" (c_func top_lines)
+      return r
+    c_main = snd $ compile_func "v_main" [] (c_func top_lines)
     c_line :: AST -> Compiler Register
     c_line (I64 n) = assign "64" (show n)
     c_line (Def name [] [line]) = define name line
@@ -195,9 +196,10 @@ compile top_lines = go
     define name v = case v of
       I64 x -> assign "64" (show x) >>= \n -> register name n
       _ -> error $ "Does not define " ++ show v
-    compileToLL name ty f = let
-      (_, d) = runCompile f (Define 0 [] [])
-      in "define i" ++ ty ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ "\n}\n"
+    compile_func :: String -> [(String, Register)] -> Compiler Register -> (Register, String)
+    compile_func name env f = let
+      (r, d) = runCompile f (Define (length env) env [] [])
+      in (r, "define i" ++ (rty r) ++ "  @" ++ name ++ "() #0 {\n" ++ (unlines (reverse $ body d)) ++ "\n}\n")
 
 optimize :: AST -> AST
 optimize ast = unwrap_synatx_sugar $ constant_folding ast
