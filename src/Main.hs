@@ -17,8 +17,9 @@ parse_line = parse_def <|> parse_exp
 parse_def = do
   name <- read_id
   char '='
-  body <- parse_exp
-  return $ Def name [body]
+  lines <- parse_stmt <|> (parse_exp >>= \exp -> return [exp])
+  return $ Def name lines
+parse_stmt = between (char '{') (char '}') (sep_by parse_line read_br)
 parse_exp :: Parser AST
 parse_exp = go
   where
@@ -86,6 +87,8 @@ many_acc f acc = (do
   x <- f
   many_acc f (x : acc)
   ) <|> (return $ reverse acc)
+sep_by :: Parser a -> Parser b -> Parser [a]
+sep_by body sep = (sep_by1 body sep) <|> return []
 sep_by1 :: Parser a -> Parser b -> Parser [a]
 sep_by1 body sep = do
   x <- body
@@ -126,6 +129,10 @@ compile top_lines = go
     line :: AST -> Compiler Register
     line (I64 n) = assign "64" (show n)
     line (Def name [line]) = define name line
+    line (Def name lines) = do
+      r <- c_lines lines
+      n <- assign (ty r) (reg r)
+      register name n
     line (Call name []) = reference name
     line (Call op [op1, op2]) = do
       o1 <- line op1
@@ -243,4 +250,6 @@ main = do
   test "6" "x=2\nx*=3\nx"
   test "0" "x=2\nx/=3\nx"
   test "2" "x=2\nx%=3\nx"
+  test "1" "x={1}\nx"
+  test "3" "x={y=1\ny+=2\ny}\nx"
   putStrLn "done"
