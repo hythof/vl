@@ -141,11 +141,11 @@ compile top_lines = go
       return $ last rs
     c_func lines = do
       r <- c_lines lines
-      emit $ "ret i" ++ rty r ++ " " ++ reg r
+      emit $ "ret " ++ rty r ++ " " ++ reg r
       return r
     c_main = snd $ compile_func "v_main" [] (c_func top_lines)
     c_line :: AST -> Compiler Register
-    c_line (I64 n) = assign "64" (show n)
+    c_line (I64 n) = assign "i64" (show n)
     c_line (Def name [] [line]) = define name line
     c_line (Def name [] lines) = do
       r <- c_lines lines
@@ -165,8 +165,8 @@ compile top_lines = go
       let env = zip args registers
       let (r, code) = compile_func name env $ c_func lines
       define_sub code
-      let call_argv = string_join ", " $ map (\r -> "i" ++ rty r ++ " " ++ reg r) registers
-      n <- next $ "call i" ++ rty r ++ " @" ++ name ++ "(" ++ call_argv ++ ")"
+      let call_argv = string_join ", " $ map (\r -> rty r ++ " " ++ reg r) registers
+      n <- next $ "call " ++ rty r ++ " @" ++ name ++ "(" ++ call_argv ++ ")"
       return $ Register (rty r) n ""
     c_op2 op op1 op2 = do
       o1 <- c_line op1
@@ -176,7 +176,7 @@ compile top_lines = go
       let ty1 = rty o1
       let ty2 = rty o2
       let ty = if ty1 == ty2 then ty1 else error $ "Type miss match op: := left:" ++ show op1 ++ " right " ++ show op2
-      let op_code code = (next $ code ++ " i" ++ ty ++ " " ++ r1 ++ ", " ++ r2) >>= \n -> return $ Register ty n n
+      let op_code code = (next $ code ++ " " ++ ty ++ " " ++ r1 ++ ", " ++ r2) >>= \n -> return $ Register ty n n
       case op of
         ":=" -> do
             n <- store ty (mem o1) (reg o2)
@@ -205,23 +205,23 @@ compile top_lines = go
       , "declare i32 @printf(i8*, ...) #1"
       ]
     noop = return $ Register "" "" ""
-    store ty n v = (emit $ "store i" ++ ty ++ " " ++ v ++ ", i" ++ ty ++ "* " ++ n ++ ", align 4") >> return n
-    load ty n = next $ "load i" ++ ty ++ ", i" ++ ty ++ "* " ++ n ++ ", align 4"
+    store ty n v = (emit $ "store " ++ ty ++ " " ++ v ++ ", " ++ ty ++ "* " ++ n ++ ", align 4") >> return n
+    load ty n = next $ "load " ++ ty ++ ", " ++ ty ++ "* " ++ n ++ ", align 4"
     assign ty v = do
-      r1 <- next $ "alloca i" ++ ty ++ ", align 4"
+      r1 <- next $ "alloca " ++ ty ++ ", align 4"
       store ty r1 v
       r2 <- load ty r1
       return $ Register ty r2 r1
     define name v = case v of
-      I64 x -> assign "64" (show x) >>= \n -> register name n
+      I64 x -> assign "i64" (show x) >>= \n -> register name n
       _ -> error $ "Does not define " ++ show v
     compile_func :: String -> [(String, Register)] -> Compiler Register -> (Register, String)
     compile_func name env f = let
       env' = map (\(i, (name, r)) -> (name, Register (rty r) ("%" ++ show i) "")) (zip [0..] env)
       (r, d) = runCompile f (Define (length env') env' [] [])
       sub_funcs = unlines $ subs d
-      argv = string_join "," $ map (\(_, r) -> "i" ++ rty r) env
-      in (r, "define i" ++ (rty r) ++ " @" ++ name ++ "(" ++ argv ++ ") #0 {\n" ++ (unlines (reverse $ body d)) ++ "}\n" ++ sub_funcs)
+      argv = string_join "," $ map (\(_, r) -> rty r) env
+      in (r, "define " ++ (rty r) ++ " @" ++ name ++ "(" ++ argv ++ ") #0 {\n" ++ (unlines (reverse $ body d)) ++ "}\n" ++ sub_funcs)
 
 optimize :: AST -> AST
 optimize ast = unwrap_synatx_sugar $ constant_folding ast
