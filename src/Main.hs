@@ -177,11 +177,10 @@ compile top_lines = go
       emit $ "br label %" ++ l3
       -- finish branch
       emit $ "\n" ++ l3 ++ ":"
-
+      -- finilize
       if rty o1 == rty o2 then return () else error $ "Does not match types on if 1: " ++ show o1 ++ " 2:" ++ show o2
-
       n <- next $ "phi " ++ rty o1 ++ " [ " ++ reg o1 ++ ", %" ++ l1 ++ " ], [ " ++ reg o2 ++ ", %" ++ l2 ++ " ]"
-      return $ Register op1 (rty o1) n ""
+      return $ Register (ast o1) (rty o1) n ""
     c_line (Call op [op1, op2]) = if elem op all_exec_ops
       then c_op2 op op1 op2
       else c_call op [op1, op2]
@@ -240,8 +239,6 @@ compile top_lines = go
         printf (I64 _) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
         printf (Bool True) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.true_format, i32 0, i32 0))"
         printf (Bool False) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([6 x i8], [6 x i8]* @.false_format, i32 0, i32 0))"
-        --printf _ = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
-        --printf _ = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.bug_format, i32 0, i32 0))"
         printf x = error $ show x
     noop = return $ Register Void "" "" ""
     store ty n v = (emit $ "store " ++ ty ++ " " ++ v ++ ", " ++ ty ++ "* " ++ n ++ ", align 4") >> return n
@@ -365,6 +362,6 @@ main = do
   test "false" "1 < 1"
   test "1" "if(true 1 2)"
   test "2" "if(false 1 2)"
-  test "1" "x=0\nif(true 1 (1/x))"
-  test "1" "x=0\nif(false (1/x) 1)"
+  test "1" "x=0\nif(true 1 (2/x))"
+  test "1" "x=0\nif(false (2/x) 1)"
   putStrLn "done"
