@@ -195,7 +195,7 @@ compile top_lines = go
       define_sub code
       let call_argv = string_join ", " $ map (\r -> rty r ++ " " ++ reg r) registers
       n <- next $ "call " ++ rty r ++ " @" ++ name ++ "(" ++ call_argv ++ ")"
-      return $ Register (ast r) (rty r) n ""
+      return $ rcopy r n
     c_op2 op op1 op2 = do
       o1 <- c_line op1
       o2 <- c_line op2
@@ -204,13 +204,13 @@ compile top_lines = go
       let ty1 = rty o1
       let ty2 = rty o2
       let ty = if ty1 == ty2 then ty1 else error $ "Type miss match op: := left:" ++ show op1 ++ " right " ++ show op2
-      let op_code code = (next $ code ++ " " ++ ty ++ " " ++ r1 ++ ", " ++ r2) >>= \n -> return $ Register (ast o1) (rty o1) n n
+      let op_code code = (next $ code ++ " " ++ ty ++ " " ++ r1 ++ ", " ++ r2) >>= \n -> return $ rcopy o1 n
       case op of
         ":=" -> do
             n <- store ty (mem o1) (reg o2)
             n <- load ty n
             let (Call name []) = op1
-            register name (Register (ast o1) ty n n)
+            register name (rcopy o1 n)
         "+" -> op_code "add"
         "-" -> op_code "sub"
         "*" -> op_code "mul"
@@ -240,7 +240,7 @@ compile top_lines = go
         printf (I64 _) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
         printf (Bool True) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.true_format, i32 0, i32 0))"
         printf (Bool False) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([6 x i8], [6 x i8]* @.false_format, i32 0, i32 0))"
-        printf _ = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
+        --printf _ = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
         --printf _ = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.bug_format, i32 0, i32 0))"
         printf x = error $ show x
     noop = return $ Register Void "" "" ""
@@ -262,7 +262,7 @@ compile top_lines = go
       _ -> error $ "Does not define " ++ show v
     compile_func :: String -> [(String, Register)] -> Compiler Register -> (Register, String)
     compile_func name env f = let
-      env' = map (\(i, (name, r)) -> (name, Register (ast r) (rty r) ("%" ++ show i) "")) (zip [0..] env)
+      env' = map (\(i, (name, r)) -> (name, rcopy r ("%" ++ show i))) (zip [0..] env)
       (r, d) = runCompile f (Define (length env') 0 env' [] [])
       sub_funcs = unlines $ subs d
       argv = string_join "," $ map (\(_, r) -> rty r) env

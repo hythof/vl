@@ -57,6 +57,8 @@ data Compiler a = Compiler { runCompile :: Define -> (a, Define) }
 
 data Register = Register { ast :: AST, rty :: String, reg :: String, mem :: String } deriving (Show, Eq)
 
+rcopy r reg = Register (ast r) (rty r) reg ""
+
 instance Functor Compiler where
   fmap f c = Compiler $ \d ->let (a, d') = (runCompile c d) in (f a, d')
 
