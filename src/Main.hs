@@ -164,8 +164,9 @@ compile top_lines = go
       rc <- c_line cond
       o1 <- c_line op1
       o2 <- c_line op2
+      if rty o1 == rty o2 then return () else error $ "Does not match types on if 1: " ++ show o1 ++ " 2:" ++ show o2
       n <- next $ "select i1 " ++ (reg rc) ++ ", " ++ (rty o1) ++ " " ++ (reg o1) ++ ", " ++ (rty o2) ++ " " ++ (reg o2)
-      return $ Register op1 n ""
+      return $ Register op1 (rty o1) n ""
     c_line (Call op [op1, op2]) = if elem op all_exec_ops
       then c_op2 op op1 op2
       else c_call op [op1, op2]
@@ -179,7 +180,7 @@ compile top_lines = go
       define_sub code
       let call_argv = string_join ", " $ map (\r -> rty r ++ " " ++ reg r) registers
       n <- next $ "call " ++ rty r ++ " @" ++ name ++ "(" ++ call_argv ++ ")"
-      return $ Register (ast r) n ""
+      return $ Register (ast r) (rty r) n ""
     c_op2 op op1 op2 = do
       o1 <- c_line op1
       o2 <- c_line op2
@@ -188,13 +189,13 @@ compile top_lines = go
       let ty1 = rty o1
       let ty2 = rty o2
       let ty = if ty1 == ty2 then ty1 else error $ "Type miss match op: := left:" ++ show op1 ++ " right " ++ show op2
-      let op_code code = (next $ code ++ " " ++ ty ++ " " ++ r1 ++ ", " ++ r2) >>= \n -> return $ Register (ast o1) n n
+      let op_code code = (next $ code ++ " " ++ ty ++ " " ++ r1 ++ ", " ++ r2) >>= \n -> return $ Register (ast o1) (rty o1) n n
       case op of
         ":=" -> do
             n <- store ty (mem o1) (reg o2)
             n <- load ty n
             let (Call name []) = op1
-            register name (Register (ast o1) n n)
+            register name (Register (ast o1) ty n n)
         "+" -> op_code "add"
         "-" -> op_code "sub"
         "*" -> op_code "mul"
@@ -225,7 +226,7 @@ compile top_lines = go
         printf (Bool True) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.true_format, i32 0, i32 0))"
         printf (Bool False) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([6 x i8], [6 x i8]* @.false_format, i32 0, i32 0))"
         printf _ = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.bug_format, i32 0, i32 0))"
-    noop = return $ Register Void "" ""
+    noop = return $ Register Void "" "" ""
     store ty n v = (emit $ "store " ++ ty ++ " " ++ v ++ ", " ++ ty ++ "* " ++ n ++ ", align 4") >> return n
     load ty n = next $ "load " ++ ty ++ ", " ++ ty ++ "* " ++ n ++ ", align 4"
     assign a v = do
@@ -233,14 +234,18 @@ compile top_lines = go
       r1 <- next $ "alloca " ++ ty ++ ", align 4"
       store ty r1 v
       r2 <- load ty r1
-      return $ Register a r2 r1
+      return $ Register a ty r2 r1
+    aty a = case a of
+      (I64 _) -> "i64"
+      (Bool _) -> "i1"
+      _ -> error $ "Untyped " ++ show a
     define name v = case v of
       I64 x -> assign v (show x) >>= \n -> register name n
       Bool x -> assign v (if x then "true" else "false") >>= \n -> register name n
       _ -> error $ "Does not define " ++ show v
     compile_func :: String -> [(String, Register)] -> Compiler Register -> (Register, String)
     compile_func name env f = let
-      env' = map (\(i, (name, r)) -> (name, Register (ast r) ("%" ++ show i) "")) (zip [0..] env)
+      env' = map (\(i, (name, r)) -> (name, Register (ast r) (rty r) ("%" ++ show i) "")) (zip [0..] env)
       (r, d) = runCompile f (Define (length env') env' [] [])
       sub_funcs = unlines $ subs d
       argv = string_join "," $ map (\(_, r) -> rty r) env
@@ -299,48 +304,50 @@ test expect input = go
       else putStrLn $ "x\n- expect: " ++ show expect ++ "\n-   fact: " ++ stdout ++ " :: " ++ show ast
 
 main = do
-  test "1" "1"
-  test "12" "12"
-  test "5" "2+3"
-  test "-1" "2-3"
-  test "6" "2*3"
-  test "0" "2/3"
-  test "2" "2%3"
-  test "9" "2+3+4"
-  test "14" "2+(3*4)"
-  test "20" "(2+3)*4"
-  test "1" "x=1\nx"
-  test "5" "x=2\ny=3\nx+y"
-  test "-1" "x=2\ny=3\nx-y"
-  test "6" "x=2\ny=3\nx*y"
-  test "0" "x=2\ny=3\nx/y"
-  test "2" "x=2\ny=3\nx%y"
-  test "3" "x=2\nx:=3\nx"
-  test "3" "x=2\nx:=3\ny=4\nx"
-  test "5" "x=2\nx+=3\nx"
-  test "-1" "x=2\nx-=3\nx"
-  test "6" "x=2\nx*=3\nx"
-  test "0" "x=2\nx/=3\nx"
-  test "2" "x=2\nx%=3\nx"
-  test "1" "x={1}\nx"
-  test "3" "x={y=1\ny+=2\ny}\nx"
-  test "1" "id x = x\nid(1)"
-  test "5" "add a b = a + b\nadd(2 3)"
-  test "9" "add a b c = a + b + c\nadd(2 3 4)"
-  test "true" "true"
-  test "false" "false"
-  test "true" "true && true"
-  test "false" "false && true"
-  test "true" "true || true"
-  test "true" "false || true"
-  test "true" "1 == 1"
-  test "false" "1 == 2"
-  test "false" "1 != 1"
-  test "true" "1 != 2"
-  test "true" "1 >= 1"
-  test "false" "1 > 1"
-  test "true" "1 <= 1"
-  test "false" "1 < 1"
-  test "1" "if(true 1 2)"
-  test "2" "if(false 1 2)"
+  --test "1" "1"
+  --test "12" "12"
+  --test "5" "2+3"
+  --test "-1" "2-3"
+  --test "6" "2*3"
+  --test "0" "2/3"
+  --test "2" "2%3"
+  --test "9" "2+3+4"
+  --test "14" "2+(3*4)"
+  --test "20" "(2+3)*4"
+  --test "1" "x=1\nx"
+  --test "5" "x=2\ny=3\nx+y"
+  --test "-1" "x=2\ny=3\nx-y"
+  --test "6" "x=2\ny=3\nx*y"
+  --test "0" "x=2\ny=3\nx/y"
+  --test "2" "x=2\ny=3\nx%y"
+  --test "3" "x=2\nx:=3\nx"
+  --test "3" "x=2\nx:=3\ny=4\nx"
+  --test "5" "x=2\nx+=3\nx"
+  --test "-1" "x=2\nx-=3\nx"
+  --test "6" "x=2\nx*=3\nx"
+  --test "0" "x=2\nx/=3\nx"
+  --test "2" "x=2\nx%=3\nx"
+  --test "1" "x={1}\nx"
+  --test "3" "x={y=1\ny+=2\ny}\nx"
+  --test "1" "id x = x\nid(1)"
+  --test "5" "add a b = a + b\nadd(2 3)"
+  --test "9" "add a b c = a + b + c\nadd(2 3 4)"
+  --test "true" "true"
+  --test "false" "false"
+  --test "true" "true && true"
+  --test "false" "false && true"
+  --test "true" "true || true"
+  --test "true" "false || true"
+  --test "true" "1 == 1"
+  --test "false" "1 == 2"
+  --test "false" "1 != 1"
+  --test "true" "1 != 2"
+  --test "true" "1 >= 1"
+  --test "false" "1 > 1"
+  --test "true" "1 <= 1"
+  --test "false" "1 < 1"
+  --test "1" "if(true 1 2)"
+  --test "2" "if(false 1 2)"
+  --test "1" "x=0\nif(true 1 (1/x))"
+  test "1" "x=0\nif(false (1/x) 1)"
   putStrLn "done"
