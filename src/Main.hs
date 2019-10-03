@@ -161,11 +161,26 @@ compile top_lines = go
     c_line (Def name args lines) = noop
     c_line (Call name []) = reference name
     c_line (Call "if" [cond, op1, op2]) = do
+      -- if condition
       rc <- c_line cond
+      l1 <- inc_label >>= \n -> return $ "label" ++ show n
+      l2 <- inc_label >>= \n -> return $ "label" ++ show n
+      l3 <- inc_label >>= \n -> return $ "label" ++ show n
+      emit $ "br i1 " ++ (reg rc) ++ ", label %" ++ l1 ++ ", label %" ++ l2
+      -- if block 1
+      emit $ "\n" ++ l1 ++ ":"
       o1 <- c_line op1
+      emit $ "br label %" ++ l3
+      -- if block 2
+      emit $ "\n" ++ l2 ++ ":"
       o2 <- c_line op2
+      emit $ "br label %" ++ l3
+      -- finish branch
+      emit $ "\n" ++ l3 ++ ":"
+
       if rty o1 == rty o2 then return () else error $ "Does not match types on if 1: " ++ show o1 ++ " 2:" ++ show o2
-      n <- next $ "select i1 " ++ (reg rc) ++ ", " ++ (rty o1) ++ " " ++ (reg o1) ++ ", " ++ (rty o2) ++ " " ++ (reg o2)
+
+      n <- next $ "phi " ++ rty o1 ++ " [ " ++ reg o1 ++ ", %" ++ l1 ++ " ], [ " ++ reg o2 ++ ", %" ++ l2 ++ " ]"
       return $ Register op1 (rty o1) n ""
     c_line (Call op [op1, op2]) = if elem op all_exec_ops
       then c_op2 op op1 op2
@@ -225,7 +240,9 @@ compile top_lines = go
         printf (I64 _) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
         printf (Bool True) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.true_format, i32 0, i32 0))"
         printf (Bool False) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([6 x i8], [6 x i8]* @.false_format, i32 0, i32 0))"
-        printf _ = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.bug_format, i32 0, i32 0))"
+        printf _ = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
+        --printf _ = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.bug_format, i32 0, i32 0))"
+        printf x = error $ show x
     noop = return $ Register Void "" "" ""
     store ty n v = (emit $ "store " ++ ty ++ " " ++ v ++ ", " ++ ty ++ "* " ++ n ++ ", align 4") >> return n
     load ty n = next $ "load " ++ ty ++ ", " ++ ty ++ "* " ++ n ++ ", align 4"
@@ -246,7 +263,7 @@ compile top_lines = go
     compile_func :: String -> [(String, Register)] -> Compiler Register -> (Register, String)
     compile_func name env f = let
       env' = map (\(i, (name, r)) -> (name, Register (ast r) (rty r) ("%" ++ show i) "")) (zip [0..] env)
-      (r, d) = runCompile f (Define (length env') env' [] [])
+      (r, d) = runCompile f (Define (length env') 0 env' [] [])
       sub_funcs = unlines $ subs d
       argv = string_join "," $ map (\(_, r) -> rty r) env
       in (r, "define " ++ (rty r) ++ " @" ++ name ++ "(" ++ argv ++ ") #0 {\n" ++ (unlines (reverse $ body d)) ++ "}\n" ++ sub_funcs)
@@ -304,50 +321,50 @@ test expect input = go
       else putStrLn $ "x\n- expect: " ++ show expect ++ "\n-   fact: " ++ stdout ++ " :: " ++ show ast
 
 main = do
-  --test "1" "1"
-  --test "12" "12"
-  --test "5" "2+3"
-  --test "-1" "2-3"
-  --test "6" "2*3"
-  --test "0" "2/3"
-  --test "2" "2%3"
-  --test "9" "2+3+4"
-  --test "14" "2+(3*4)"
-  --test "20" "(2+3)*4"
-  --test "1" "x=1\nx"
-  --test "5" "x=2\ny=3\nx+y"
-  --test "-1" "x=2\ny=3\nx-y"
-  --test "6" "x=2\ny=3\nx*y"
-  --test "0" "x=2\ny=3\nx/y"
-  --test "2" "x=2\ny=3\nx%y"
-  --test "3" "x=2\nx:=3\nx"
-  --test "3" "x=2\nx:=3\ny=4\nx"
-  --test "5" "x=2\nx+=3\nx"
-  --test "-1" "x=2\nx-=3\nx"
-  --test "6" "x=2\nx*=3\nx"
-  --test "0" "x=2\nx/=3\nx"
-  --test "2" "x=2\nx%=3\nx"
-  --test "1" "x={1}\nx"
-  --test "3" "x={y=1\ny+=2\ny}\nx"
-  --test "1" "id x = x\nid(1)"
-  --test "5" "add a b = a + b\nadd(2 3)"
-  --test "9" "add a b c = a + b + c\nadd(2 3 4)"
-  --test "true" "true"
-  --test "false" "false"
-  --test "true" "true && true"
-  --test "false" "false && true"
-  --test "true" "true || true"
-  --test "true" "false || true"
-  --test "true" "1 == 1"
-  --test "false" "1 == 2"
-  --test "false" "1 != 1"
-  --test "true" "1 != 2"
-  --test "true" "1 >= 1"
-  --test "false" "1 > 1"
-  --test "true" "1 <= 1"
-  --test "false" "1 < 1"
-  --test "1" "if(true 1 2)"
-  --test "2" "if(false 1 2)"
-  --test "1" "x=0\nif(true 1 (1/x))"
+  test "1" "1"
+  test "12" "12"
+  test "5" "2+3"
+  test "-1" "2-3"
+  test "6" "2*3"
+  test "0" "2/3"
+  test "2" "2%3"
+  test "9" "2+3+4"
+  test "14" "2+(3*4)"
+  test "20" "(2+3)*4"
+  test "1" "x=1\nx"
+  test "5" "x=2\ny=3\nx+y"
+  test "-1" "x=2\ny=3\nx-y"
+  test "6" "x=2\ny=3\nx*y"
+  test "0" "x=2\ny=3\nx/y"
+  test "2" "x=2\ny=3\nx%y"
+  test "3" "x=2\nx:=3\nx"
+  test "3" "x=2\nx:=3\ny=4\nx"
+  test "5" "x=2\nx+=3\nx"
+  test "-1" "x=2\nx-=3\nx"
+  test "6" "x=2\nx*=3\nx"
+  test "0" "x=2\nx/=3\nx"
+  test "2" "x=2\nx%=3\nx"
+  test "1" "x={1}\nx"
+  test "3" "x={y=1\ny+=2\ny}\nx"
+  test "1" "id x = x\nid(1)"
+  test "5" "add a b = a + b\nadd(2 3)"
+  test "9" "add a b c = a + b + c\nadd(2 3 4)"
+  test "true" "true"
+  test "false" "false"
+  test "true" "true && true"
+  test "false" "false && true"
+  test "true" "true || true"
+  test "true" "false || true"
+  test "true" "1 == 1"
+  test "false" "1 == 2"
+  test "false" "1 != 1"
+  test "true" "1 != 2"
+  test "true" "1 >= 1"
+  test "false" "1 > 1"
+  test "true" "1 <= 1"
+  test "false" "1 < 1"
+  test "1" "if(true 1 2)"
+  test "2" "if(false 1 2)"
+  test "1" "x=0\nif(true 1 (1/x))"
   test "1" "x=0\nif(false (1/x) 1)"
   putStrLn "done"

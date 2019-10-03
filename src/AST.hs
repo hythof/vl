@@ -47,7 +47,8 @@ instance Alternative Parser where
 
 -- LLVM
 data Define = Define {
-  counter :: Int,
+  register_counter :: Int,
+  label_counter :: Int,
   env :: [(String, Register)],
   body :: [String],
   subs :: [String]
@@ -71,13 +72,17 @@ instance Monad Compiler where
   return = pure
   l >>= f = Compiler $ \d -> let (a, d') = runCompile l d in runCompile (f a) d'
 
-n0 d = counter d
-n1 d = 1 + counter d
+n0 d = register_counter d
+n1 d = 1 + register_counter d
+l0 d = label_counter d
+l1 d = 1 + label_counter d
 c0 d = show $ n0 d
 c1 d = show $ n1 d
 last_register = Compiler $ \d -> ('%' : (show $ n0 d), d)
 emit x = Compiler $ \d -> ('%' : (show $ n0 d), d { body = (' ' : ' ' : x) : (body d) })
-next x = Compiler $ \d -> ('%' : (show $ n1 d), d { body = ("  %" ++ c1 d ++ " = " ++ x) : (body d), counter = n1 d })
+next x = Compiler $ \d -> ('%' : (show $ n1 d), d { body = ("  %" ++ c1 d ++ " = " ++ x) : (body d), register_counter = n1 d })
+inc_register = Compiler $ \d -> (n1 d, d { register_counter = n1 d })
+inc_label = Compiler $ \d -> (l1 d, d { label_counter = l1 d })
 register name r = Compiler $ \d -> (r, d { env = (name, r) : env d })
 reference name = Compiler $ \d -> (ref name $ env d, d)
   where
