@@ -10,6 +10,7 @@ data AST =
     Void
   | I64 Int
   | Bool Bool
+  | String String
   | Def String [String] [AST]
   | Call String [AST]
   deriving (Show, Eq)
@@ -49,6 +50,7 @@ instance Alternative Parser where
 data Define = Define {
   register_counter :: Int,
   label_counter :: Int,
+  strings :: [String],
   env :: [(String, Register)],
   body :: [String],
   subs :: [String]
@@ -76,7 +78,6 @@ instance Monad Compiler where
 
 n0 d = register_counter d
 n1 d = 1 + register_counter d
-l0 d = label_counter d
 l1 d = 1 + label_counter d
 c0 d = show $ n0 d
 c1 d = show $ n1 d
@@ -85,6 +86,16 @@ emit x = Compiler $ \d -> ('%' : (show $ n0 d), d { body = (' ' : ' ' : x) : (bo
 next x = Compiler $ \d -> ('%' : (show $ n1 d), d { body = ("  %" ++ c1 d ++ " = " ++ x) : (body d), register_counter = n1 d })
 inc_register = Compiler $ \d -> (n1 d, d { register_counter = n1 d })
 inc_label = Compiler $ \d -> (l1 d, d { label_counter = l1 d })
+inc_string s = Compiler $ \d -> ("@ref_str." ++ show (length $ strings d), d {
+  strings = def_string d : ref_string d : (strings d) })
+    where
+      c d = show (length $ strings d)
+      l = show $ 1 + length s
+      def_name d = "@.str." ++ c d
+      ref_name d = "@ref_str." ++ c d
+      def_string d = def_name d ++ " = private unnamed_addr constant [" ++ l ++ " x i8] c\"" ++ s ++ "\00\", align 1"
+      ref_string d = ref_name d ++ " = local_unnamed_addr global i8* getelementptr inbounds ([" ++ l ++ " x i8], [" ++ l ++ " x i8]* " ++ def_name d ++ ", i64 0, i64 0), align 8"
+get_strings = Compiler $ \d -> (strings d, d)
 register name r = Compiler $ \d -> (r, d { env = (name, r) : env d })
 reference name = Compiler $ \d -> (ref name $ env d, d)
   where
@@ -97,6 +108,9 @@ define_sub body = Compiler $ \d -> ((), d { subs = body : subs d })
 -- utility
 to_string Void = "_"
 to_string (I64 x) = show x
+to_string (Bool True) = "true"
+to_string (Bool False) = "false"
+to_string (String s) = s
 to_string (Call name []) = name
 to_string (Call name argv) = name ++ "(" ++ (string_join " " $ map to_string argv) ++ ")"
 

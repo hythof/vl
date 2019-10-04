@@ -38,22 +38,24 @@ parse_exp = go
       read_spaces
       right <- parse_exp
       return $ Call op [left, right]
+parse_unit :: Parser AST
 parse_unit = go
   where
-    go = parenthis <|> parse_int <|> parse_bool <|> parse_call
+    go = parenthis <|> parse_string <|> parse_int <|> parse_bool <|> parse_call
     parenthis = between (char '(') (char ')') parse_exp
-parse_call = do
-  name <- read_id
-  args <- between (char '(' >> read_spaces) (read_spaces >> char ')') (sep_by parse_unit read_spaces1) <|> (return [])
-  return $ Call name args
-parse_int :: Parser AST
-parse_int = do
-  s <- many1 (satisfy ((flip elem) "0123456789"))
-  return $ I64 (read s :: Int)
-parse_bool :: Parser AST
-parse_bool = do
-  s <- string "true" <|> string "false"
-  return $ Bool (s == "true")
+    parse_string = do
+      s <- between (char '"') (char '"') (many $ satisfy (\c -> c /= '"'))
+      return $ String s
+    parse_int = do
+      s <- many1 (satisfy ((flip elem) "0123456789"))
+      return $ I64 (read s :: Int)
+    parse_bool = do
+      s <- string "true" <|> string "false"
+      return $ Bool (s == "true")
+    parse_call = do
+      name <- read_id
+      args <- between (char '(' >> read_spaces) (read_spaces >> char ')') (sep_by parse_unit read_spaces1) <|> (return [])
+      return $ Call name args
 
 read_op :: Parser String
 read_op = op2 <|> op1
@@ -119,6 +121,12 @@ between l r c = do
   return $ v
 
 -- Eval ---------------------------------------------------
+data CompiledResult = CompiledResult {
+    cr_reg :: Register,
+    cr_code :: String,
+    cr_def :: Define
+  }
+
 eval :: [AST] -> IO String
 eval x = do
   system $ "mkdir -p /tmp/llvm"
@@ -131,8 +139,8 @@ compile :: [AST] -> String
 compile top_lines = go
   where
     go = let
-      (r, code) = c_main
-      in code ++ ll_suffix r
+      cr = c_main
+      in ll_prefix cr ++ cr_code cr ++ ll_suffix cr
     call_ref name argv = ref top_lines
       where
         ref [] = error $ "Deos not found " ++ name ++ " with " ++ show argv
@@ -148,11 +156,16 @@ compile top_lines = go
       r <- c_lines lines
       emit $ "ret " ++ rty r ++ " " ++ reg r
       return r
-    c_main = compile_func "v_main" [] (c_func top_lines)
+    c_main = compile_func "v_main" [] [] (c_func top_lines)
     c_line :: AST -> Compiler Register
     c_line x@(I64 n) = assign x (show n)
     c_line x@(Bool True) = assign x "true"
     c_line x@(Bool False) = assign x "false"
+    c_line x@(String s) = do
+      let l = show $ length s
+      sn <- inc_string s
+      n <- next $ "load i8*, i8** " ++ sn ++ ", align 8"
+      return $ Register x "i8*" n sn
     c_line (Def name [] [line]) = define name line
     c_line (Def name [] lines) = do
       r <- c_lines lines
@@ -188,9 +201,12 @@ compile top_lines = go
     c_line x = error $ "Unsupported compiling: " ++ show x
     c_call name argv = do
       let (Def _ args lines) = call_ref name argv
+      global_strings <- get_strings
       registers <- mapM c_line argv
       let env = zip args registers
-      let (r, code) = compile_func name env $ c_func lines
+      let cr = compile_func name env global_strings $ c_func lines
+      let r = cr_reg cr
+      let code = cr_code cr
       define_sub code
       let call_argv = string_join ", " $ map (\r -> rty r ++ " " ++ reg r) registers
       n <- next $ "call " ++ rty r ++ " @" ++ name ++ "(" ++ call_argv ++ ")"
@@ -216,16 +232,22 @@ compile top_lines = go
         "/" -> op_code "sdiv"
         "%" -> op_code "srem"
         _ -> error $ "Unsupported op: " ++ op
-    ll_suffix r = go
+    ll_prefix cr = go
       where
         go = unlines [
-            ""
-          , "; common suffix"
+            "; common suffix"
+          , string_join "\n"  $ strings (cr_def cr)
           , "@.d_format = private unnamed_addr constant [3 x i8] c\"%d\00\", align 1"
           , "@.true_format = private unnamed_addr constant [5 x i8] c\"true\00\", align 1"
           , "@.false_format = private unnamed_addr constant [6 x i8] c\"false\00\", align 1"
+          , "@.s_format = private unnamed_addr constant [3 x i8] c\"%s\00\", align 1"
           , "@.bug_format = private unnamed_addr constant [4 x i8] c\"BUG\00\", align 1"
-          , ""
+          ]
+    ll_suffix cr = go
+      where
+        r = cr_reg cr
+        go = unlines [
+            "; entry point"
           , "define i32 @main() #0 {"
           , "  %1 = alloca i32, align 4"
           , "  store i32 0, i32* %1, align 4"
@@ -239,7 +261,8 @@ compile top_lines = go
         printf (I64 _) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
         printf (Bool True) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.true_format, i32 0, i32 0))"
         printf (Bool False) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([6 x i8], [6 x i8]* @.false_format, i32 0, i32 0))"
-        printf x = error $ show x
+        printf (String s) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.s_format, i64 0, i64 0), i8* %2)"
+        printf x = error $ "No implement print function ast: " ++ show x
     noop = return $ Register Void "" "" ""
     store ty n v = (emit $ "store " ++ ty ++ " " ++ v ++ ", " ++ ty ++ "* " ++ n ++ ", align 4") >> return n
     load ty n = next $ "load " ++ ty ++ ", " ++ ty ++ "* " ++ n ++ ", align 4"
@@ -257,13 +280,14 @@ compile top_lines = go
       I64 x -> assign v (show x) >>= \n -> register name n
       Bool x -> assign v (if x then "true" else "false") >>= \n -> register name n
       _ -> error $ "Does not define " ++ show v
-    compile_func :: String -> [(String, Register)] -> Compiler Register -> (Register, String)
-    compile_func name env f = let
+    compile_func :: String -> [(String, Register)] -> [String] -> Compiler Register -> CompiledResult
+    compile_func name env global_strings f = let
       env' = map (\(i, (name, r)) -> (name, rcopy r ("%" ++ show i))) (zip [0..] env)
-      (r, d) = runCompile f (Define (length env') 0 env' [] [])
+      (r, d) = runCompile f (Define (length env') 0 global_strings env' [] [])
       sub_funcs = unlines $ subs d
       argv = string_join "," $ map (\(_, r) -> rty r) env
-      in (r, "define " ++ (rty r) ++ " @" ++ name ++ "(" ++ argv ++ ") #0 {\n" ++ (unlines (reverse $ body d)) ++ "}\n" ++ sub_funcs)
+      define_code = "define " ++ (rty r) ++ " @" ++ name ++ "(" ++ argv ++ ") #0 {\n" ++ (unlines (reverse $ body d)) ++ "}\n" ++ sub_funcs
+      in CompiledResult r define_code d
 
 optimize :: AST -> AST
 optimize ast = unwrap_synatx_sugar $ constant_folding ast
@@ -364,4 +388,7 @@ main = do
   test "2" "if(false 1 2)"
   test "1" "x=0\nif(true 1 (2/x))"
   test "1" "x=0\nif(false (2/x) 1)"
+  test "a" "\"a\""
+  test "hi" "\"hi\""
+  --test "a1" "x=\"a1\"\nx"
   putStrLn "done"
