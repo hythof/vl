@@ -23,12 +23,10 @@ This document describe recentry tasks.
 [x] type inference
 
 # v0.5
-- u8 .. u64
-- i8 .. i64
-- f32, f64
+- ascii (nth, length, append, slice)
 
 # v0.6
-- array
+- array (nth, length, append, slice)
 - struct
 
 # v0.7

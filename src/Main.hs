@@ -41,7 +41,15 @@ parse_exp = go
 parse_unit :: Parser AST
 parse_unit = go
   where
-    go = parenthis <|> parse_string <|> parse_int <|> parse_bool <|> parse_call
+    go = do
+      x <- parenthis <|> parse_string <|> parse_int <|> parse_bool <|> parse_call
+      sub_part x
+    sub_part x = nest_part x <|> (return x)
+    nest_part x = do
+      char '.'
+      name <- read_id <|> error "Invalid method calling format"
+      argv <- between (char '(' >> read_spaces) (read_spaces >> char ')') (sep_by parse_unit read_spaces1) <|> (return [])
+      sub_part $ Call name (x : argv)
     parenthis = between (char '(') (char ')') parse_exp
     parse_string = do
       s <- between (char '"') (char '"') (many $ satisfy (\c -> c /= '"'))
@@ -54,8 +62,8 @@ parse_unit = go
       return $ Bool (s == "true")
     parse_call = do
       name <- read_id
-      args <- between (char '(' >> read_spaces) (read_spaces >> char ')') (sep_by parse_unit read_spaces1) <|> (return [])
-      return $ Call name args
+      argv <- between (char '(' >> read_spaces) (read_spaces >> char ')') (sep_by parse_unit read_spaces1) <|> (return [])
+      return $ Call name argv
 
 read_op :: Parser String
 read_op = op2 <|> op1
@@ -143,11 +151,8 @@ compile top_lines = go
       in ll_prefix cr ++ cr_code cr ++ ll_suffix cr
     call_ref name argv = ref top_lines
       where
-        ref [] = error $ "Deos not found " ++ name ++ " with " ++ show argv
-        ref (x@(Def name' args _):xs) = case (name == name', length args == length argv) of
-          (True, True) -> x
-          (True, False) -> error $ "Does not match number of arguments expect=" ++ (show $ length args) ++ " given=" ++ show argv
-          _ -> ref xs
+        ref [] = error $ "Not found " ++ name ++ " with " ++ show argv
+        ref (x@(Def name' args body):xs) = if name == name' then x else ref xs
         ref (_:xs) = ref xs
     c_lines lines = do
       rs <- mapM (c_line . optimize) lines
@@ -199,18 +204,20 @@ compile top_lines = go
       else c_call op [op1, op2]
     c_line (Call name args) = c_call name args
     c_line x = error $ "Unsupported compiling: " ++ show x
-    c_call name argv = do
-      let (Def _ args lines) = call_ref name argv
-      global_strings <- get_strings
-      registers <- mapM c_line argv
-      let env = zip args registers
-      let cr = compile_func name env global_strings $ c_func lines
-      let r = cr_reg cr
-      let code = cr_code cr
-      define_sub code
-      let call_argv = string_join ", " $ map (\r -> rty r ++ " " ++ reg r) registers
-      n <- next $ "call " ++ rty r ++ " @" ++ name ++ "(" ++ call_argv ++ ")"
-      return $ rcopy r n
+    c_call name argv = go
+      where
+        go = switch $ call_ref name argv
+        switch (Def _ args lines) = do
+          global_strings <- get_strings
+          registers <- mapM c_line argv
+          let env = zip args registers
+          let cr = compile_func name env global_strings $ c_func lines
+          let r = cr_reg cr
+          let code = cr_code cr
+          define_sub code
+          let call_argv = string_join ", " $ map (\r -> rty r ++ " " ++ reg r) registers
+          n <- next $ "call " ++ rty r ++ " @" ++ name ++ "(" ++ call_argv ++ ")"
+          return $ rcopy r n
     c_op2 op op1 op2 = do
       o1 <- c_line op1
       o2 <- c_line op2
@@ -279,6 +286,11 @@ compile top_lines = go
     define name v = case v of
       I64 x -> assign v (show x) >>= \n -> register name n
       Bool x -> assign v (if x then "true" else "false") >>= \n -> register name n
+      String s -> do
+        let l = show $ length s
+        sn <- inc_string s
+        n <- next $ "load i8*, i8** " ++ sn ++ ", align 8"
+        register name $ Register v "i8*" n sn
       _ -> error $ "Does not define " ++ show v
     compile_func :: String -> [(String, Register)] -> [String] -> Compiler Register -> CompiledResult
     compile_func name env global_strings f = let
@@ -390,5 +402,6 @@ main = do
   test "1" "x=0\nif(false (2/x) 1)"
   test "a" "\"a\""
   test "hi" "\"hi\""
-  --test "a1" "x=\"a1\"\nx"
+  test "a1" "x=\"a1\"\nx"
+  --test "h" "x=\"hi\"\nx.nth(0)"
   putStrLn "done"
