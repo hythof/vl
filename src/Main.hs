@@ -196,7 +196,7 @@ compile top_lines = go
       -- finish branch
       emit $ "\n" ++ l3 ++ ":"
       -- finilize
-      if rty o1 == rty o2 then return () else error $ "Does not match types on if 1: " ++ show o1 ++ " 2:" ++ show o2
+      if rty o1 == rty o2 then return () else error $ "Not match types on if 1: " ++ show o1 ++ " 2:" ++ show o2
       n <- next $ "phi " ++ rty o1 ++ " [ " ++ reg o1 ++ ", %" ++ l1 ++ " ], [ " ++ reg o2 ++ ", %" ++ l2 ++ " ]"
       return $ Register (ast o1) (rty o1) n ""
     c_line (Call op [op1, op2]) = if elem op all_exec_ops
@@ -204,12 +204,25 @@ compile top_lines = go
       else c_call op [op1, op2]
     c_line (Call name args) = c_call name args
     c_line x = error $ "Unsupported compiling: " ++ show x
+    c_call :: String -> [AST] -> Compiler Register
     c_call name argv = go
       where
-        go = switch $ call_ref name argv
-        switch (Def _ args lines) = do
-          global_strings <- get_strings
+        go :: Compiler Register
+        go = do
           registers <- mapM c_line argv
+          switch name (map ast registers) registers
+        switch :: String -> [AST] -> [Register] -> Compiler Register
+        switch "nth" [s@(String _), I64 _] [r1, r2] = do
+          new <- next $ "tail call i8* @malloc(i64 2)"
+          m_char <- next $ "getelementptr inbounds i8, i8* " ++ reg r1 ++ ", i64 " ++ (reg r2)
+          r_char <- next $ "load i8, i8* " ++ m_char ++ ", align 1"
+          emit $ "store i8 " ++ r_char ++ ", i8* " ++ new ++ ", align 1"
+          r_end_char <- next $ "getelementptr inbounds i8, i8* " ++ m_char ++ ", i64 1"
+          emit $ "store i8 0, i8* " ++ r_end_char ++ ", align 1"
+          return (Register s (aty s) new (new ++ "*"))
+        switch _ _ registers = do
+          let (Def _ args lines) = call_ref name argv
+          global_strings <- get_strings
           let env = zip args registers
           let cr = compile_func name env global_strings $ c_func lines
           let r = cr_reg cr
@@ -264,6 +277,7 @@ compile top_lines = go
           , "}"
           , ""
           , "declare i32 @printf(i8*, ...) #1"
+          , "declare noalias i8* @malloc(i64) local_unnamed_addr #1"
           ]
         printf (I64 _) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
         printf (Bool True) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.true_format, i32 0, i32 0))"
@@ -282,6 +296,7 @@ compile top_lines = go
     aty a = case a of
       (I64 _) -> "i64"
       (Bool _) -> "i1"
+      (String _) -> "i8*"
       _ -> error $ "Untyped " ++ show a
     define name v = case v of
       I64 x -> assign v (show x) >>= \n -> register name n
@@ -403,5 +418,6 @@ main = do
   test "a" "\"a\""
   test "hi" "\"hi\""
   test "a1" "x=\"a1\"\nx"
-  --test "h" "x=\"hi\"\nx.nth(0)"
+  test "h" "x=\"hi\"\nx.nth(0)"
+  test "i" "x=\"hi\"\nx.nth(1)"
   putStrLn "done"
