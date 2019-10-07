@@ -148,7 +148,7 @@ compile top_lines = go
   where
     go = let
       cr = c_main
-      in ll_prefix cr ++ cr_code cr ++ ll_suffix cr
+      in ll_prefix cr ++ "\n; user functions\n" ++ cr_code cr ++ "\n" ++ ll_suffix cr
     call_ref name argv = ref top_lines
       where
         ref [] = error $ "Not found " ++ name ++ " with " ++ show argv
@@ -220,6 +220,12 @@ compile top_lines = go
           r_end_char <- next $ "getelementptr inbounds i8, i8* " ++ m_char ++ ", i64 1"
           emit $ "store i8 0, i8* " ++ r_end_char ++ ", align 1"
           return (Register s (aty s) new (new ++ "*"))
+        switch "length" [s@(String _)] [r1] = do
+          new <- next $ "tail call i64 @strlen(i8* " ++ reg r1 ++ ")"
+          return (Register (I64 0) (aty $ I64 0) new (new ++ "*"))
+        switch "append" [s@(String _), v@(String _)] [r1, r2] = do
+          new <- next $ "tail call i8* @string_string_append(i8* " ++ reg r1 ++ ", i8* " ++ reg r2 ++ ")"
+          return (Register (String "") (aty $ String "") new (new ++ "*"))
         switch _ _ registers = do
           let (Def _ args lines) = call_ref name argv
           global_strings <- get_strings
@@ -255,19 +261,32 @@ compile top_lines = go
     ll_prefix cr = go
       where
         go = unlines [
-            "; common suffix"
+            "; prefix"
           , string_join "\n"  $ strings (cr_def cr)
           , "@.d_format = private unnamed_addr constant [3 x i8] c\"%d\00\", align 1"
           , "@.true_format = private unnamed_addr constant [5 x i8] c\"true\00\", align 1"
           , "@.false_format = private unnamed_addr constant [6 x i8] c\"false\00\", align 1"
           , "@.s_format = private unnamed_addr constant [3 x i8] c\"%s\00\", align 1"
           , "@.bug_format = private unnamed_addr constant [4 x i8] c\"BUG\00\", align 1"
+          , "define noalias i8* @string_string_append(i8* nocapture readonly, i8* nocapture readonly) local_unnamed_addr #0 {"
+          , "  %3 = tail call i64 @strlen(i8* %0)"
+          , "  %4 = tail call i64 @strlen(i8* %1)"
+          , "  %5 = add nsw i64 %4, %3"
+          , "  %6 = add nsw i64 %5, 1"
+          , "  %7 = tail call i8* @malloc(i64 %6)"
+          , "  tail call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %7, i8* align 1 %0, i64 %3, i1 false)"
+          , "  %8 = getelementptr inbounds i8, i8* %7, i64 %3"
+          , "  tail call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %8, i8* align 1 %1, i64 %4, i1 false)"
+          , "  %9 = getelementptr inbounds i8, i8* %7, i64 %5"
+          , "  store i8 0, i8* %9, align 1"
+          , "  ret i8* %7"
+          , "}"
           ]
     ll_suffix cr = go
       where
         r = cr_reg cr
         go = unlines [
-            "; entry point"
+            "; suffix"
           , "define i32 @main() #0 {"
           , "  %1 = alloca i32, align 4"
           , "  store i32 0, i32* %1, align 4"
@@ -278,6 +297,8 @@ compile top_lines = go
           , ""
           , "declare i32 @printf(i8*, ...) #1"
           , "declare noalias i8* @malloc(i64) local_unnamed_addr #1"
+          , "declare noalias i64 @strlen(i8* nocapture) local_unnamed_addr #1"
+          , "declare void @llvm.memcpy.p0i8.p0i8.i64(i8* nocapture writeonly, i8* nocapture readonly, i64, i1)"
           ]
         printf (I64 _) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
         printf (Bool True) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.true_format, i32 0, i32 0))"
@@ -306,6 +327,9 @@ compile top_lines = go
         sn <- inc_string s
         n <- next $ "load i8*, i8** " ++ sn ++ ", align 8"
         register name $ Register v "i8*" n sn
+      Call _ _ -> do
+        r <- c_line v
+        register name r
       _ -> error $ "Does not define " ++ show v
     compile_func :: String -> [(String, Register)] -> [String] -> Compiler Register -> CompiledResult
     compile_func name env global_strings f = let
@@ -418,6 +442,14 @@ main = do
   test "a" "\"a\""
   test "hi" "\"hi\""
   test "a1" "x=\"a1\"\nx"
+  test "h" "\"hi\".nth(0)"
   test "h" "x=\"hi\"\nx.nth(0)"
   test "i" "x=\"hi\"\nx.nth(1)"
+  test "1" "\"h\".length"
+  test "1" "x=\"h\"\nx.length"
+  test "2" "x=\"hi\"\nx.length"
+  --test "1" "x=1\ny=x\ny"
+  test "h" "x=\"h\"\ny = x.append(\"i\")\nx"
+  test "hi" "x=\"h\"\ny = x.append(\"i\")\ny"
+  test "hi" "x=\"h\"\ny = \"i\"\nx.append(y)"
   putStrLn "done"
