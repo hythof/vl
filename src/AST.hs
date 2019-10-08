@@ -86,13 +86,13 @@ emit x = Compiler $ \d -> ('%' : (show $ n0 d), d { body = (' ' : ' ' : x) : (bo
 next x = Compiler $ \d -> ('%' : (show $ n1 d), d { body = ("  %" ++ c1 d ++ " = " ++ x) : (body d), register_counter = n1 d })
 inc_register = Compiler $ \d -> (n1 d, d { register_counter = n1 d })
 inc_label = Compiler $ \d -> (l1 d, d { label_counter = l1 d })
-inc_string s = Compiler $ \d -> ("@ref_str." ++ show (length $ strings d), d {
+inc_string s = Compiler $ \d -> ("@.v.ref_str." ++ show (length $ strings d), d {
   strings = def_string d : ref_string d : (strings d) })
     where
       c d = show (length $ strings d)
       l = show $ 1 + length s
-      def_name d = "@.str." ++ c d
-      ref_name d = "@ref_str." ++ c d
+      def_name d = "@.v.str." ++ c d
+      ref_name d = "@.v.ref_str." ++ c d
       def_string d = def_name d ++ " = private unnamed_addr constant [" ++ l ++ " x i8] c\"" ++ s ++ "\00\", align 1"
       ref_string d = ref_name d ++ " = local_unnamed_addr global i8* getelementptr inbounds ([" ++ l ++ " x i8], [" ++ l ++ " x i8]* " ++ def_name d ++ ", i64 0, i64 0), align 8"
 get_strings = Compiler $ \d -> (strings d, d)

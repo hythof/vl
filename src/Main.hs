@@ -138,7 +138,9 @@ data CompiledResult = CompiledResult {
 eval :: [AST] -> IO String
 eval x = do
   system $ "mkdir -p /tmp/llvm"
-  let ll = compile x
+  let ll_main = compile x
+  ll_lib <- readFile "./lib.ll"
+  let ll = ll_lib ++ ll_main
   writeFile "/tmp/llvm/v.ll" ll
   system $ "(cd /tmp/llvm && lli v.ll > stdout.txt)"
   readFile "/tmp/llvm/stdout.txt"
@@ -224,7 +226,7 @@ compile top_lines = go
           new <- next $ "tail call i64 @strlen(i8* " ++ reg r1 ++ ")"
           return (Register (I64 0) (aty $ I64 0) new (new ++ "*"))
         switch "append" [s@(String _), v@(String _)] [r1, r2] = do
-          new <- next $ "tail call i8* @string_string_append(i8* " ++ reg r1 ++ ", i8* " ++ reg r2 ++ ")"
+          new <- next $ "tail call i8* @ss_append(i8* " ++ reg r1 ++ ", i8* " ++ reg r2 ++ ")"
           return (Register (String "") (aty $ String "") new (new ++ "*"))
         switch _ _ registers = do
           let (Def _ args lines) = call_ref name argv
@@ -268,19 +270,6 @@ compile top_lines = go
           , "@.false_format = private unnamed_addr constant [6 x i8] c\"false\00\", align 1"
           , "@.s_format = private unnamed_addr constant [3 x i8] c\"%s\00\", align 1"
           , "@.bug_format = private unnamed_addr constant [4 x i8] c\"BUG\00\", align 1"
-          , "define noalias i8* @string_string_append(i8* nocapture readonly, i8* nocapture readonly) local_unnamed_addr #0 {"
-          , "  %3 = tail call i64 @strlen(i8* %0)"
-          , "  %4 = tail call i64 @strlen(i8* %1)"
-          , "  %5 = add nsw i64 %4, %3"
-          , "  %6 = add nsw i64 %5, 1"
-          , "  %7 = tail call i8* @malloc(i64 %6)"
-          , "  tail call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %7, i8* align 1 %0, i64 %3, i1 false)"
-          , "  %8 = getelementptr inbounds i8, i8* %7, i64 %3"
-          , "  tail call void @llvm.memcpy.p0i8.p0i8.i64(i8* align 1 %8, i8* align 1 %1, i64 %4, i1 false)"
-          , "  %9 = getelementptr inbounds i8, i8* %7, i64 %5"
-          , "  store i8 0, i8* %9, align 1"
-          , "  ret i8* %7"
-          , "}"
           ]
     ll_suffix cr = go
       where
@@ -294,16 +283,11 @@ compile top_lines = go
           , printf $ ast r
           , "  ret i32 0 "
           , "}"
-          , ""
-          , "declare i32 @printf(i8*, ...) #1"
-          , "declare noalias i8* @malloc(i64) local_unnamed_addr #1"
-          , "declare noalias i64 @strlen(i8* nocapture) local_unnamed_addr #1"
-          , "declare void @llvm.memcpy.p0i8.p0i8.i64(i8* nocapture writeonly, i8* nocapture readonly, i64, i1)"
           ]
-        printf (I64 _) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.d_format, i32 0, i32 0), i64 %2)"
-        printf (Bool True) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @.true_format, i32 0, i32 0))"
-        printf (Bool False) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([6 x i8], [6 x i8]* @.false_format, i32 0, i32 0))"
-        printf (String s) = "  %3 = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.s_format, i64 0, i64 0), i8* %2)"
+        printf (I64 _) = "  %3 = call i32 (i64) @i64_printf(i64 %2)"
+        printf (Bool True) = "  %3 = call i32 @true_printf()"
+        printf (Bool False) = "  %3 = call i32 @false_printf()"
+        printf (String s) = "  %3 = call i32 (i8*) @s_printf(i8* %2)"
         printf x = error $ "No implement print function ast: " ++ show x
     noop = return $ Register Void "" "" ""
     store ty n v = (emit $ "store " ++ ty ++ " " ++ v ++ ", " ++ ty ++ "* " ++ n ++ ", align 4") >> return n
@@ -448,7 +432,7 @@ main = do
   test "1" "\"h\".length"
   test "1" "x=\"h\"\nx.length"
   test "2" "x=\"hi\"\nx.length"
-  --test "1" "x=1\ny=x\ny"
+  test "1" "x=1\ny=x\ny"
   test "h" "x=\"h\"\ny = x.append(\"i\")\nx"
   test "hi" "x=\"h\"\ny = x.append(\"i\")\ny"
   test "hi" "x=\"h\"\ny = \"i\"\nx.append(y)"
