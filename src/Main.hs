@@ -215,13 +215,8 @@ compile top_lines = go
           switch name (map ast registers) registers
         switch :: String -> [AST] -> [Register] -> Compiler Register
         switch "nth" [s@(String _), I64 _] [r1, r2] = do
-          new <- next $ "tail call i8* @malloc(i64 2)"
-          m_char <- next $ "getelementptr inbounds i8, i8* " ++ reg r1 ++ ", i64 " ++ (reg r2)
-          r_char <- next $ "load i8, i8* " ++ m_char ++ ", align 1"
-          emit $ "store i8 " ++ r_char ++ ", i8* " ++ new ++ ", align 1"
-          r_end_char <- next $ "getelementptr inbounds i8, i8* " ++ m_char ++ ", i64 1"
-          emit $ "store i8 0, i8* " ++ r_end_char ++ ", align 1"
-          return (Register s (aty s) new (new ++ "*"))
+          new <- next $ "tail call i8* @si64_nth(i8* " ++ reg r1 ++ ", " ++ "i64 " ++ reg r2 ++ ")"
+          return (Register (String "") (aty $ String "") new (new ++ "*"))
         switch "length" [s@(String _)] [r1] = do
           new <- next $ "tail call i64 @strlen(i8* " ++ reg r1 ++ ")"
           return (Register (I64 0) (aty $ I64 0) new (new ++ "*"))
@@ -374,7 +369,7 @@ test expect input = go
       stdout <- eval ast
       if expect == stdout
       then putChar '.'
-      else putStrLn $ "x\n- expect: " ++ show expect ++ "\n-   fact: " ++ stdout ++ " :: " ++ show ast
+      else putStrLn $ "x\n- expect: " ++ show expect ++ "\n-   fact: " ++ show stdout ++ " :: " ++ show ast
 
 main = do
   test "1" "1"
@@ -436,4 +431,5 @@ main = do
   test "h" "x=\"h\"\ny = x.append(\"i\")\nx"
   test "hi" "x=\"h\"\ny = x.append(\"i\")\ny"
   test "hi" "x=\"h\"\ny = \"i\"\nx.append(y)"
+  test "h" "\"hi\".nth(0)"
   putStrLn "done"

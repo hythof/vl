@@ -38,6 +38,17 @@ declare i8* @__memcpy_chk(i8*, i8*, i64, i64) local_unnamed_addr #3
 declare i64 @llvm.objectsize.i64.p0i8(i8*, i1 immarg, i1 immarg, i1 immarg) #4
 
 ; Function Attrs: nofree nounwind ssp uwtable
+define noalias i8* @si64_nth(i8* nocapture readonly, i64) local_unnamed_addr #0 {
+  %3 = tail call i8* @malloc(i64 2) #5
+  %4 = getelementptr inbounds i8, i8* %0, i64 %1
+  %5 = load i8, i8* %4, align 1, !tbaa !3
+  store i8 %5, i8* %3, align 1, !tbaa !3
+  %6 = getelementptr inbounds i8, i8* %3, i64 1
+  store i8 0, i8* %6, align 1, !tbaa !3
+  ret i8* %3
+}
+
+; Function Attrs: nofree nounwind ssp uwtable
 define i32 @s_printf(i8*) local_unnamed_addr #0 {
   %2 = tail call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @.str, i64 0, i64 0), i8* %0)
   ret i32 0

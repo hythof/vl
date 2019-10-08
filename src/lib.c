@@ -13,6 +13,12 @@ const char* ss_append(const char* s1, const char* s2) {
   m[l1 + l2] = '\0';
   return m;
 }
+const char* si64_nth(const char* s, int64_t n) {
+  char* m = (char *)malloc(2);
+  m[0] = s[n];
+  m[1] = '\0';
+  return m;
+}
 
 int s_printf(const char* s) {
   printf("%s", s);
