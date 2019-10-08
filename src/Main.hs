@@ -223,6 +223,12 @@ compile top_lines = go
         switch "append" [s@(String _), v@(String _)] [r1, r2] = do
           new <- next $ "tail call i8* @ss_append(i8* " ++ reg r1 ++ ", i8* " ++ reg r2 ++ ")"
           return (Register (String "") (aty $ String "") new (new ++ "*"))
+        switch "prefix" [s@(String _), (I64 _)] [r1, r2] = do
+          new <- next $ "tail call i8* @si64_prefix(i8* " ++ reg r1 ++ ", i64 " ++ reg r2 ++ ")"
+          return (Register (String "") (aty $ String "") new (new ++ "*"))
+        switch "slice" [s@(String _), (I64 _), (I64 _)] [r1, r2, r3] = do
+          new <- next $ "tail call i8* @si64i64_slice(i8* " ++ reg r1 ++ ", i64 " ++ reg r2  ++ ", i64 " ++ reg r3 ++ ")"
+          return (Register (String "") (aty $ String "") new (new ++ "*"))
         switch _ _ registers = do
           let (Def _ args lines) = call_ref name argv
           global_strings <- get_strings
@@ -432,4 +438,11 @@ main = do
   test "hi" "x=\"h\"\ny = x.append(\"i\")\ny"
   test "hi" "x=\"h\"\ny = \"i\"\nx.append(y)"
   test "h" "\"hi\".nth(0)"
+  test "h" "\"hi\".prefix(1)"
+  test "hi" "\"hi\".prefix(2)"
+  test "hi" "\"hi\".prefix(3)"
+  test "h" "\"hi\".slice(0 1)"
+  test "i" "\"hi\".slice(1 1)"
+  test "hi" "\"hi\".slice(0 2)"
+  test "hi" "\"hi\".slice(0 3)"
   putStrLn "done"

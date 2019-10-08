@@ -1,6 +1,6 @@
 reset:
 	vi add.c
-	/usr/bin/clang -S -emit-llvm -O3 add.c
+	clang -S -emit-llvm -O3 add.c
 	llc add.ll
 	as -o add.o add.s
 	ld64.lld -lSystem -o add add.o

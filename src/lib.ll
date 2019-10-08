@@ -38,6 +38,36 @@ declare i8* @__memcpy_chk(i8*, i8*, i64, i64) local_unnamed_addr #3
 declare i64 @llvm.objectsize.i64.p0i8(i8*, i1 immarg, i1 immarg, i1 immarg) #4
 
 ; Function Attrs: nofree nounwind ssp uwtable
+define i8* @si64_prefix(i8*, i64) local_unnamed_addr #0 {
+  %3 = tail call i64 @strlen(i8* %0)
+  %4 = icmp slt i64 %3, %1
+  %5 = select i1 %4, i64 %3, i64 %1
+  %6 = add nsw i64 %5, 1
+  %7 = tail call i8* @malloc(i64 %6) #5
+  %8 = tail call i64 @llvm.objectsize.i64.p0i8(i8* %7, i1 false, i1 true, i1 false)
+  %9 = tail call i8* @__memcpy_chk(i8* %7, i8* %0, i64 %5, i64 %8) #6
+  %10 = getelementptr inbounds i8, i8* %7, i64 %5
+  store i8 0, i8* %10, align 1, !tbaa !3
+  ret i8* %7
+}
+
+; Function Attrs: nofree nounwind ssp uwtable
+define i8* @si64i64_slice(i8*, i64, i64) local_unnamed_addr #0 {
+  %4 = tail call i64 @strlen(i8* %0)
+  %5 = add nsw i64 %2, %1
+  %6 = icmp sgt i64 %5, %4
+  %7 = select i1 %6, i64 %4, i64 %5
+  %8 = sub nsw i64 %7, %1
+  %9 = tail call i8* @malloc(i64 %8) #5
+  %10 = getelementptr inbounds i8, i8* %0, i64 %1
+  %11 = tail call i64 @llvm.objectsize.i64.p0i8(i8* %9, i1 false, i1 true, i1 false)
+  %12 = tail call i8* @__memcpy_chk(i8* %9, i8* %10, i64 %7, i64 %11) #6
+  %13 = getelementptr inbounds i8, i8* %9, i64 %8
+  store i8 0, i8* %13, align 1, !tbaa !3
+  ret i8* %9
+}
+
+; Function Attrs: nofree nounwind ssp uwtable
 define noalias i8* @si64_nth(i8* nocapture readonly, i64) local_unnamed_addr #0 {
   %3 = tail call i8* @malloc(i64 2) #5
   %4 = getelementptr inbounds i8, i8* %0, i64 %1
