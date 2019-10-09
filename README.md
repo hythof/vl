@@ -26,8 +26,8 @@ This document describe recentry tasks.
 [x] ascii (nth, length, append, prefix, suffix, slice)
 
 # v0.6
-- array (nth, length, append)
 - struct
+- array (nth, length, append)
 
 # v0.7
 - self boot

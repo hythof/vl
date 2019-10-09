@@ -1,21 +1,27 @@
+#include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 
-const char* string_string_append(const char* s1, const char* s2) {
-  ssize_t l1 = (strlen)(s1);
-  ssize_t l2 = (strlen)(s2);
-  char* m = (char*)(malloc)(l1 + l2 + 1);
-  (memcpy)(m, s1, l1);
-  (memcpy)(m + l1, s2, l2);
-  m[l1 + l2] = '\0';
-  return m;
+int64_t g = 1;
+
+typedef struct {
+  uint64_t len;
+  char buf[0];
+} array;
+
+array* i64_array(int64_t n) {
+  array* a = (array*)malloc(sizeof(array) + sizeof(int64_t));
+  ((int64_t*)a->buf)[0] = n;
+  return a;
 }
 
-const char* v_main() {
-  const char* x = string_string_append("h", "i");
-  return x;
+int64_t v_main() {
+  array* a = i64_array(g);
+  return (int64_t)(a->buf[0]);
 }
 
 int main() {
-  printf("%s", v_main());
+  g = 2;
+  printf("%lld", (long long)v_main());
   return 0;
 }

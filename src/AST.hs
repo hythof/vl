@@ -13,6 +13,7 @@ data AST =
   | String String
   | Def String [String] [AST]
   | Call String [AST]
+  | Struct String [(String, AST)]
   deriving (Show, Eq)
 
 -- Pparser

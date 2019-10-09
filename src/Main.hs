@@ -14,7 +14,13 @@ all_parse_ops = ["+=", "-=", "*=", "/=", "%="] ++ all_exec_ops
 parse :: String -> Maybe ([AST], Source)
 parse s = runParser parse_top $ Source s 0 (length s)
 parse_top = sep_by1 parse_line read_br1
-parse_line = parse_def <|> parse_exp
+parse_line = parse_type <|> parse_def <|> parse_exp
+parse_type = do
+  name <- read_id
+  args <- many (read_spaces1 >> read_id)
+  read_spaces
+  defs <- between (char '{' >> read_separator) (read_separator >> char '}') (sep_by parse_def read_br1)
+  return $ Struct name (map (\(def@(Def name args lines)) -> (name, def)) defs)
 parse_def = do
   name <- read_id
   args <- many (read_spaces1 >> read_id)
@@ -205,7 +211,9 @@ compile top_lines = go
       then c_op2 op op1 op2
       else c_call op [op1, op2]
     c_line (Call name args) = c_call name args
+    c_line (Struct name defs) = c_def name defs
     c_line x = error $ "Unsupported compiling: " ++ show x
+    c_def name defs = trace ("No implement yet define: " ++ name) noop
     c_call :: String -> [AST] -> Compiler Register
     c_call name argv = go
       where
@@ -445,4 +453,5 @@ main = do
   test "i" "\"hi\".slice(1 1)"
   test "hi" "\"hi\".slice(0 2)"
   test "hi" "\"hi\".slice(0 3)"
+  test "void()" "void {}\nvoid"
   putStrLn "done"
