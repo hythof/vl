@@ -40,22 +40,14 @@ const char* si64_nth(const char* s, int64_t n) {
   return m;
 }
 
-int s_printf(const char* s) {
+void s_printf(const char* s) {
   printf("%s", s);
-  return 0;
 }
 
-int true_printf() {
-  printf("true");
-  return 0;
+void bool_printf(int8_t i) {
+  printf(i == 0 ? "false" : "true");
 }
 
-int false_printf() {
-  printf("false");
-  return 0;
-}
-
-int i64_printf(int64_t n) {
+void i64_printf(int64_t n) {
   printf("%" PRId64, n);
-  return 0;
 }

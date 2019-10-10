@@ -293,10 +293,9 @@ compile top_lines = go
           , "  ret i32 0 "
           , "}"
           ]
-        printf (I64 _) = "  %3 = call i32 (i64) @i64_printf(i64 %2)"
-        printf (Bool True) = "  %3 = call i32 @true_printf()"
-        printf (Bool False) = "  %3 = call i32 @false_printf()"
-        printf (String s) = "  %3 = call i32 (i8*) @s_printf(i8* %2)"
+        printf (I64 _) = "  call void @i64_printf(i64 %2)"
+        printf (Bool _) = "  %3 = sext i1 %2 to i8\ncall void @bool_printf(i8 %3)"
+        printf (String _) = "  call void @s_printf(i8* %2)"
         printf x = error $ "No implement print function ast: " ++ show x
     noop = return $ Register Void "" "" ""
     store ty n v = (emit $ "store " ++ ty ++ " " ++ v ++ ", " ++ ty ++ "* " ++ n ++ ", align 4") >> return n
