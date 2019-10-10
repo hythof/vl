@@ -6,6 +6,7 @@
 *.exe
 .*.swp
 *~
+/src/lib.ll
 /llvm/add
 /llvm/add.s
 /llvm/add.ll

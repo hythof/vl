@@ -20,8 +20,16 @@ int64_t v_main() {
   return (int64_t)(a->buf[0]);
 }
 
+int64_t upcast(char c) {
+  return (int64_t)c;
+}
+
 int main() {
   g = 2;
   printf("%lld", (long long)v_main());
+
+  char c=2;
+  printf("%d", upcast(c));
+
   return 0;
 }
