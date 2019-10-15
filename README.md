@@ -5,14 +5,14 @@ This document describe recentry tasks.
 
 ## v0.1
 [x] i64
-[x] operator `+ - * / %`
+[x] operation `+ - * / %`
 [x] parenthesis
 [x] LLVM
 
 ## v0.2
 [x] variable
 [x] reference
-[x] operator `:= += -= *= /= %=`
+[x] operation `:= += -= *= /= %=`
 
 ## v0.3
 [x] define function
@@ -20,7 +20,7 @@ This document describe recentry tasks.
 
 ## v0.4
 [x] bool
-[x] operator `> >= < <= != == && ||`
+[x] operation `> >= < <= != == && ||`
 [x] build-in `if`
 [x] type inference
 
@@ -45,7 +45,8 @@ This document describe recentry tasks.
 - dict
 
 ## v0.10
-- operator `| & << >> ~`
+- unary operation `- ~ !`
+- binary operation `| & << >>`
 - file
 - tcp
 - udp
