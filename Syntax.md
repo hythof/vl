@@ -1,32 +1,38 @@
 # Syntax
 
 ```
-root = top | def | stmt
-def = id arg* "=" body
-member = id (type | value)
-id = [a-zA-Z_] [a-zA-Z0-9_]
-arg = id
-type = id | ("[]" id) | (id ":" type)
-body = (def BR)* (exp | stmt)
+root = top | define | stmt
+top = [struct enum data scope] id+ "{" members? "}"
+define = id arg* "=" body
+body = (define BR)* stmt
 exp = op1 | op2
 op1 = OP1 ref
 op2 = ref OP2 op2
-ref = ref ("." id ("(" ref* ")")?)*
-bottom = "(" bottom ")" | value | id
-top = RESERVE0 id+ ":" (INDENT member+)
-stmt = RESERVE1 { body* } (RESERVE2)*
+stmt =
+| "do " lines
+| "if" exp lines ("else" lines)?
+| "for" exp ("," exp) lines
+| "next" ("if" exp)?
+| "break" ("if" exp)?
+| "return" ("if" exp)?
+| exp (BR stmt)*
+lines = exp | ("{" (exp | stmt) (BR (exp | stmt))* "}")
 
+id = [a-zA-Z_] [a-zA-Z0-9_]
+arg = id
+type = id | ("[]" id)
+ref = bottom ("." id ("(" ref* ")")?)*
+bottom = "(" bottom ")" | value | id
+member = (id (type | value)) | define
+members = member ("," member)*
 value = [0-9]+(. [0-9]+)*
 | "true" | "false"
 | '"' [^"] '"'
 | "[" ref* "]"
-| "{" id ref ("," id ref)* "}"
+| "{" members? "}"
 | (id | "(" id+ ")") "->" body
-INDENT = "\n"? "  "
+
 BR = "\n"
-RESERVE0 = [struct enum data scope]
-RESERVE1 = [do if for while next break return]
-RESERVE2 = [else if]
 OP1 = [- ! ~]
 OP2 = [+ - * / % & | << >> + - > >= < <=  == != || && := += /= *= /= %=]
 ```
