@@ -1,22 +1,32 @@
 # Syntax
 
-## primitive value
+
+## Primitive values
 
 ```
-1
-1.2
-true, false
-"string"
-[1 2 3]
-assign = "value"
-add a b = a + b
-call = add 1 10
+1              # integer 64bit
+1.2            # float 64bit
+true, false    # bool
+"string"       # string
+[1 2 3]        # array
+{key 1, val 2} # struct
+arg -> body    # function
 ```
 
-## user definition type
+
+## Function definition
 
 ```
-data vector2:
+one = 1
+inc x = x + one
+call = inc(2)
+```
+
+
+## Type definition
+
+```
+struct vector2:
   x i64
   y i64
 enum option a:
@@ -24,49 +34,125 @@ enum option a:
   none
 ```
 
-## syntax sugger
+
+## Branch
 
 ```
-method vector2:
-  show = "($x,$y)"
+abs x = if (x > 0) x (-x)
+gcd a b = if b == 0
+| a
+| gcd b (a % b)
+fib x =
+| (< 1) = 0
+| 1 = 1
+| _ = fib(x) + fib(x - 1)
+op1 op val = when op
+| "-" = -1 * val
+| "!" = if val false true
+| "~" = xor(val)
+op2 op l r = when op {
+  "+" = l + r
+  "-" = l - r
+}
 ```
 
 
-## build-in functions
+## Statement
 
 ```
-interface:
-  min a : a a a
-  max a : a a a
-  range i64 i64 list(i64)
-
-interface bool:
-  if a : a a
-
-interface string:
-  count i64
-  append string string
-  slice i64 i64 string
-
-interface list a:
-  nth i8..64 a
-  count i64
-  append list(a) list(a)
-  slice i64 i64 list(a)
-  map b : (a b) list(b)
-  filter : (a bool) list(a)
-  min : a
-  max : a
+prompt mark = do {
+  var count 0
+  while {
+    print(mark)
+    cmd = readline
+    next if cmd.empty
+    break if cmd == "exit"
+    if cmd == "show" {
+      puts("count $count")
+      next
+    } else {
+      count += 1
+    }
+    when cmd
+    | "help" = puts("some messages")
+    | "9x9" = show99
+    | _ = puts("unknown command: $cmd")
+  }
+  return count
+}
+show99 = for i = 1 to 9, j = 1 to 9 {
+  puts "$i x $j = ${i * j}"
+}
 ```
 
-## the order of operators
+
+## Order of operation
+
+Unary operations
 
 ```
-~ ! # only single operators
+- ~ !
+```
+
+Binary operations
+
+```
 * / %
 & | << >>
 + -
 > >= < <=  == !=
 || &&
 := += /= *= /= %=
+```
+
+
+## Syntax sugger
+
+```
+data vector2:
+  x i64
+  y i64
+
+method addable(vector2):
+  + a b =
+    x = a.x + b.x
+    y = b.y + b.y
+    vector2(x y)
+
+main = do {
+  v1 = vector2(1 1)
+  v2 = vector2(2 3)
+  result = v1 + v2
+  puts(result)
+}
+```
+
+
+## Namespace
+
+```
+scope const
+status = 200
+message = "Hello"
+
+
+scope httpd:
+  common status message
+  net.tcp listen
+  protocol http
+
+start param:":80" = listen(param).http.each req, res -> do {
+  res.status(status)
+  _make_body(res)
+}
+_make_body res = res.body(message)
+
+
+scope main:
+  httpd start
+
+main = do {
+  listen = argv(0 ":8080")
+  start(listen)
+}
 ```
