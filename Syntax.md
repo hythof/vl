@@ -1,36 +1,42 @@
 # Syntax
 
 ```
-root = top | define | stmt
-top = [struct enum data scope] id+ "{" members? "}"
+root = struct | enum | scope | import | export | define | stmt
+struct = "struct" id+ "{" members? "}"
+enum = "enum" id+ "{" id type? (BR id type)* "}"
+scope = "scope" ref
+import = "import" ref id*
+export = "export" id+
+top = ["struct" "enum" "data" "scope"] id+ ("{" members? "}")?
 define = id arg* "=" body
-body = (define BR)* stmt
-exp = op1 | op2
-op1 = OP1 ref
-op2 = ref OP2 op2
+body = func | ((define BR)* stmt)
+exp = binary | unary
+unary = OP1 unit
+binary = (unary | unit) OP2 exp
 stmt =
-| "do " lines
-| "if" exp lines ("else" lines)?
-| "for" exp ("," exp) lines
+| "do " block
+| "if" exp block ("else" block)?
+| "for" exp ("," exp) block
 | "next" ("if" exp)?
 | "break" ("if" exp)?
 | "return" ("if" exp)?
-| exp (BR stmt)*
-lines = exp | ("{" (exp | stmt) (BR (exp | stmt))* "}")
+| exp
+block = exp | ("{" stmt (BR stmt)* "}")
 
 id = [a-zA-Z_] [a-zA-Z0-9_]
+ref = id ("." id)*
 arg = id
-type = id | ("[]" id)
-ref = bottom ("." id ("(" ref* ")")?)*
-bottom = "(" bottom ")" | value | id
+type = id | ("[" id "]") | ("{" members? "}")
+unit = bottom ("." id ("(" unit* ")")?)*
+bottom = "(" (bottom | func) ")" | value | id
 member = (id (type | value)) | define
 members = member ("," member)*
 value = [0-9]+(. [0-9]+)*
 | "true" | "false"
 | '"' [^"] '"'
-| "[" ref* "]"
+| "[" unit* "]"
 | "{" members? "}"
-| (id | "(" id+ ")") "->" body
+func = (id | "(" id+ ")") "->" body
 
 BR = "\n"
 OP1 = [- ! ~]
@@ -41,13 +47,13 @@ OP2 = [+ - * / % & | << >> + - > >= < <=  == != || && := += /= *= /= %=]
 ## Primitive values
 
 ```
-1              # integer 64bit
-1.2            # float 64bit
-true, false    # bool
-"string"       # string
-[1 2 3]        # array
-{key 1, val 2} # struct
-arg -> body    # function
+1                # integer 64bit
+1.2              # float 64bit
+true, false      # bool
+"string"         # string
+[1 2 3]          # array
+["a": 1, "b": 2] # dictionary
+{key 1, val 2}   # struct
 ```
 
 
@@ -57,18 +63,21 @@ arg -> body    # function
 one = 1
 inc x = x + one
 call = inc(2)
+add = a -> b -> a + b
 ```
 
 
 ## Type definition
 
 ```
-struct vector2:
+struct vector2 {
   x i64
   y i64
-enum option a:
+}
+enum option a {
   some a
   none
+}
 ```
 
 
@@ -118,7 +127,7 @@ prompt mark = do {
   return count
 }
 show99 = for i = 1 to 9, j = 1 to 9 {
-  puts "$i x $j = ${i * j}"
+  puts("$i x $j = ${i * j}")
 }
 ```
 
