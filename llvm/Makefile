@@ -5,7 +5,7 @@ reset:
 	as -o add.o add.s
 	ld64.lld -lSystem -o add add.o
 	./add
-	cat add.ll
+	vi add.ll
 
 check:
 	vi add.ll && lli add.ll

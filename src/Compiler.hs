@@ -71,7 +71,30 @@ compile top_lines = go
     c_line (Call name args) = c_call name args
     c_line (Struct name defs) = c_def name defs
     c_line x = error $ "Unsupported compiling: " ++ show x
-    c_def name defs = trace ("No implement yet define: " ++ name) noop
+    c_def name defs = do
+      let argv = [] -- TODO refer defs
+      sn <- inc_string (name ++ "(" ++ argv ++ ")")
+      let sname = "%_struct." ++ name
+      let fname = "@new_" ++ name
+      let body = unlines [
+                   "  %1 = tail call i8* @malloc(i64 0)"
+                 , "  %2 = bitcast i8* %1 to " ++ sname ++ "*"
+                 , "  ret " ++ sname ++ "* %2"
+                 ]
+      let n = show $ 3 + length name
+      let print_body = unlines [
+                         "  %2 = load i8*, i8** " ++ sn ++ ", align 8"
+                       , "  %3 = tail call i32 (i8*, ...) @printf(i8* %2)"
+                       , "  ret void"
+                       ]
+      let new_code = "define " ++ sname ++ "* " ++ fname ++ "(" ++ argv ++ ") local_unnamed_addr #0 {\n" ++ body ++ "}\n"
+      let print_code = "define void @struct_" ++ name ++ "_printf(" ++ sname ++ "*) local_unnamed_addr #0 {\n" ++ print_body ++ "}\n"
+      let struct_code = sname ++ " = type { }"
+      define_sub struct_code
+      define_sub new_code
+      define_sub print_code
+      new <- next $ "tail call " ++ sname ++ "* " ++ fname ++ "(" ++ argv ++ ")"
+      register name $ Register (Struct name defs) (sname ++ "*") new (new ++ "*")
     c_call :: String -> [AST] -> Compiler Register
     c_call name argv = go
       where
@@ -154,6 +177,7 @@ compile top_lines = go
         printf (I64 _) = "  call void @i64_printf(i64 %2)"
         printf (Bool _) = "  %3 = sext i1 %2 to i8\ncall void @bool_printf(i8 %3)"
         printf (String _) = "  call void @s_printf(i8* %2)"
+        printf (Struct name _) = "  call void @struct_" ++ name ++ "_printf(%_struct." ++ name ++ "* %2)"
         printf x = error $ "No implement print function ast: " ++ show x
     noop = return $ Register Void "" "" ""
     store ty n v = (emit $ "store " ++ ty ++ " " ++ v ++ ", " ++ ty ++ "* " ++ n ++ ", align 4") >> return n

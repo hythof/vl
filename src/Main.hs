@@ -73,7 +73,7 @@ main = do
   test "i" "\"hi\".slice(1 1)"
   test "hi" "\"hi\".slice(0 2)"
   test "hi" "\"hi\".slice(0 3)"
-  test "void()" "void {}\nvoid"
+  test "empty()" "struct empty {}\nempty"
   putStrLn "done"
 
 eval :: [AST] -> IO String

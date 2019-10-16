@@ -4,35 +4,35 @@ This document describe recentry tasks.
 # Schedule
 
 ## v0.1
-[x] i64
-[x] operation `+ - * / %`
-[x] parenthesis
-[x] LLVM
+- [x] i64
+- [x] operation `+ - * / %`
+- [x] parenthesis
+- [x] LLVM
 
 ## v0.2
-[x] variable
-[x] reference
-[x] operation `:= += -= *= /= %=`
+- [x] variable
+- [x] reference
+- [x] operation `:= += -= *= /= %=`
 
 ## v0.3
-[x] define function
-[x] call function
+- [x] define function
+- [x] call function
 
 ## v0.4
-[x] bool
-[x] operation `> >= < <= != == && ||`
-[x] build-in `if`
-[x] type inference
+- [x] bool
+- [x] operation `> >= < <= != == && ||`
+- [x] build-in `if`
+- [x] type inference
 
 ## v0.5
-[x] ascii (nth, length, append, prefix, suffix, slice)
+- [x] ascii (nth, length, append, prefix, suffix, slice)
 
 ## v0.6
-- struct
-- array (nth, length, append)
+- [_] struct
+- [_] array (nth, length, append)
 
 ## v0.7
-- self boot
+- [_] self boot
 
 ## v0.8
 - sleep

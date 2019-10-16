@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 int64_t g = 1;
+const char* m = "hello";
 
 typedef struct {
   uint64_t len;
@@ -10,6 +11,7 @@ typedef struct {
 } array;
 
 array* i64_array(int64_t n) {
+  printf(m);
   array* a = (array*)malloc(sizeof(array) + sizeof(int64_t));
   ((int64_t*)a->buf)[0] = n;
   return a;

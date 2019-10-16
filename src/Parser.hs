@@ -10,6 +10,7 @@ parse s = runParser parse_top $ Source s 0 (length s)
 parse_top = sep_by1 parse_line read_br1
 parse_line = parse_type <|> parse_def <|> parse_exp
 parse_type = do
+  string "struct "
   name <- read_id
   args <- many (read_spaces1 >> read_id)
   read_spaces
