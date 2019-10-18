@@ -32,7 +32,10 @@ syn match Number / [0-9]\+\(\.[0-9]\+\)\?/
 syn keyword Boolean true false
 
 "*Identifier     o 変数名
-syn match Function /^[ \t]*[a-zA-Z_0-9]\+\%([a-zA-Z0-9_ ]*=[ \n]\)\@=/
+syn match Function /^[a-zA-Z_0-9]\+\%([a-zA-Z0-9_ ]*[=:][ \n]\)\@=/
+"syn region vlBlock start=/:$/ end=/\n[^a-zA-Z]/ contains=vlMember
+"syn match vlMember /^[ \t]\+[a-zA-Z_0-9]\+[ \n]/ contained
+"hi def link vlMember Identifier
 
 "*Statement      o 命令文
 syn keyword Statement next break return goto
@@ -40,15 +43,11 @@ syn keyword Conditional if else when
 syn keyword Repeat for
 
 "*Type           o int, long, char, その他
-syn keyword Structure enum struct use in:
+syn keyword Structure enum struct flow in:
 syn keyword StorageClass let var
 
 "*Underlined     o 目立つ文章, HTMLリンク
-syn match Define /^scope.*/
-syn match Underlined /\.\.\./
-
-"syn region vlBlock start=/:$/ end=/\n[^a-zA-Z]/ contains=vlMember
-"syn match vlMember /^ \+[a-zA-Z_0-9]\+[ \n]/ contained
+syn keyword Define scope use
 
 "hi def link vlRepeat Repeat
 

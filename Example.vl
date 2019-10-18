@@ -1,17 +1,26 @@
-scope main: v parse compile
+scope main
+use v compile
+
+main : io i32
 main env =
   src = env.stdin.string
-  ast = parse(src)
-  ret = compile(ast)
+  ret = compile(src)
   env.stdout.write(ret)
+  0
+
+test : io tester void
+test env t =
+  t.eq("1" "main = 1")
+  t.eq("3" "main = one + inc(1); one = 1; inc x = x + 1")
 in:
-  run env src = env.shell.stdin(src).run(["lli"]).stdout.string
-  test env t =
-    t.eq("1" "main = 1")
-    t.eq("3" "main = one + inc(1); one = 1; inc x = x + 1")
+  run env src =
+    ret = compile(src)
+    env.shell.stdin(ret.ll).run(["lli"]).stdout.string
+
 
 
 scope v
+use lib parser compiler
 
 enum ast:
   int i64
@@ -19,7 +28,21 @@ enum ast:
   stmt []ast
   call name string, argv []ast
 
-struct parser:
+compile =
+  ast = parser.parse_ast
+  ret = compiler.compile_ast(ast)
+
+extend parser:
+  parse_ast = ...
+
+extend compiler:
+  compile_ast ast = ...
+
+
+
+scope lib
+
+flow parser:
   let src string
   var pos 0
   parse = ...
@@ -29,7 +52,7 @@ struct parser:
     pos += 1
     c
 
-struct compiler:
+flow compiler:
   enum ir:
     i64 int i64
     reg reg string
@@ -39,8 +62,5 @@ struct compiler:
   var structs []string
   var lines []line
 
-  compile env =
-    setup(env)
-    local_variable_to_ll
-  setup env = ...
-  local_variable_to_ll = ...
+  llvm_ir : string # LLVM IR
+  llvm_ir = ...
