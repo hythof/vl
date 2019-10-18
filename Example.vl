@@ -1,0 +1,46 @@
+scope main: v parse compile
+main env =
+  src = env.stdin.string
+  ast = parse(src)
+  ret = compile(ast)
+  env.stdout.write(ret)
+in:
+  run env src = env.shell.stdin(src).run(["lli"]).stdout.string
+  test env t =
+    t.eq("1" "main = 1")
+    t.eq("3" "main = one + inc(1); one = 1; inc x = x + 1")
+
+
+scope v
+
+enum ast:
+  int i64
+  str string
+  stmt []ast
+  call name string, argv []ast
+
+struct parser:
+  let src string
+  var pos 0
+  parse = ...
+  satisfy f =
+    c = src(pos)
+    f(c) || throw(c f pos)
+    pos += 1
+    c
+
+struct compiler:
+  enum ir:
+    i64 int i64
+    reg reg string
+    ref index i64
+
+  var strings []string
+  var structs []string
+  var lines []line
+
+  compile env =
+    setup(env)
+    local_variable_to_ll
+  setup env = ...
+  local_variable_to_ll = ...

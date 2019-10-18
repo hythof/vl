@@ -21,35 +21,36 @@ syn sync minlines=500
 "
 "syn region vlSpa start=/^--.\{-}| *spa$/ end=/\(^--\)\@=/ contains=@spa
 
-" -- vl syntax
-syn case match
+"*Comment        o コメント
+syn region Comment start=/__comment__/ end="__uncomment__"
+syn match  Comment / *#.*$/
 
-syn match vlRegion /^[a-zA-Z_0-9]\+\%([^=]*\)\@=/
-syn match vlFunction /^[a-zA-Z_0-9]\+\%([^=]* =[ \n]\)\@=/
-syn match vlType /:[\[\]a-zA-Z0-9_]\+/
-syn match vlType /:[\[\]a-zA-Z0-9_]\+/
-syn match vlNumber / [0-9][0-9]\+\(\.[0-9]\+\)\?/
-syn region vlString start='"' end='"' skip='\\"'
-syn region vlString start='`' end='`' skip='\\`'
-syn keyword vlKeyword enum struct flow
-syn keyword vlBool true false
+"*Constant       o 定数
+syn region String start='"' end='"' skip='\\"'
+syn region String start='`' end='`' skip='\\`'
+syn match Number / [0-9]\+\(\.[0-9]\+\)\?/
+syn keyword Boolean true false
 
-syn region vlBlock start=/:$/ end=/\n\n/ contains=vlMethod,vlType
-syn match vlMethod /^ \+[a-zA-Z_0-9]\+\%([^=]* =[ \n]\)\@=/ contained
+"*Identifier     o 変数名
+syn match Function /^[ \t]*[a-zA-Z_0-9]\+\%([a-zA-Z0-9_ ]*=[ \n]\)\@=/
 
-syn region vlComment start=/__comment__/ end="__uncomment__"
-syn match  vlComment / *#.*$/
+"*Statement      o 命令文
+syn keyword Statement next break return goto
+syn keyword Conditional if else when
+syn keyword Repeat for
 
-hi def link vlFunction Function
-hi def link vlType Type
-hi def link vlRegion Keyword
-hi def link vlNumber Number
-hi def link vlString String
-hi def link vlKeyword Keyword
-hi def link vlBool Keyword
-hi def link vlComment Comment
+"*Type           o int, long, char, その他
+syn keyword Structure enum struct use in:
+syn keyword StorageClass let var
 
-hi def link vlMethod Function
+"*Underlined     o 目立つ文章, HTMLリンク
+syn match Define /^scope.*/
+syn match Underlined /\.\.\./
+
+"syn region vlBlock start=/:$/ end=/\n[^a-zA-Z]/ contains=vlMember
+"syn match vlMember /^ \+[a-zA-Z_0-9]\+[ \n]/ contained
+
+"hi def link vlRepeat Repeat
 
 "*Comment        o コメント
 "
