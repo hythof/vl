@@ -76,7 +76,7 @@ main = do
   test "empty()" "struct empty {}\nempty"
   putStrLn "done"
 
-eval :: [AST] -> IO String
+eval :: AST -> IO String
 eval x = do
   system $ "mkdir -p /tmp/llvm"
   let ll_main = compile x

@@ -5,9 +5,9 @@ import Control.Applicative ((<|>))
 import Control.Monad (guard)
 
 --( Parse AST )----------------------------------------------------------------
-parse :: String -> Maybe ([AST], Source)
+parse :: String -> Maybe (AST, Source)
 parse s = runParser parse_top $ Source s 0 (length s)
-parse_top = sep_by1 parse_line read_br1
+parse_top = Stmt <$> sep_by1 parse_line read_br1
 parse_line = parse_type <|> parse_def <|> parse_exp
 parse_type = do
   string "struct "
@@ -22,9 +22,9 @@ parse_def = do
   read_spaces
   char '='
   read_spaces
-  lines <- parse_stmt <|> (parse_exp >>= \exp -> return [exp])
+  lines <- parse_stmt <|> parse_exp
   return $ Def name args lines
-parse_stmt = between (char '{' >> read_separator) (read_separator >> char '}') (sep_by parse_line read_br1)
+parse_stmt = between (char '{' >> read_separator) (read_separator >> char '}') (Stmt <$> sep_by parse_line read_br1)
 parse_exp :: Parser AST
 parse_exp = go
   where

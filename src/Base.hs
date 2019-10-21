@@ -15,9 +15,10 @@ data AST =
   | I64 Int
   | Bool Bool
   | String String
-  | Def String [String] [AST]
+  | Def String [String] AST
   | Call String [AST]
   | Struct String [(String, AST)]
+  | Stmt [AST]
   deriving (Show, Eq)
 
 -- Pparser

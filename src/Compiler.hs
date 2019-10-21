@@ -9,20 +9,23 @@ data CompiledResult = CompiledResult {
     cr_def :: Define
   }
 
-compile :: [AST] -> String
+compile :: AST -> String
 compile top_lines = go
   where
     go = let
       cr = c_main
       in ll_prefix cr ++ "\n; user functions\n" ++ cr_code cr ++ "\n" ++ ll_suffix cr
-    call_ref name argv = ref top_lines
+    call_ref name argv = case top_lines of
+        Stmt lines -> ref lines
+        _ -> ref []
       where
         ref [] = error $ "Not found " ++ name ++ " with " ++ show argv
         ref (x@(Def name' args body):xs) = if name == name' then x else ref xs
         ref (_:xs) = ref xs
-    c_lines lines = do
+    c_lines (Stmt lines) = do
       rs <- mapM (c_line . optimize) lines
       return $ last rs
+    c_lines body = c_lines $ Stmt [body]
     c_func lines = do
       r <- c_lines lines
       emit $ "ret " ++ rty r ++ " " ++ reg r
@@ -37,11 +40,11 @@ compile top_lines = go
       sn <- inc_string s
       n <- next $ "load i8*, i8** " ++ sn ++ ", align 8"
       return $ Register x "i8*" n sn
-    c_line (Def name [] [line]) = define name line
-    c_line (Def name [] lines) = do
-      r <- c_lines lines
+    c_line (Def name [] (Stmt lines)) = do
+      r <- c_lines $ Stmt lines
       n <- assign (ast r) (reg r)
       register name n
+    c_line (Def name [] line) = define name line
     c_line (Def name args lines) = noop
     c_line (Call name []) = reference name
     c_line (Call "if" [cond, op1, op2]) = do
@@ -119,10 +122,10 @@ compile top_lines = go
           new <- next $ "tail call i8* @si64i64_slice(i8* " ++ reg r1 ++ ", i64 " ++ reg r2  ++ ", i64 " ++ reg r3 ++ ")"
           return (Register (String "") (aty $ String "") new (new ++ "*"))
         switch _ _ registers = do
-          let (Def _ args lines) = call_ref name argv
+          let (Def _ args body) = call_ref name argv
           global_strings <- get_strings
           let env = zip args registers
-          let cr = compile_func name env global_strings $ c_func lines
+          let cr = compile_func name env global_strings $ c_func body
           let r = cr_reg cr
           let code = cr_code cr
           define_sub code
