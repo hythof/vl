@@ -32,7 +32,7 @@ syn match Number / [0-9]\+\(\.[0-9]\+\)\?/
 syn keyword Boolean true false
 
 "*Identifier     o 変数名
-syn match Function /^[a-zA-Z_0-9]\+\%([a-zA-Z0-9_ ]*[=:][ \n]\)\@=/
+syn match Function /^[a-zA-Z0-9:_]\+\%([a-zA-Z0-9:_ ]*=[ \n]\)\@=/
 "syn region vlBlock start=/:$/ end=/\n[^a-zA-Z]/ contains=vlMember
 "syn match vlMember /^[ \t]\+[a-zA-Z_0-9]\+[ \n]/ contained
 "hi def link vlMember Identifier
@@ -43,7 +43,7 @@ syn keyword Conditional if else when
 syn keyword Repeat for
 
 "*Type           o int, long, char, その他
-syn keyword Structure enum struct flow in:
+syn match Structure "^ *\(enum\|struct\|flow\|with\%(:\)\@=\)"
 syn keyword StorageClass let var
 
 "*Underlined     o 目立つ文章, HTMLリンク

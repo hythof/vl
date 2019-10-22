@@ -1,26 +1,24 @@
 scope main
 use v compile
 
-main : io i32
-main env =
+main env:io i32 =
   src = env.stdin.string
   ret = compile(src)
   env.stdout.write(ret)
   0
 
-test : io tester void
-test env t =
-  t.eq("1" "main = 1")
-  t.eq("3" "main = one + inc(1); one = 1; inc x = x + 1")
-in:
-  run env src =
+test env:io t:tester =
+  eq("1" "main = 1")
+  eq("3" "main = one + inc(1); one = 1; inc x = x + 1")
+with:
+  eq expect code = t.eq(expect run(code))
+  run src =
     ret = compile(src)
     env.shell.stdin(ret.ll).run(["lli"]).stdout.string
 
 
 
 scope v
-use lib parser compiler
 
 enum ast:
   int i64
@@ -28,39 +26,42 @@ enum ast:
   stmt []ast
   call name string, argv []ast
 
-compile =
-  ast = parser.parse_ast
-  ret = compiler.compile_ast(ast)
+compile src = build(parse(src))
 
-extend parser:
-  parse_ast = ...
+parse src = parse_exp | parse_int
+with:
+  use lib parser
+  var p parser(src)
+  parse_int = p.satisfy(range("0" "9").contains).many1.then(x -> ast.int(x.to_int))
+  parse_exp =
+    l = parse_int
+    op = read_op
+    r = parse_exp
+    ast.op2(op l r)
+  read_op = p.satisfy("+-*/".contains)
 
-extend compiler:
-  compile_ast ast = ...
-
+build ast = c.llvm_ir
+with:
+  use lib compiler
+  var c compiler
+  ...
 
 
 scope lib
 
-flow parser:
-  let src string
+parser src =
+with:
   var pos 0
-  parse = ...
   satisfy f =
     c = src(pos)
     f(c) || throw(c f pos)
     pos += 1
     c
 
-flow compiler:
-  enum ir:
-    i64 int i64
-    reg reg string
-    ref index i64
-
+compiler =
+with:
   var strings []string
   var structs []string
-  var lines []line
-
-  llvm_ir : string # LLVM IR
+  assign_string s = strings.append(s); "@.string." . strings.length
+  assign_struct s = structs.append(s); "%.struct." . structs.length
   llvm_ir = ...
