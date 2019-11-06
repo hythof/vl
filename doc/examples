@@ -1,3 +1,53 @@
+levenshtein a b = do {
+  n = a.length + 1
+  m = b.length + 1
+
+  dp = array n m 0
+
+  for i n { dp! i 0 i }
+  for j n { dp! 0 j j }
+
+  for i 1..n
+  for j 1..m {
+    i_ = i - 1
+    j_ = i - 1
+    cost = if a i_ == b j_
+    | 0
+    | 1
+    insertion = 1 + dp i_ j
+    deletion = 1 + dp i j_
+    replacement = cost + dp i_ j_
+    ret = min insertion deletion replacement
+    dp! i j v
+  }
+  dp((n - 1) m - 1)
+}
+
+levenshtein a b = do {
+  n = a.length + 1
+  m = b.length + 1
+
+  dp = array(n m 0)
+
+  for i n dp.set(i 0 i)
+  for j n dp.set(0 j j)
+
+  for i 1..n
+  for j 1..m {
+    i_ = i - 1
+    j_ = i - 1
+    cost = if a i == b j
+    | 0
+    | 1
+    insertion = dp(i_ j) + 1
+    deletion = dp(i j_) + 1
+    replacement = dp(i_ j_) + cost
+    ret = min(insertion deletion replacement)
+    dp.set(i j ret)
+  }
+  dp((n - 1) m - 1)
+}
+
 levenshtein a b = do
     n = a.length + 1
     m = b.length + 1
