@@ -1,67 +1,83 @@
-scope main
-use v compile
-main env:io i32 =
+package main
+import v
+main :: io i32
+main env = do {
   src = env.stdin.string
-  ret = compile(src)
+  ret = v.compile(src)
   env.stdout.write(ret)
   0
-test env:io t:tester =
+}
+test :: io tester
+test env t = do {
   eq("1" "main = 1")
   eq("3" "main = one + inc(1); one = 1; inc x = x + 1")
-with:
+} with {
   eq expect code = t.eq(expect run(code))
   run src =
     ret = compile(src)
     env.shell.stdin(ret.ll).run(["lli"]).stdout.string
+}
 
-scope v
-enum ast:
+package v
+enum ast {
   int i64
   op2 op string, left ast, right ast
+}
 compile src = build(parse(src))
-parse src = parse_exp | parse_int
-with:
-  use lib parser
+parse src = parse_exp ||| parse_int with {
+  import lib parser
   var p parser(src)
-  parse_int = p.satisfy(range("0" "9").contains).many1.then(x -> ast.int(x.to_int))
+  parse_int =
+    x = p.many1(p.satisfy(range("0" "9").contains))
+    ast.int(x.to_int)
   parse_exp =
     l = parse_int
     op = read_op
     r = parse_exp
     ast.op2(op l r)
   read_op = p.satisfy("+-*/".contains)
-build node = handle(node); c.llvm_ir
-with:
-  use lib compiler
+}
+build node = do {
+  handle(node)
+  c.llvm_ir
+} with {
+  import lib compiler
   var c compiler
   handle node =
   | ast.int n = assign_i64(n)
   | ast.op2 o = op2(o.op o.left o.right)
-  op2 o l r =
+  op2 o l r = when o
+  | "+" = assign_add(l_ r_)
+  with {
     l_ = handle(l)
     r_ = handle(r)
     case o:
-    | "+" = assign_add(l_ r_)
-
+  }
+}
 
 scope lib
-parser src =
-with:
-  var pos 0
-  satisfy f =
+var parser {
+  src string
+  pos i64
+  satisfy f = () -> do {
     c = src(pos)
     f(c) || throw(c f pos)
     pos += 1
     c
-compiler =
-with:
-  var strings []string
-  var structs []string
-  var lines = []string
-  var registers i64(0)
+  }
+  many f = () -> _many_acc(f [])
+  many1 f = () -> f() ++ many(f)
+  _many_acc f acc = _many_acc(f [f()] ++ acc) ||| acc
+}
+var compiler {
+  strings []string
+  structs []string
+  lines []string
+  registers i64
   assign_string s = strings.append(s); r = r_; lines.append(r . " = @.string." . strings.length); r
   assign_struct s = structs.append(s); r = r_; lines.append(r . " = %.struct." . structs.length); r
   assign_i64 n = n.string
   assign_add l r = ...
   _r = "%" . (registers += 1)
   llvm_ir = lines.join("\n")
+}

@@ -1,46 +1,54 @@
 # Syntax
 
 ```
-root = struct | enum | scope | import | export | define | stmt
-struct = "struct" id+ "{" members? "}"
-enum = "enum" id+ "{" id type? (BR id type)* "}"
-scope = "scope" ref
-import = "import" ref id*
+root = top+
+top = package? | import* | export* | defines
+package = "package" name
+import = "import" name+
 export = "export" id+
-top = ["struct" "enum" "data" "scope"] id+ ("{" members? "}")?
-define = id arg* "=" body
-body = func | ((define BR)* stmt)
-exp = binary | unary
-unary = OP1 unit
-binary = (unary | unit) OP2 exp
-stmt =
-| "do " block
+defines = define (BR define)*
+define =
+| "struct" id+ "{" members? "}"
+| "enum" id+ "{" id type? (SEP id type)* "}"
+| id id* "::" type+
+| id arg* "=" body
+body = func | exp | matches | (BR INDENT (define | exp))+
+exp =
+| "do" block
+| "while" id? exp block
+| "for" id "=" exp ("," id "=" exp)* block
 | "if" exp block ("else" block)?
-| "for" exp ("," exp) block
-| "next" ("if" exp)?
-| "break" ("if" exp)?
-| "return" ("if" exp)?
-| exp
-block = exp | ("{" stmt (BR stmt)* "}")
+| "if" exp (BR "|" exp){2}
+| "when" exp+ matches
+| "return" exp ("if" exp)?
+| (("next" | "break") id?) ("if" exp)?
+| "var" id exp
+| unit (OP2 exp)? with?
+matches = (BR "|" match+ "=" exp)+ with?
+match = value | "." name
+block = "{}" | "{" line (SEP line)* "}" with?
+with = "with {" BR defines "}"
 
 id = [a-zA-Z_] [a-zA-Z0-9_]
-ref = id ("." id)*
+name = id ("." id)*
 arg = id
-type = id | ("[" id "]") | ("{" members? "}")
+type = (id | ("[" type+ "]")) "?"?
 unit = bottom ("." id ("(" unit* ")")?)*
 bottom = "(" (bottom | func) ")" | value | id
-member = (id (type | value)) | define
-members = member ("," member)*
-value = [0-9]+(. [0-9]+)*
+member = (id type value?) | define
+members = member (SEP member)*
+value =
+| [0-9]+(. [0-9]+)*
 | "true" | "false"
 | '"' [^"] '"'
 | "[" unit* "]"
-| "{" members? "}"
-func = (id | "(" id+ ")") "->" body
+| "(" id arg* = exp ")"
+func = (id | "(" id+ ")") "->" exp
 
 BR = "\n"
-OP1 = [- ! ~]
-OP2 = [+ - * / % & | << >> + - > >= < <=  == != || && := += /= *= /= %=]
+SEP = BR | ","
+INDENT = "  "
+OP2 = [; + - * / % & | << >> + - > >= < <=  == != || && := += /= *= /= %=]
 ```
 
 
@@ -53,7 +61,7 @@ true, false      # bool
 "string"         # string
 [1 2 3]          # array
 ["a": 1, "b": 2] # dictionary
-{key 1, val 2}   # struct
+(a = 1, b = "s"} # struct
 ```
 
 
@@ -64,6 +72,9 @@ one = 1
 inc x = x + one
 call = inc(2)
 add = a -> b -> a + b
+main = {
+  print("ok")
+}
 ```
 
 
@@ -84,7 +95,6 @@ enum option a {
 ## Branch
 
 ```
-abs x = if (x > 0) x (-x)
 gcd a b = if b == 0
 | a
 | gcd b (a % b)
@@ -96,10 +106,9 @@ op1 op val = when op
 | "-" = -1 * val
 | "!" = if val false true
 | "~" = xor(val)
-op2 op l r = when op {
-  "+" = l + r
-  "-" = l - r
-}
+op2 op l r = when op
+| "+" = l + r
+| "-" = l - r
 ```
 
 
@@ -108,7 +117,7 @@ op2 op l r = when op {
 ```
 prompt mark = do {
   var count 0
-  while {
+  while true {
     print(mark)
     cmd = readline
     next if cmd.empty
@@ -126,19 +135,13 @@ prompt mark = do {
   }
   return count
 }
-show99 = for i = 1 to 9, j = 1 to 9 {
+show99 = for i = 1..9, j = 1..9 {
   puts("$i x $j = ${i * j}")
 }
 ```
 
 
 ## Order of operation
-
-Unary operations
-
-```
-- ~ !
-```
 
 Binary operations
 
@@ -152,53 +155,11 @@ Binary operations
 ```
 
 
-## Syntax sugger
-
-```
-data vector2:
-  x i64
-  y i64
-
-method addable(vector2):
-  + a b =
-    x = a.x + b.x
-    y = b.y + b.y
-    vector2(x y)
-
-main = do {
-  v1 = vector2(1 1)
-  v2 = vector2(2 3)
-  result = v1 + v2
-  puts(result)
-}
-```
-
-
 ## Namespace
 
 ```
-scope const
-status = 200
-message = "Hello"
-
-
-scope httpd:
-  common status message
-  net.tcp listen
-  protocol http
-
-start param:":80" = listen(param).http.each req, res -> do {
-  res.status(status)
-  _make_body(res)
-}
-_make_body res = res.body(message)
-
-
-scope main:
-  httpd start
-
-main = do {
-  listen = argv(0 ":8080")
-  start(listen)
-}
+package util
+import protocol
+export y2j
+y2j s = protocol.yaml.parse(s).(protocol.json.dump)
 ```

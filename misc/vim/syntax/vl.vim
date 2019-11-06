@@ -41,13 +41,28 @@ syn match Function /^[a-zA-Z0-9:_]\+\%([a-zA-Z0-9:_ ]*=[ \n]\)\@=/
 syn keyword Statement next break return goto
 syn keyword Conditional if else when
 syn keyword Repeat for
+syn keyword Exception catch throw
+syn match Operator "|||"
+syn match Operator "[+\-\*/|&]=\="
+syn match Operator "[<>]=\="
+syn match Operator "=="
+syn match Operator "<-"
+syn match Operator "->"
+syn match Operator "||"
+syn match Operator "&&"
+syn match Operator " \. "
+
+"*PreProc        o 一般的なプリプロセッサー命令
+syn match Macro /@[a-zA-Z0-9:_]\+/
 
 "*Type           o int, long, char, その他
-syn match Structure "^ *\(enum\|struct\|flow\|with\%(:\)\@=\)"
+""syn match Structure "^ *\(enum\|struct\|var\|with\%(:| \)\@=\)"
+syn match Structure "^ *\(enum\|struct\|var\)"
+syn match Type "^.*::.*$"
 syn keyword StorageClass let var
 
 "*Underlined     o 目立つ文章, HTMLリンク
-syn keyword Define scope use
+syn keyword Define package import export with
 
 "hi def link vlRepeat Repeat
 
