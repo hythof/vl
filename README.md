@@ -1,57 +1,22 @@
-# About
-This document describe recentry tasks.
+# The Programming Language
+Go is an open source programming language that makes it easy to build simple, reliable, and efficient software.
 
-# Schedule
+## Simple language
+- 
 
-## v0.1
-- [x] i64
-- [x] operation `+ - * / %`
-- [x] parenthesis
-- [x] LLVM
+## Easy
+- REPL
+- Small language specification
 
-## v0.2
-- [x] variable
-- [x] reference
-- [x] operation `:= += -= *= /= %=`
+## Performance
+- As fast as C based on LLVM
 
-## v0.3
-- [x] define function
-- [x] call function
-
-## v0.4
-- [x] bool
-- [x] operation `> >= < <= != == && ||`
-- [x] build-in `if`
-- [x] type inference
-
-## v0.5
-- [x] ascii (nth, length, append, prefix, suffix, slice)
-
-## v0.6
-- [_] struct
-- [_] array (nth, length, append)
-
-## v0.7
-- [_] self boot
-
-## v0.8
-- sleep
-- async / await
-- parallel
-- coroutine
-
-## v0.9
-- utf8
-- dict
-
-## v0.10
-- unary operation `- ~ !`
-- binary operation `| & << >>`
-- file
-- tcp
-- udp
-
-## v0.11
-- link gmp
-- bigint
-- bigfloat
+## Safety
+- no null
+- no variables
+- no shadowing
+- undefined specification
+- array bounds checking
+- typed nullable and failable
+- generics type
+- transactional memory
