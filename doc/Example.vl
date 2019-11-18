@@ -1,32 +1,33 @@
 package main
 import v
+
 main :: io i32
-main env = do {
+main env =
   src = env.stdin.string
   ret = v.compile(src)
   env.stdout.write(ret)
   0
-}
 test :: io tester
-test env t = do {
+test env t =
   eq("1" "main = 1")
   eq("3" "main = one + inc(1); one = 1; inc x = x + 1")
-} with {
+with:
   eq expect code = t.eq(expect run(code))
   run src =
     ret = compile(src)
     env.shell.stdin(ret.ll).run(["lli"]).stdout.string
-}
 
 package v
-enum ast {
+import lib(parser compiler)
+
+enum ast:
   int i64
   op2 op string, left ast, right ast
-}
+
 compile src = build(parse(src))
-parse src = parse_exp ||| parse_int with {
-  import lib parser
-  var p parser(src)
+parse src = parse_exp ||| parse_int
+with:
+  p parser(src)
   parse_int =
     x = p.many1(p.satisfy(range("0" "9").contains))
     ast.int(x.to_int)
@@ -36,40 +37,34 @@ parse src = parse_exp ||| parse_int with {
     r = parse_exp
     ast.op2(op l r)
   read_op = p.satisfy("+-*/".contains)
-}
-build node = do {
+
+build node =
   handle(node)
   c.llvm_ir
-} with {
-  import lib compiler
-  var c compiler
+with:
+  c compiler
   handle node =
-  | ast.int n = assign_i64(n)
-  | ast.op2 o = op2(o.op o.left o.right)
-  op2 o l r = when o
-  | "+" = assign_add(l_ r_)
-  with {
-    l_ = handle(l)
-    r_ = handle(r)
-    case o:
-  }
-}
+  | ast.int -> assign_i64(node)
+  | ast.op2 -> op2(node.op node.left node.right)
+  op2 o left right = o
+  | "+" -> assign_add(l r)
+  | throw "invalid operator" o "with" left right
+  | l = handle(left)
+  | r = handle(right)
 
 scope lib
-var parser {
+flow parser:
   src string
   pos i64
-  satisfy f = () -> do {
+  satisfy f = () ->
     c = src(pos)
-    f(c) || throw(c f pos)
+    f(c) | throw c f pos
     pos += 1
     c
-  }
   many f = () -> _many_acc(f [])
   many1 f = () -> f() ++ many(f)
   _many_acc f acc = _many_acc(f [f()] ++ acc) ||| acc
-}
-var compiler {
+flow compiler:
   strings []string
   structs []string
   lines []string
@@ -80,4 +75,3 @@ var compiler {
   assign_add l r = ...
   _r = "%" . (registers += 1)
   llvm_ir = lines.join("\n")
-}

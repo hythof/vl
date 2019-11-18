@@ -1,73 +1,19 @@
-levenshtein a b = do {
-  n = a.length + 1
-  m = b.length + 1
-
-  dp = array n m 0
-
-  for i n { dp! i 0 i }
-  for j n { dp! 0 j j }
-
-  for i 1..n
-  for j 1..m {
-    i_ = i - 1
-    j_ = i - 1
-    cost = if a i_ == b j_
+levenshtein a b =
+  a1.times(i -> dp(i 0) := i)
+  b1.times(j -> dp(0 j) := j)
+  (i, j).times(fill)
+  dp(a1 b1)
+with:
+  dp array(n m)
+  a1 = a.length + 1
+  b1 = b.length + 1
+  fill i j =
+    i1 = i + 1
+    j1 = j + 1
+    cost = a(i1) == b(j1)
     | 0
     | 1
-    insertion = 1 + dp i_ j
-    deletion = 1 + dp i j_
-    replacement = cost + dp i_ j_
-    ret = min insertion deletion replacement
-    dp! i j v
-  }
-  dp((n - 1) m - 1)
-}
-
-levenshtein a b = do {
-  n = a.length + 1
-  m = b.length + 1
-
-  dp = array(n m 0)
-
-  for i n dp.set(i 0 i)
-  for j n dp.set(0 j j)
-
-  for i 1..n
-  for j 1..m {
-    i_ = i - 1
-    j_ = i - 1
-    cost = if a i == b j
-    | 0
-    | 1
-    insertion = dp(i_ j) + 1
-    deletion = dp(i j_) + 1
-    replacement = dp(i_ j_) + cost
-    ret = min(insertion deletion replacement)
-    dp.set(i j ret)
-  }
-  dp((n - 1) m - 1)
-}
-
-levenshtein a b = do
-    n = a.length + 1
-    m = b.length + 1
-
-    dp = array n m 0
-
-    for i n (dp! i 0 i)
-    for j m (dp! 0 j j)
-
-    for i 1..n
-    for j 1..m
-    do
-		i' = i - 1
-		j' = i - 1
-        cost = if (a i' == b j') 0 1
-        dp! i j min(
-            (dp i' j) + 1      # insertion
-            (dp i j') + 1      # deletion
-            (dp i' j') + cost) # replacement
-    end
-
-    dp (n - 1) (m - 1)
-end
+    dp(i1 j1) := min(
+      dp(i j1) + 1
+      dp(i1 j) + 1
+      dp(i1 j1) + cost)
